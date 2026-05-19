@@ -1,0 +1,14 @@
+.env
+.env.local
+accounts/
+*.json
+__pycache__/
+*.pyc
+venv/
+*.log
+*.db
+*.sqlite
+*.7z
+*.zip
+.config/
+sample_data/
