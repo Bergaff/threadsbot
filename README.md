@@ -1,4 +1,4 @@
-# Telegram Bot
+# 🤖 Telegram Bot
 
 ## Установка на сервере
 
@@ -8,7 +8,4 @@ cd REPO
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-```
-
-## ВАЖНО!
-Файлы `.env` и папку `accounts/` добавь вручную на сервер.
+playwright install chromium  # если нужно

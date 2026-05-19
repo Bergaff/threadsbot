@@ -2,3 +2,4 @@ aiogram>=3.0
 aiohttp
 playwright
 python-dotenv
+# добавь свои зависимости, если есть

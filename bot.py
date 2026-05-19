@@ -1,3 +1,5 @@
+# ВСТАВЬ СЮДА СВОЙ КОД БОТА
+# Например:
 import os
 import json
 import asyncio
@@ -2300,6 +2302,9 @@ async def main():
             await alert_admins(f"Бот упал:\n{str(e)[:500]}")
             await asyncio.sleep(5)
 
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
 if __name__ == "__main__":
     asyncio.run(main())

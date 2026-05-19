@@ -1,14 +1,17 @@
+# Секреты
 .env
 .env.local
 accounts/
 *.json
+
+# Python
 __pycache__/
 *.pyc
 venv/
 *.log
-*.db
-*.sqlite
+
+# Архивы и данные
 *.7z
 *.zip
-.config/
 sample_data/
+.config/
