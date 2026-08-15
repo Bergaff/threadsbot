@@ -1,5 +1,3 @@
-# ВСТАВЬ СЮДА СВОЙ КОД БОТА
-# Например:
 import os
 import json
 import asyncio
@@ -63,6 +61,14 @@ RATE_PER_HOUR = 15
 RATE_PER_DAY = 50
 CACHE_TTL_MINUTES = 5
 ACCOUNT_HOURLY_LIMIT = 20
+POST_REQUEST_TIMEOUT = 60
+COMMENT_REQUEST_TIMEOUT = 60
+
+STATS_EXCLUDE_IDS = [
+    int(x.strip())
+    for x in os.getenv("STATS_EXCLUDE_IDS", os.getenv("ADMIN_IDS", "")).split(",")
+    if x.strip().isdigit()
+]
 
 last_alert_time = 0
 ALERT_COOLDOWN = 3600
@@ -428,13 +434,17 @@ LANGUAGE_NAMES = {
 
 
 def get_text(key, lang='ru', **kwargs):
-    """Получить текст. Если ключа нет в выбранном языке — fallback на английский, потом на ключ."""
-    text = TRANSLATIONS.get(lang, {}).get(key)
+    """Получить текст с правильным fallback"""
+    if lang not in TRANSLATIONS:
+        lang = 'ru'
+    
+    text = TRANSLATIONS[lang].get(key)
     if text is None:
-        text = TRANSLATIONS.get('en', {}).get(key, key)
+        text = TRANSLATIONS.get('en', {}).get(key) or TRANSLATIONS['ru'].get(key, key)
+    
     try:
         return text.format(**kwargs)
-    except (KeyError, IndexError):
+    except:
         return text
 
 
@@ -507,7 +517,14 @@ class Database:
         except sqlite3.OperationalError:
             pass
         self.conn.commit()
-
+        
+    def _apply_stats_exclude(self, sql, params=()):
+        if STATS_EXCLUDE_IDS:
+            placeholders = ",".join("?" * len(STATS_EXCLUDE_IDS))
+            sql += f" AND user_id NOT IN ({placeholders})"
+            params = tuple(params) + tuple(STATS_EXCLUDE_IDS)
+        return sql, params
+        
     def get_user_lang(self, uid):
         row = self.conn.execute(
             "SELECT language FROM user_settings WHERE user_id=?", (uid,)
@@ -678,23 +695,72 @@ class Database:
     def get_analytics(self, days=1):
         now = datetime.now()
         since = (now - timedelta(days=days)).isoformat()
-        new_users = self.conn.execute(
-            "SELECT COUNT(DISTINCT user_id) as c FROM user_events "
-            "WHERE event_type='start' AND timestamp>?", (since,)).fetchone()["c"]
-        new_subs = self.conn.execute(
-            "SELECT COUNT(*) as c FROM user_events "
-            "WHERE event_type='subscribe' AND timestamp>?", (since,)).fetchone()["c"]
-        revenue = self.conn.execute(
-            "SELECT SUM(total_paid) as s FROM subscriptions "
-            "WHERE payment_method IS NOT NULL AND expires_at > datetime('now', '-30 days')"
-        ).fetchone()["s"] or 0
+
+        sql = "SELECT COUNT(DISTINCT user_id) as c FROM user_events WHERE event_type='start' AND timestamp>?"
+        sql, params = self._apply_stats_exclude(sql, (since,))
+        new_users = self.conn.execute(sql, params).fetchone()["c"]
+
+        sql = "SELECT COUNT(*) as c FROM user_events WHERE event_type='subscribe' AND timestamp>?"
+        sql, params = self._apply_stats_exclude(sql, (since,))
+        new_subs = self.conn.execute(sql, params).fetchone()["c"]
+
+        sql = "SELECT SUM(total_paid) as s FROM subscriptions WHERE payment_method IS NOT NULL AND expires_at > datetime('now', '-30 days')"
+        if STATS_EXCLUDE_IDS:
+            placeholders = ",".join("?" * len(STATS_EXCLUDE_IDS))
+            sql += f" AND user_id NOT IN ({placeholders})"
+            revenue = self.conn.execute(sql, tuple(STATS_EXCLUDE_IDS)).fetchone()["s"] or 0
+        else:
+            revenue = self.conn.execute(sql).fetchone()["s"] or 0
+
         return {
             "new_users": new_users,
             "new_subscriptions": new_subs,
             "approx_revenue": revenue
         }
 
+    # ============================
+    # 📊 НОВАЯ АНАЛИТИКА
+    # ============================
+    def get_dau(self):
+        since = (datetime.now() - timedelta(days=1)).isoformat()
+        sql = "SELECT COUNT(DISTINCT user_id) as c FROM user_events WHERE timestamp>?"
+        sql, params = self._apply_stats_exclude(sql, (since,))
+        return self.conn.execute(sql, params).fetchone()["c"] or 0
 
+    def get_requests_today(self):
+        since = (datetime.now() - timedelta(days=1)).isoformat()
+        sql = "SELECT COUNT(*) as c FROM user_events WHERE event_type IN ('request', 'search') AND timestamp>?"
+        sql, params = self._apply_stats_exclude(sql, (since,))
+        return self.conn.execute(sql, params).fetchone()["c"] or 0
+
+    def get_free_exhausted_today(self):
+        since = (datetime.now() - timedelta(days=1)).isoformat()
+        sql = "SELECT COUNT(*) as c FROM user_events WHERE event_type='free_exhausted' AND timestamp>?"
+        sql, params = self._apply_stats_exclude(sql, (since,))
+        return self.conn.execute(sql, params).fetchone()["c"] or 0
+
+    def get_active_users_7d(self):
+        since = (datetime.now() - timedelta(days=7)).isoformat()
+        sql = "SELECT COUNT(DISTINCT user_id) as c FROM user_events WHERE timestamp>?"
+        sql, params = self._apply_stats_exclude(sql, (since,))
+        return self.conn.execute(sql, params).fetchone()["c"] or 0
+
+    def get_mode_stats_today(self):
+        since = (datetime.now() - timedelta(days=1)).isoformat()
+        sql = "SELECT event_data, COUNT(*) as cnt FROM user_events WHERE event_type='request' AND timestamp>?"
+        sql, params = self._apply_stats_exclude(sql, (since,))
+        rows = self.conn.execute(sql + " GROUP BY event_data", params).fetchall()
+
+        text_c = img_c = cmt_c = 0
+        for row in rows:
+            d = row["event_data"]
+            if d.startswith("text:"):
+                text_c += row["cnt"]
+            elif d.startswith("img:"):
+                img_c += row["cnt"]
+            elif d.startswith("comments:"):
+                cmt_c += row["cnt"]
+        return text_c, img_c, cmt_c
 # ============================
 # АККАУНТ
 # ============================
@@ -1064,27 +1130,43 @@ async def fetch_with_rotation(mgr, username, mode, amount=20):
                 await alert_admins(f"Все аккаунты недоступны!\nЗапрос: @{username}\nРежим: {mode}")
                 return None, "all_dead", None
 
-            acc = random.choice(avail); tried.add(acc.name); acc.is_busy = True
+            acc = random.choice(avail)
+            tried.add(acc.name)
+            acc.is_busy = True
+
             try:
                 print(f"[FETCH] {acc.name} -> @{username}")
-                result, status = await get_threads_data(acc, username, mode, amount)
+                result, status = await asyncio.wait_for(
+                    get_threads_data(acc, username, mode, amount),
+                    timeout=POST_REQUEST_TIMEOUT
+                )
                 acc.increment_usage()
 
-                # Сохраняем cookies после успешного запроса
                 if status == "ok":
                     await acc.save_cookies()
 
-                acc.is_busy = False
                 if status == "session_expired":
-                    mgr.mark_dead(acc, "Session expired"); continue
+                    mgr.mark_dead(acc, "Session expired")
+                    continue
+
                 return result, status, acc
+
+            except asyncio.TimeoutError:
+                print(f"[FETCH] {acc.name}: timeout")
+                acc.errors_count += 1
+                mgr.mark_dead(acc, "Request timeout")
+                continue
+
             except Exception as e:
                 print(f"[FETCH] {acc.name}: {e}")
-                acc.errors_count += 1; acc.is_busy = False
+                acc.errors_count += 1
                 mgr.mark_dead(acc, str(e))
                 if "goto:" in str(e) or "timeout" in str(e).lower():
                     await alert_admins(f"Ошибка аккаунта {acc.name}:\n{str(e)[:200]}")
                 continue
+
+            finally:
+                acc.is_busy = False
 
 
 # ============================
@@ -1272,24 +1354,42 @@ async def fetch_comments_rotation(mgr, username, post_index, amount=20):
             if not avail:
                 await alert_admins(f"Все аккаунты недоступны при сборе комментариев!\n@{username}, пост #{post_index}")
                 return None, "all_dead", None
-            acc = random.choice(avail); tried.add(acc.name); acc.is_busy = True
+
+            acc = random.choice(avail)
+            tried.add(acc.name)
+            acc.is_busy = True
+
             try:
                 print(f"[CMT] {acc.name} -> @{username} #{post_index}")
-                result, status = await get_post_comments(acc, username, post_index, amount)
+                result, status = await asyncio.wait_for(
+                    get_post_comments(acc, username, post_index, amount),
+                    timeout=COMMENT_REQUEST_TIMEOUT
+                )
                 acc.increment_usage()
 
-                # Сохраняем cookies после успешного запроса
                 if status == "ok":
                     await acc.save_cookies()
 
-                acc.is_busy = False
                 if status == "session_expired":
-                    mgr.mark_dead(acc, "Session expired"); continue
+                    mgr.mark_dead(acc, "Session expired")
+                    continue
+
                 return result, status, acc
+
+            except asyncio.TimeoutError:
+                print(f"[CMT] {acc.name}: timeout")
+                acc.errors_count += 1
+                mgr.mark_dead(acc, "Comments timeout")
+                continue
+
             except Exception as e:
                 print(f"[CMT] {acc.name}: {e}")
-                acc.errors_count += 1; acc.is_busy = False
-                mgr.mark_dead(acc, str(e)); continue
+                acc.errors_count += 1
+                mgr.mark_dead(acc, str(e))
+                continue
+
+            finally:
+                acc.is_busy = False
 
 
 # ============================
@@ -1457,19 +1557,18 @@ async def daily_report():
 async def cmd_start(message: Message):
     uid = message.from_user.id
 
-    # Первый старт — предлагаем выбор языка
-    events = db.conn.execute(
-        "SELECT 1 FROM user_events WHERE user_id=?", (uid,)
-    ).fetchone()
+    # Проверяем, есть ли язык в базе
     has_lang = db.conn.execute(
         "SELECT 1 FROM user_settings WHERE user_id=?", (uid,)
     ).fetchone()
 
-    if not events or not has_lang:
-        # Авто-определение языка по Telegram
+    if not has_lang:
+        # Первый старт — предлагаем выбор языка
         tg_lang = (message.from_user.language_code or "ru")[:2]
         if tg_lang not in TRANSLATIONS:
             tg_lang = 'en'
+        
+        # Сохраняем язык сразу
         db.set_user_lang(uid, tg_lang)
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -1479,12 +1578,17 @@ async def cmd_start(message: Message):
              InlineKeyboardButton(text=LANGUAGE_NAMES['es'], callback_data="set_lang:es")],
             [InlineKeyboardButton(text=LANGUAGE_NAMES['pt'], callback_data="set_lang:pt")],
         ])
-        await message.answer("🌍 Выберите язык / Select language / Sprache wählen / Selecciona idioma / Selecione o idioma:",
-                             reply_markup=kb)
+        await message.answer(
+            "🌍 Выберите язык / Select language / Sprache wählen:", 
+            reply_markup=kb
+        )
         return
 
+    # Если язык уже выбран — показываем приветственное сообщение
     await remove_old_buttons(message.chat.id)
     db.log_event(uid, "start")
+    
+    # Получаем язык из базы
     lang = db.get_user_lang(uid)
 
     if db.has_subscription(uid):
@@ -1504,16 +1608,32 @@ async def set_language(cb: CallbackQuery):
     lang = cb.data.split(":")[1]
     if lang not in TRANSLATIONS:
         lang = 'en'
+    
+    # Сохраняем язык в базу
     db.set_user_lang(cb.from_user.id, lang)
+    
+    # Подтверждаем выбор
     await cb.answer(get_text('language_set', lang))
+    
     try:
         await cb.message.delete()
     except Exception:
         pass
-    # Заново вызываем /start
-    fake = cb.message
-    fake.from_user = cb.from_user
-    await cmd_start(fake)
+    
+    # Получаем информацию о подписке и лимитах
+    uid = cb.from_user.id
+    if db.has_subscription(uid):
+        info = db.get_subscription_info(uid)
+        status = get_text('subscription_active', lang, days=info['days_left'])
+    else:
+        daily, monthly = db.get_free_usage_stats(uid)
+        left_today = max(0, FREE_DAILY_LIMIT - daily)
+        left_month = max(0, FREE_MONTHLY_LIMIT - monthly)
+        status = get_text('free_limit', lang, daily=left_today, monthly=left_month)
+    
+    # Отправляем приветственное сообщение
+    welcome_text = get_text('welcome', lang, status=status)
+    await bot.send_message(cb.message.chat.id, welcome_text)
 
 
 @dp.message(Command("language"))
@@ -1741,15 +1861,26 @@ async def ticket_cancel(cb: CallbackQuery):
 @dp.message(WaitingSupportFilter())
 async def handle_support_input(message: Message):
     uid = message.from_user.id
+    if uid not in waiting_support:
+        return
+
     ticket_type = waiting_support.pop(uid)
-    text_value = message.text or message.caption or ""
-    if not text_value.strip():
-        await message.answer("❌ Empty message."); return
+    text_value = (message.text or message.caption or "").strip()
+
+    if not text_value:
+        lang = db.get_user_lang(uid)
+        await message.answer("❌ Сообщение не может быть пустым.")
+        return
+
     tid = db.create_ticket(uid, message.from_user.username or str(uid), text_value, ticket_type)
     db.log_event(uid, "ticket", ticket_type)
+
     lang = db.get_user_lang(uid)
     label = get_text('suggestion' if ticket_type == "suggestion" else 'question', lang)
-    await message.answer(f"✅ <b>{label} #{tid}</b>")
+    
+    await message.answer(f"✅ <b>{label} #{tid}</b>\n\nВаше обращение принято. Спасибо!")
+    
+    # Отправляем уведомление админам
     await send_ticket_to_admins(tid, uid, message.from_user.username, text_value, ticket_type)
 
 
@@ -1891,11 +2022,23 @@ async def handle_admin(cb: CallbackQuery):
 
     elif act == "analytics":
         a = db.get_analytics()
+        dau = db.get_dau()
+        req = db.get_requests_today()
+        exhausted = db.get_free_exhausted_today()
+        active_7d = db.get_active_users_7d()
+        text_req, img_req, cmt_req = db.get_mode_stats_today()
+
         text = (
-            f"📈 <b>Analytics</b>\n\n"
-            f"👥 New users (1d): {a['new_users']}\n"
-            f"💰 New subs (1d): {a['new_subscriptions']}\n"
-            f"💵 Revenue (30d): ${a['approx_revenue']:.2f}")
+            f"📈 <b>Analytics (24h)</b>\n\n"
+            f"👥 New users: {a['new_users']}\n"
+            f"🔥 DAU: {dau}\n"
+            f"📊 Active (7d): {active_7d}\n\n"
+            f"📨 Total requests: {req}\n"
+            f"📝 Text: {text_req} | 📸 Img: {img_req} | 💬 Cmts: {cmt_req}\n\n"
+            f"🚫 Hit limits: {exhausted}\n"
+            f"💰 New subs: {a['new_subscriptions']}\n"
+            f"💵 Revenue: ${a['approx_revenue']:.2f}"
+        )
         await send_with_buttons(cid, text, back)
 
     elif act == "tickets":
@@ -1936,16 +2079,22 @@ async def handle_admin(cb: CallbackQuery):
 # ============================
 
 @dp.message(F.reply_to_message)
+@dp.message(F.reply_to_message)
 async def handle_reply_comments(message: Message):
     uid = message.from_user.id
     cid = message.chat.id
     lang = db.get_user_lang(uid)
 
-    if db.is_banned(uid): return
+    if db.is_banned(uid):
+        return
+
     replied = message.reply_to_message
-    if not replied: return
+    if not replied:
+        return
+
     bot_info = await bot.get_me()
-    if not replied.from_user or replied.from_user.id != bot_info.id: return
+    if not replied.from_user or replied.from_user.id != bot_info.id:
+        return
 
     replied_text = replied.text or replied.caption or ""
     post_match = re.match(r"^(?:📷|🎥)?\s*<?b?>?(\d+)\.", replied_text)
@@ -1965,45 +2114,73 @@ async def handle_reply_comments(message: Message):
     post_index = post_num - 1
     username = last_requested_username.get(cid)
     if not username:
-        await message.answer("❌ Send a username first."); return
+        await message.answer("❌ Send a username first.")
+        return
 
     has_access, note, limit_type = check_access(uid)
     if not has_access:
         db.log_event(uid, "free_exhausted", limit_type)
         kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=get_text('subscribe_btn', lang), callback_data="sub:choose")]])
-        await send_with_buttons(cid, note, kb); return
+            InlineKeyboardButton(text=get_text('subscribe_btn', lang), callback_data="sub:choose")
+        ]])
+        await send_with_buttons(cid, note, kb)
+        return
 
     allowed, reason = db.check_rate_limit(uid)
-    if not allowed: await message.answer(f"⏳ {reason}"); return
+    if not allowed:
+        await message.answer(f"⏳ {reason}")
+        return
 
     alive = sum(1 for a in manager.accounts if a.is_alive)
-    if alive == 0: await message.answer(get_text('no_accounts', lang)); return
+    if alive == 0:
+        await message.answer(get_text('no_accounts', lang))
+        return
 
-    search_msg = await bot.send_message(cid, f"💬 ...")
-    db.log_event(uid, "comments", f"{username}/{post_num}")
+    search_msg = await bot.send_message(cid, "💬 Загружаю комментарии...")
 
     try:
-        db.log_request(uid, f"{username}/cmt/{post_num}")
-        comments, status, acc = await fetch_comments_rotation(manager, username, post_index, 20)
-        try: await search_msg.delete()
-        except Exception: pass
+        comments, status, acc = await asyncio.wait_for(
+            fetch_comments_rotation(manager, username, post_index, 20),
+            timeout=COMMENT_REQUEST_TIMEOUT + 5
+        )
+
+        try:
+            await search_msg.delete()
+        except Exception:
+            pass
 
         if status == "all_dead":
-            await bot.send_message(cid, get_text('all_dead', lang)); return
+            await bot.send_message(cid, get_text('all_dead', lang))
+            return
+
         if status in ("user_not_found", "post_not_found"):
-            await bot.send_message(cid, "❌ Post not found."); return
+            await bot.send_message(cid, "❌ Post not found.")
+            return
+
         if not comments:
-            await bot.send_message(cid, "😔 No comments."); return
+            await bot.send_message(cid, "😔 No comments.")
+            return
+
+        # Засчитываем только ПОСЛЕ успешной загрузки
+        db.log_request(uid, f"{username}/cmt/{post_num}")
+        db.log_event(uid, "comments_request", username)
+        db.log_event(uid, "request", f"comments:{username}")
 
         if not db.has_subscription(uid) and not is_admin(uid):
             db.log_event(uid, "free_request", f"cmt:{username}/{post_num}")
 
         cache_key = f"{username}_cmt_{post_index}"
-        db.set_cache(cache_key, "comments", 0,
-                     [{"text": c["text"], "author": c["author"]} for c in comments])
+        db.set_cache(
+            cache_key,
+            "comments",
+            0,
+            [{"text": c["text"], "author": c["author"]} for c in comments]
+        )
 
-        total = len(comments); show = comments[:5]; has_more = total > 5
+        total = len(comments)
+        show = comments[:5]
+        has_more = total > 5
+
         await bot.send_message(cid, f"💬 <b>@{username}</b> ({total})")
         for i, c in enumerate(show, 1):
             await bot.send_message(cid, f"<b>{i}. {c['author'] or '—'}</b>\n{c['text'][:1000]}")
@@ -2012,21 +2189,42 @@ async def handle_reply_comments(message: Message):
         kb_rows = []
         if has_more:
             kb_rows.append([InlineKeyboardButton(
-                text=f"➡️ {get_text('more', lang)} ({6}–{min(10,total)})",
-                callback_data=f"cmt:{username}:{post_index}:1")])
+                text=f"➡️ {get_text('more', lang)} ({6}–{min(10, total)})",
+                callback_data=f"cmt:{username}:{post_index}:1"
+            )])
+
         if kb_rows:
-            await send_with_buttons(cid, f"✅ 1–{len(show)} {get_text('of', lang)} {total}",
-                                    InlineKeyboardMarkup(inline_keyboard=kb_rows))
+            await send_with_buttons(
+                cid,
+                f"✅ 1–{len(show)} {get_text('of', lang)} {total}",
+                InlineKeyboardMarkup(inline_keyboard=kb_rows)
+            )
         else:
             await bot.send_message(cid, f"✅ {get_text('all', lang)} {total}.")
 
-        if acc: acc.posts_sent += len(show)
+        if acc:
+            acc.posts_sent += len(show)
+
         manager.save_stats()
+
+    except asyncio.TimeoutError:
+        try:
+            await search_msg.delete()
+        except Exception:
+            pass
+        await bot.send_message(
+            cid,
+            "⏳ Не удалось загрузить комментарии за 60 секунд.\nПопробуй ещё раз позже."
+        )
+
     except Exception as e:
-        import traceback; print(f"[ERROR]\n{traceback.format_exc()}")
+        import traceback
+        print(f"[ERROR]\n{traceback.format_exc()}")
         await alert_admins(f"Bot error:\n{str(e)[:500]}")
-        try: await search_msg.delete()
-        except Exception: pass
+        try:
+            await search_msg.delete()
+        except Exception:
+            pass
         await bot.send_message(cid, f"❌ <code>{str(e)[:300]}</code>")
 
 
@@ -2165,6 +2363,7 @@ async def handle_choice(cb: CallbackQuery):
             if page_num == 0:
                 db.log_request(uid, username)
                 db.log_event(uid, "search", username)
+                db.log_event(uid, "request", f"{mode}:{username}")   # ← Добавили эту строку
             result, status, acc = await fetch_with_rotation(manager, username, mode, 20)
             if acc: aname = acc.name
             if result and status == "ok":
@@ -2213,13 +2412,12 @@ async def handle_choice(cb: CallbackQuery):
             for i, pd in enumerate(cur, start + 1):
                 if isinstance(pd, dict) and "image" in pd:
                     img_data = pd["image"]
-                    caption = pd.get("text", "")[:200]
                 else:
                     img_data = pd
-                    caption = str(i)
+                
                 f = BufferedInputFile(img_data, f"p{i}.png")
-                await bot.send_photo(cid, photo=f, caption=f"{i}. {caption}")
-                await asyncio.sleep(0.3)
+                await bot.send_photo(cid, photo=f, caption=f"{i}.")
+                await asyncio.sleep(0.4)
 
         if aname != "cache":
             for a in manager.accounts:
@@ -2302,9 +2500,6 @@ async def main():
             await alert_admins(f"Бот упал:\n{str(e)[:500]}")
             await asyncio.sleep(5)
 
-
-if __name__ == "__main__":
-    asyncio.run(main())
 
 if __name__ == "__main__":
     asyncio.run(main())
