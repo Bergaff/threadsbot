@@ -21,6 +21,19 @@ TypeScript-версия Telegram-бота для Cloudflare Workers. Функц�
 
 ## Развёртывание
 
+### Google Colab — установка по ячейкам
+
+Откройте [`notebooks/threadsbot_cloudflare_deploy.ipynb`](notebooks/threadsbot_cloudflare_deploy.ipynb) в Google Colab. Ноутбук по отдельным ячейкам:
+
+1. подключает Cloudflare через скрытый ввод API Token;
+2. создаёт или повторно использует D1 и Queue;
+3. загружает cookies только во временное приватное хранилище Colab;
+4. импортирует cookies непосредственно в D1 и сразу удаляет локальные файлы;
+5. при необходимости переносит старый `bot.db`;
+6. добавляет секреты, развёртывает Worker и устанавливает webhook.
+
+Cookies не отправляются в GitHub. После импорта Worker автоматически обновляет их прямо в D1 после успешных запросов Threads.
+
 ### 1. Установить зависимости
 
 ```bash
