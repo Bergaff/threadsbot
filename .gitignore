@@ -15,3 +15,14 @@ venv/
 *.zip
 sample_data/
 .config/
+
+# TypeScript / Cloudflare generated files
+node_modules/
+.wrangler/
+.accounts-import.sql
+.legacy-import.sql
+
+# TypeScript/Cloudflare project metadata
+!package.json
+!tsconfig.json
+!package-lock.json
