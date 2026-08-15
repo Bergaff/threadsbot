@@ -1,0 +1,31 @@
+name = "threads-reader-bot"
+main = "src/index.ts"
+compatibility_date = "2026-08-15"
+compatibility_flags = ["nodejs_compat"]
+
+[browser]
+binding = "BROWSER"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "threadsbot"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[[queues.producers]]
+binding = "UPDATES"
+queue = "threadsbot-updates"
+
+[[queues.consumers]]
+queue = "threadsbot-updates"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 3
+
+[triggers]
+crons = ["0 6 * * *", "0 * * * *"] # 09:00 Minsk report; hourly cleanup
+
+[vars]
+ADMIN_IDS = "369330135,657708753"
+STATS_EXCLUDE_IDS = "369330135,657708753"
+BASE_URL = "https://www.threads.com"
