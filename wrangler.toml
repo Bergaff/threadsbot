@@ -9,7 +9,7 @@ binding = "BROWSER"
 [[d1_databases]]
 binding = "DB"
 database_name = "threadsbot"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "831162d2-03cc-4525-a4b8-0651e2c20e61"
 migrations_dir = "migrations"
 
 [[queues.producers]]
