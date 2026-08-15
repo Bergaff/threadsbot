@@ -23,16 +23,18 @@ TypeScript-версия Telegram-бота для Cloudflare Workers. Функц�
 
 ### Google Colab — установка по ячейкам
 
-Откройте [`notebooks/threadsbot_cloudflare_deploy.ipynb`](notebooks/threadsbot_cloudflare_deploy.ipynb) в Google Colab. Ноутбук по отдельным ячейкам:
+Откройте [`notebooks/threadsbot_cloudflare_deploy.ipynb`](notebooks/threadsbot_cloudflare_deploy.ipynb) в Google Colab. Это самостоятельный установщик: исходники создаются прямо в Colab отдельными `%%writefile`-ячейками, поэтому предварительно клонировать репозиторий не требуется. Ноутбук:
 
-1. подключает Cloudflare через скрытый ввод API Token;
-2. создаёт или повторно использует D1 и Queue;
-3. загружает cookies только во временное приватное хранилище Colab;
-4. импортирует cookies непосредственно в D1 и сразу удаляет локальные файлы;
-5. при необходимости переносит старый `bot.db`;
-6. добавляет секреты, развёртывает Worker и устанавливает webhook.
+1. создаёт все файлы TypeScript-проекта из текущей версии кода;
+2. скрыто принимает GitHub Personal Access Token, создаёт репозиторий и пушит код;
+3. скрыто принимает Cloudflare API Token и Account ID;
+4. создаёт или повторно использует D1 и Queue, подставляя D1 UUID в `wrangler.toml`;
+5. загружает cookies только во временное приватное хранилище Colab;
+6. импортирует cookies непосредственно в D1 и сразу удаляет локальные файлы;
+7. при необходимости переносит старый `bot.db`;
+8. добавляет секреты, развёртывает Worker и устанавливает webhook.
 
-Cookies не отправляются в GitHub. После импорта Worker автоматически обновляет их прямо в D1 после успешных запросов Threads.
+GitHub и Cloudflare токены вводятся через `getpass`, не записываются в проект и очищаются в финальной ячейке. Cookies не отправляются в GitHub. После импорта Worker автоматически обновляет их прямо в D1 после успешных запросов Threads.
 
 ### 1. Установить зависимости
 
