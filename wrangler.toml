@@ -25,6 +25,22 @@ max_retries = 3
 [triggers]
 crons = ["0 6 * * *", "0 * * * *"] # 09:00 Minsk report; hourly cleanup
 
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1
+
+
 [vars]
 ADMIN_IDS = "369330135,657708753"
 STATS_EXCLUDE_IDS = "369330135,657708753"
