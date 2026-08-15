@@ -1,4 +1,4 @@
-name = "threads-reader-bot"
+name = "threadsbot"
 main = "src/index.ts"
 compatibility_date = "2026-08-15"
 compatibility_flags = ["nodejs_compat"]
@@ -24,6 +24,22 @@ max_retries = 3
 
 [triggers]
 crons = ["0 6 * * *", "0 * * * *"] # 09:00 Minsk report; hourly cleanup
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = true
+persist = true
+head_sampling_rate = 1
+
 
 [vars]
 ADMIN_IDS = "369330135,657708753"
