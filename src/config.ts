@@ -19,7 +19,7 @@ export const LIMITS = {
   perMinute: 3,
   perHour: 15,
   perDay: 50,
-  cacheMinutes: 5,
+  cacheMinutes: 15,
   accountHourly: 20,
 } as const;
 
