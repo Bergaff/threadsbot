@@ -21,9 +21,10 @@ queue = "threadsbot-updates"
 max_batch_size = 1
 max_batch_timeout = 1
 max_retries = 3
+max_concurrency = 1
 
 [triggers]
-crons = ["0 6 * * *", "0 * * * *"] # 09:00 Minsk report; hourly cleanup
+crons = ["0 * * * *"] # только техническая очистка
 
 [observability]
 enabled = false
