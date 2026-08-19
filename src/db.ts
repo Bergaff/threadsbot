@@ -73,13 +73,13 @@ export class Database {
   async accountStats() { return (await this.db.prepare("SELECT name,is_alive,last_error,requests_count,posts_sent,errors_count,hourly_requests,hourly_reset,last_used FROM threads_accounts ORDER BY name").all()).results; }
 
   async analytics() {
-    const excluded=excludedIds(this.env); const marks=excluded.map(()=>"?").join(","); const clause=excluded.length?` AND user_id NOT IN (${marks})`:"";
+    const excluded=excludedIds(this.env); const marks=excluded.map(()=>"?").join(","); const clause=` AND user_id<>0${excluded.length?` AND user_id NOT IN (${marks})`:""}`;
     const one=since(86_400_000), seven=since(7*86_400_000);
     const queries = [
       this.db.prepare(`SELECT COUNT(DISTINCT user_id) c FROM user_events WHERE event_type='start' AND timestamp>?${clause}`).bind(one,...excluded),
       this.db.prepare(`SELECT COUNT(DISTINCT user_id) c FROM user_events WHERE timestamp>?${clause}`).bind(one,...excluded),
       this.db.prepare(`SELECT COUNT(DISTINCT user_id) c FROM user_events WHERE timestamp>?${clause}`).bind(seven,...excluded),
-      this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type IN ('request','search') AND timestamp>?${clause}`).bind(one,...excluded),
+      this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='request' AND timestamp>?${clause}`).bind(one,...excluded),
       this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='free_exhausted' AND timestamp>?${clause}`).bind(one,...excluded),
       this.db.prepare(`SELECT event_data,COUNT(*) c FROM user_events WHERE event_type='request' AND timestamp>?${clause} GROUP BY event_data`).bind(one,...excluded),
       this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='subscribe' AND timestamp>?${clause}`).bind(one,...excluded),
@@ -89,5 +89,28 @@ export class Database {
     const count=(i:number)=>Number((r[i].results[0] as {c:number}|undefined)?.c||0);
     return {newUsers:count(0),dau:count(1),active7d:count(2),requests:count(3),exhausted:count(4),newSubs:count(6),revenue:count(7),text:modes.filter(x=>x.event_data.startsWith('text:')).reduce((a,x)=>a+Number(x.c),0),img:modes.filter(x=>x.event_data.startsWith('img:')).reduce((a,x)=>a+Number(x.c),0),comments:modes.filter(x=>x.event_data.startsWith('comments:')).reduce((a,x)=>a+Number(x.c),0)};
   }
-  cleanup() { return this.db.batch([this.db.prepare("DELETE FROM request_log WHERE timestamp<?").bind(since(2*86_400_000)),this.db.prepare("DELETE FROM cache WHERE cached_at<?").bind(since(LIMITS.cacheMinutes*60_000)),this.db.prepare("DELETE FROM bot_state WHERE updated_at<? AND state_key IN ('waiting_support','admin_reply')").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM processed_updates WHERE status='done' AND updated_at<?").bind(since(7*86_400_000))]); }
+  async systemStats() {
+    const one = since(86_400_000);
+    const results = await this.db.batch([
+      this.db.prepare("SELECT COUNT(*) c FROM user_settings"),
+      this.db.prepare("SELECT COUNT(*) c FROM cache WHERE cached_at>?").bind(since(LIMITS.cacheMinutes * 60_000)),
+      this.db.prepare("SELECT COUNT(*) c FROM banned_users"),
+      this.db.prepare("SELECT COUNT(*) c FROM support_tickets WHERE status='open'"),
+      this.db.prepare("SELECT COUNT(*) c FROM support_tickets WHERE status='answered' AND answered_at>?").bind(one),
+      this.db.prepare("SELECT COALESCE(SUM(requests_count),0) requests,COALESCE(SUM(posts_sent),0) posts,COALESCE(SUM(errors_count),0) errors,COALESCE(SUM(hourly_requests),0) hourly FROM threads_accounts"),
+      this.db.prepare("SELECT COUNT(*) c FROM user_events WHERE event_type='browser_launch' AND timestamp>?").bind(one),
+      this.db.prepare("SELECT COUNT(*) c FROM user_events WHERE event_type='browser_429' AND timestamp>?").bind(one),
+      this.db.prepare("SELECT COALESCE(SUM(CAST(event_data AS REAL)),0) c FROM user_events WHERE event_type='browser_seconds' AND timestamp>?").bind(one),
+      this.db.prepare("SELECT COUNT(*) c FROM processed_updates WHERE status='processing'"),
+    ]);
+    const count = (index: number) => Number((results[index].results[0] as { c?: number } | undefined)?.c || 0);
+    const accounts = (results[5].results[0] || {}) as { requests?: number; posts?: number; errors?: number; hourly?: number };
+    return {
+      totalUsers: count(0), cacheEntries: count(1), banned: count(2), openTickets: count(3), answeredTickets24h: count(4),
+      accountRequests: Number(accounts.requests || 0), postsSent: Number(accounts.posts || 0), accountErrors: Number(accounts.errors || 0), hourlyRequests: Number(accounts.hourly || 0),
+      browserLaunches24h: count(6), browser42924h: count(7), browserSeconds24h: count(8), processingUpdates: count(9),
+    };
+  }
+
+  cleanup() { return this.db.batch([this.db.prepare("DELETE FROM request_log WHERE timestamp<?").bind(since(2*86_400_000)),this.db.prepare("DELETE FROM cache WHERE cached_at<?").bind(since(LIMITS.cacheMinutes*60_000)),this.db.prepare("DELETE FROM bot_state WHERE updated_at<? AND state_key IN ('waiting_support','admin_reply')").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM processed_updates WHERE status='done' AND updated_at<?").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM user_events WHERE user_id=0 AND timestamp<?").bind(since(30*86_400_000))]); }
 }
