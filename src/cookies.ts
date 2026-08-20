@@ -175,10 +175,32 @@ export function playwrightCookies(raw: string, now = Date.now()): CookieRecord[]
   const normalized = normalizeCookiesJson(raw);
   if (!normalized.ok) throw new Error(normalized.error);
   const nowSec = now / 1000;
-  return expandCookieDomains(normalized.cookies).filter(cookie => {
+  const out: CookieRecord[] = [];
+  const seen = new Set<string>();
+  for (const cookie of normalized.cookies) {
     const expires = cookie.expires;
-    return typeof expires !== "number" || expires > nowSec;
-  });
+    if (typeof expires === "number" && expires <= nowSec) continue;
+    // Playwright запрещает url+domain одновременно. url надёжнее для Cloudflare Browser.
+    const urls = new Set(["https://www.threads.com/", "https://www.threads.net/"]);
+    if (/instagram\.com/i.test(String(cookie.domain || ""))) urls.add("https://www.instagram.com/");
+    for (const url of urls) {
+      const key = `${cookie.name}|${url}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const item: CookieRecord = {
+        name: cookie.name,
+        value: cookie.value,
+        url,
+        path: cookie.path || "/",
+        httpOnly: cookie.httpOnly,
+        secure: cookie.secure,
+        sameSite: cookie.sameSite,
+      };
+      if (typeof expires === "number" && expires > 0) item.expires = expires;
+      out.push(item);
+    }
+  }
+  return out;
 }
 
 export function parseThreadsUsername(raw: string): string | null {

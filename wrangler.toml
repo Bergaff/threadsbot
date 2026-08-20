@@ -1,3 +1,8 @@
+# Git Builds в Cloudflare:
+# Build command: npm run build
+# Deploy command: npx wrangler deploy
+# Смена production branch САМА не деплоит — нужен новый коммит или Retry build.
+# Поле main ниже — входной файл воркера, это НЕ git-ветка.
 name = "threadsbot"
 main = "src/index.ts"
 compatibility_date = "2026-08-15"
@@ -46,3 +51,4 @@ head_sampling_rate = 1
 ADMIN_IDS = "369330135,657708753"
 STATS_EXCLUDE_IDS = "369330135,657708753"
 BASE_URL = "https://www.threads.com"
+VERSION = "pr5-2026-08-20-deploy"

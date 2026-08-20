@@ -24,6 +24,10 @@ function needsBrowser(update: TelegramUpdate): boolean {
   return false;
 }
 
+function chatIdOf(update: TelegramUpdate): number | undefined {
+  return update.callback_query?.message?.chat.id ?? update.message?.chat.id;
+}
+
 async function notifyError(env: Env, error: unknown) {
   console.error(error);
   const telegram = new Telegram(env.TELEGRAM_TOKEN);
@@ -39,7 +43,13 @@ export default {
 
     if (url.pathname === "/health") {
       const accounts = await new Database(env).accountCounts();
-      return Response.json({ ok: true, accounts });
+      return Response.json({
+        ok: true,
+        version: env.VERSION || "unknown",
+        accounts,
+        queue: Boolean(env.UPDATES),
+        browser: Boolean(env.BROWSER),
+      });
     }
 
     if (url.pathname === "/setup-webhook" && request.method === "POST") {
@@ -70,8 +80,32 @@ export default {
     const update = await request.json<TelegramUpdate>();
 
     if (needsBrowser(update)) {
-      // Тяжёлое — в очередь; ответ Telegram-у моментальный.
-      ctx.waitUntil(env.UPDATES.send(update).catch(err => notifyError(env, err)));
+      // Тяжёлое — в очередь. Кнопки подтверждаем СРАЗУ: иначе Telegram крутит
+      // спиннер 30с и считает, что бот мёртв, пока Queue + браузер не стартанут.
+      // Queue и Browser Rendering есть только на Workers Paid.
+      ctx.waitUntil((async () => {
+        const tg = new Telegram(env.TELEGRAM_TOKEN);
+        const chatId = chatIdOf(update);
+        if (update.callback_query?.id) {
+          await tg.answerCallbackQuery(update.callback_query.id).catch(() => {});
+        }
+        if (chatId) await tg.sendChatAction(chatId, "typing").catch(() => {});
+        try {
+          if (!env.UPDATES) throw new Error("UPDATES queue binding missing");
+          await env.UPDATES.send(update);
+        } catch (err) {
+          await notifyError(env, err);
+          if (chatId) {
+            await tg.sendMessage(
+              chatId,
+              "❌ Очередь Cloudflare не приняла запрос.\n\n" +
+              "Чтение постов требует <b>Workers Paid</b> ($5/мес): Queues + Browser Rendering.\n" +
+              "На Free плане кнопки «Текст/Скрины» не могут открыть Threads.\n\n" +
+              `<code>${String(err).slice(0, 200)}</code>`,
+            ).catch(() => {});
+          }
+        }
+      })());
     } else {
       // Быстрое (команды, меню, загрузка JSON, платежи, обычный username) —
       // обрабатываем прямо здесь, но НЕ заставляем Telegram ждать: возвращаем 200

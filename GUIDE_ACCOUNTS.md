@@ -188,6 +188,18 @@ Python-файлы (`bot.py`, `threads_check.py`) не трогались.
 
 ---
 
+## 8. Cloudflare «использует main» — и смена ветки «ничего не дала»
+
+Это нормально и почти всегда не про код.
+
+1. В `wrangler.toml` строка `main = "src/index.ts"` — **входной файл воркера**, не git-ветка.
+2. Смена **Production branch** в Cloudflare **сама ничего не выкатывает**. Билд стартует от нового коммита или кнопки Retry build.
+3. Git Builds: Build command = `npm run build`, Deploy command = `npx wrangler deploy`.
+4. **Queues и Browser Rendering есть только на Workers Paid ($5).** На Free кнопки «Текст/Скрины» физически не могут открыть Threads: апдейт уходит в очередь, которой нет, и молча пропадает. Команды `/start` и загрузка JSON при этом могут работать.
+5. Проверка, какой код живой: в боте `/diag` (админ) или `GET /health`. Должно быть `"version": "pr5-2026-08-20-deploy"`. Если `unknown` — задеплоен старый worker.
+
+---
+
 ## Чек-лист после деплоя
 
 1. `npm run deploy` — успех. Для Browser Rendering нужен **Workers Paid**.

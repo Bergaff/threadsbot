@@ -73,6 +73,13 @@ describe("cookies json", () => {
     expect(list.some(c => c.name === "dead")).toBe(false);
     expect(list.some(c => c.name === "sessionid")).toBe(true);
   });
+  it("uses url not domain for Playwright addCookies", () => {
+    const list = playwrightCookies(JSON.stringify(sample));
+    const session = list.filter(c => c.name === "sessionid");
+    expect(session.some(c => c.url === "https://www.threads.com/")).toBe(true);
+    expect(session.some(c => c.url === "https://www.threads.net/")).toBe(true);
+    expect(session.every(c => c.domain === undefined)).toBe(true);
+  });
   it("normalizes sameSite and keeps JSON round-trip", () => {
     const result = normalizeCookiesJson(JSON.stringify(sample));
     expect(result.ok).toBe(true);
