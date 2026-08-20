@@ -1,5 +1,5 @@
 import { launch, type BrowserContext, type Page } from "@cloudflare/playwright";
-import { LIMITS, type Env } from "./config";
+import { LIMITS, KEY_COOKIES, type Env } from "./config";
 import { cleanPostText } from "./i18n";
 
 export interface Post { text: string; has_image: boolean; has_video: boolean; image?: Uint8Array }
@@ -15,13 +15,77 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 class BrowserBusyError extends Error {}
 
+// ============================
+// ВАЛИДАЦИЯ И ДИАГНОСТИКА COOKIES
+// ============================
+
+/** Проверяет JSON-строку cookies. Возвращает (ok, result/err). */
+export function validateCookiesJson(raw: string): { ok: true; cookies: Record<string, unknown>[] } | { ok: false; error: string } {
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); }
+  catch (e) { return { ok: false, error: `JSON повреждён: ${e}` }; }
+  if (!Array.isArray(parsed) || parsed.length === 0) return { ok: false, error: "Нужен массив cookies (Cookie-Editor или Playwright)" };
+  for (const c of parsed) {
+    if (!c || typeof c !== "object" || !(c as Record<string, unknown>).name || (c as Record<string, unknown>).value === undefined)
+      return { ok: false, error: "Не все элементы имеют поля name/value" };
+  }
+  return { ok: true, cookies: parsed as Record<string, unknown>[] };
+}
+
+/** Самая ранняя дата истечения среди cookies (epoch ms) или null */
+export function earliestCookieExpiry(cookies: Record<string, unknown>[]): number | null {
+  const exps: number[] = [];
+  for (const c of cookies) {
+    const v = (c.expirationDate ?? c.expires) as number | undefined;
+    if (typeof v === "number" && v > 0) exps.push(v * 1000); // переводим секунды в ms
+  }
+  return exps.length ? Math.min(...exps) : null;
+}
+
+/** Есть ли ключевые cookies сессии */
+export function hasKeyCookies(cookies: Record<string, unknown>[]): boolean {
+  const names = new Set(cookies.map(c => String(c.name)));
+  return [...KEY_COOKIES].some(k => names.has(k));
+}
+
+export interface AccountDiagnosis {
+  name: string;
+  isAlive: boolean;
+  issues: string[];
+}
+
+/** Диагностика одного аккаунта по его cookies-строке из БД */
+export function diagnoseAccountCookies(name: string, isAlive: boolean, cookiesJson: string): AccountDiagnosis {
+  const issues: string[] = [];
+  const validation = validateCookiesJson(cookiesJson);
+  if (!validation.ok) {
+    issues.push(validation.error);
+  } else {
+    if (!hasKeyCookies(validation.cookies)) issues.push("нет ключевых cookies (sessionid/ig_did)");
+    const exp = earliestCookieExpiry(validation.cookies);
+    const now = Date.now();
+    if (exp !== null) {
+      if (exp < now) issues.push("cookies истекли — нужен новый экспорт");
+      else if (exp < now + LIMITS.cookieWarnDays * 86_400_000) {
+        const d = new Date(exp);
+        issues.push(`истекают ${String(d.getUTCDate()).padStart(2,'0')}.${String(d.getUTCMonth()+1).padStart(2,'0')}.${d.getUTCFullYear()}`);
+      }
+    }
+  }
+  return { name, isAlive, issues };
+}
+
+// ============================
+// BROWSER
+// ============================
+
 const COLLECT_POSTS = `() => {
  const posts=[],seen=new Set();
  const containers=document.querySelectorAll('div[data-pressable-container="true"],article,div[role="article"]');
  for(const container of containers){let bestText='',has_image=false,has_video=false;
   for(const img of container.querySelectorAll('img[src*="cdninstagram.com"],img[src*="fbcdn.net"]')){if((img.naturalWidth||img.width||0)>200){has_image=true;break}}
   has_video=container.querySelectorAll('video,div[role="button"] svg[aria-label*="video"],div[role="button"] svg[aria-label="Play"]').length>0;
-  for(const el of container.querySelectorAll('span[dir="auto"],div[dir="auto"],span[class*="x1lliihq"]')){const text=(el.innerText||'').trim();if(text.length<20||/^(Follow|Подписаться|Translate|Перевести|See translation|See more|Like|Reply|Repost|Share|Verified|Автор|Ещё|Нравится|Поделиться)/i.test(text)||/^\\d+$/.test(text)||/^\\d{1,2}\\s*[hчдms]$/i.test(text))continue;if(text.length>bestText.length)bestText=text}
+  for(const el of container.querySelectorAll('span[dir="auto"],div[dir="auto"],span[class*="x1lliihq"]')){const text=(el.innerText||'').trim();if(text.length<20||/^(Follow|Подписаться|Translate|Перевести|See translation|See more|Like|Reply|Repost|Share|Verified|Автор|Ещё|Нравится|Поделиться)/i.test(text)||/^\d+$/.test(text)||/^\d{1,2}\s*[hчдms]$/i.test(text))continue;if(text.length>bestText.length)bestText=text}
   if(bestText.length>25||has_image||has_video){const key=bestText.substring(0,100)+(has_image?'_img':'')+(has_video?'_vid':'');if(!seen.has(key)){seen.add(key);posts.push({text:bestText,has_image,has_video})}}
  } return posts;
 }`;
@@ -88,6 +152,10 @@ async function closeBrowser(env: Env, opened?: Opened) {
   await opened.browser.close().catch(() => {});
   await logBrowser(env, "browser_seconds", String((Date.now() - opened.startedAt) / 1000));
 }
+
+// ============================
+// СБОР ПОСТОВ И КОММЕНТАРИЕВ
+// ============================
 
 async function collectPosts(page: Page, target = 20): Promise<Post[]> {
   const all: Post[] = [], seen = new Set<string>();
@@ -278,12 +346,13 @@ export async function fetchComments(env: Env, username: string, index: number, a
     }
   }
 }
-
+/** Сброс всех аккаунтов в alive=1 */
 export async function resetAccountStatuses(env: Env) {
   const result = await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,updated_at=? WHERE enabled=1").bind(iso()).run();
   return Number(result.meta.changes || 0);
 }
 
+/** Проверка одного аккаунта */
 export async function probeAccount(env: Env, name: string): Promise<{ name: string; ok: boolean; message: string }> {
   const account = await env.DB.prepare("SELECT name,cookies,hourly_requests,hourly_reset FROM threads_accounts WHERE name=? AND enabled=1").bind(name).first<Account>();
   if (!account) return { name, ok: false, message: "Account is disabled or missing" };

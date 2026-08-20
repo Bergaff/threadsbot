@@ -70,7 +70,10 @@ export class Database {
   answerTicket(id:number, answer:string) { return this.db.prepare("UPDATE support_tickets SET status='answered',answer=?,answered_at=? WHERE id=?").bind(answer,now(),id).run(); }
 
   async accountCounts() { return await this.db.prepare("SELECT COUNT(*) total,SUM(enabled) enabled,SUM(enabled AND is_alive) alive FROM threads_accounts").first<{total:number;enabled:number;alive:number}>() || {total:0,enabled:0,alive:0}; }
-  async accountStats() { return (await this.db.prepare("SELECT name,is_alive,last_error,requests_count,posts_sent,errors_count,hourly_requests,hourly_reset,last_used FROM threads_accounts ORDER BY name").all()).results; }
+  async accountStats() { return (await this.db.prepare("SELECT name,is_alive,last_error,requests_count,posts_sent,errors_count,hourly_requests,hourly_reset,last_used,cookies FROM threads_accounts ORDER BY name").all()).results; }
+  async accountCookie(name:string) { return await this.db.prepare("SELECT cookies FROM threads_accounts WHERE name=?").bind(name).first<{cookies:string}>(); }
+  async accountDelete(name:string) { return this.db.prepare("DELETE FROM threads_accounts WHERE name=?").bind(name).run(); }
+  accountUpsert(name:string,cookies:string) { const now=iso(); return this.db.prepare("INSERT INTO threads_accounts(name,cookies,enabled,is_alive,hourly_reset,updated_at) VALUES(?,?,1,1,?,?) ON CONFLICT(name) DO UPDATE SET cookies=excluded.cookies,enabled=1,is_alive=1,last_error=NULL,updated_at=excluded.updated_at").bind(name,cookies,now,now).run(); }
 
   async analytics() {
     const excluded=excludedIds(this.env); const marks=excluded.map(()=>"?").join(","); const clause=` AND user_id<>0${excluded.length?` AND user_id NOT IN (${marks})`:""}`;

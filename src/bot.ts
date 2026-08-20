@@ -1,7 +1,7 @@
 import { adminIds, isAdmin, LIMITS, type Env } from "./config";
 import { Database } from "./db";
 import { LANGUAGE_NAMES, languages, text } from "./i18n";
-import { fetchComments, fetchPosts, probeAccount, resetAccountStatuses, type Comment, type Post } from "./threads";
+import { fetchComments, fetchPosts, probeAccount, resetAccountStatuses, validateCookiesJson, diagnoseAccountCookies, type Comment, type Post } from "./threads";
 import { kb, Telegram, type CallbackQuery, type TelegramUpdate, type TgMessage } from "./telegram";
 
 const esc=(v:unknown)=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
@@ -22,14 +22,15 @@ export class Bot {
   if(m.reply_to_message?.from?.is_bot){await this.replyComments(m);return}
   const waiting=await this.db.state(uid,"waiting_support");if(waiting){await this.supportInput(m,waiting);return}
   const adminReply=await this.db.state(uid,"admin_reply");if(adminReply&&isAdmin(this.env,uid)){await this.adminReply(m,Number(adminReply));return}
-  if(raw.startsWith("/")){const [command]=raw.split(/\s+/);switch(command.split("@")[0]){case"/start":return this.start(m);case"/language":return this.language(m);case"/help":return this.help(m);case"/subscribe":return this.subscribe(m);case"/status":return this.status(m);case"/support":return this.support(m);case"/admin":return this.admin(m);case"/report":return this.report(m);case"/ban":return this.ban(m,true);case"/unban":return this.ban(m,false);default:return}}
+  if(m.document){await this.handleDocument(m);return}
+  if(raw.startsWith("/")){const [command]=raw.split(/\s+/);switch(command.split("@")[0]){case"/start":return this.start(m);case"/language":return this.language(m);case"/help":return this.help(m);case"/subscribe":return this.subscribe(m);case"/status":return this.status(m);case"/support":return this.support(m);case"/admin":return this.admin(m);case"/report":return this.report(m);case"/ban":return this.ban(m,true);case"/unban":return this.ban(m,false);case"/accounts":return this.accountsList(m);case"/account_check":return this.accountCheck(m);case"/account_del":return this.accountDelete(m);case"/account_export":return this.accountExport(m);default:return}}
   if(isAdmin(this.env,uid)&&/^\d+\s+.+/s.test(raw)){const match=raw.match(/^(\d+)\s+(.+)$/s)!;await this.answerTicket(cid,Number(match[1]),match[2]);return}
   await this.username(m,raw);
  }
  private async start(m:TgMessage){const uid=m.from!.id,cid=m.chat.id;if(!await this.db.hasLang(uid)){let lang=(m.from!.language_code||"ru").slice(0,2);if(!languages.includes(lang as any))lang="en";await this.db.setLang(uid,lang);await this.tg.sendMessage(cid,"🌍 Выберите язык / Select language / Sprache wählen:",this.languageKb());return}await this.removeButtons(cid);await this.db.logEvent(uid,"start");const lang=await this.lang(uid),sub=await this.db.subscription(uid),u=await this.db.usage(uid);const status=sub?.active?text("subscription_active",lang,{days:Number(sub.days_left)}):text("free_limit",lang,{daily:Math.max(0,LIMITS.freeDaily-u.daily),monthly:Math.max(0,LIMITS.freeMonthly-u.monthly)});await this.tg.sendMessage(cid,text("welcome",lang,{status}))}
  private languageKb(){return kb([[{text:LANGUAGE_NAMES.ru,callback_data:"set_lang:ru"},{text:LANGUAGE_NAMES.en,callback_data:"set_lang:en"}],[{text:LANGUAGE_NAMES.de,callback_data:"set_lang:de"},{text:LANGUAGE_NAMES.es,callback_data:"set_lang:es"}],[{text:LANGUAGE_NAMES.pt,callback_data:"set_lang:pt"}]])}
  private async language(m:TgMessage){await this.removeButtons(m.chat.id);await this.tg.sendMessage(m.chat.id,text("select_language",await this.lang(m.from!.id)),this.languageKb())}
- private async help(m:TgMessage){await this.removeButtons(m.chat.id);let value=text("help",await this.lang(m.from!.id));if(isAdmin(this.env,m.from!.id))value+="\n\n🔐 /admin";await this.tg.sendMessage(m.chat.id,value)}
+ private async help(m:TgMessage){await this.removeButtons(m.chat.id);let value=text("help",await this.lang(m.from!.id));if(isAdmin(this.env,m.from!.id))value+="\n\n🔐 /admin\n📂 /accounts\n🩺 /account_check\n🗑 /account_del имя\n📦 /account_export имя\n➕ Пришли JSON файл — добавить аккаунт";await this.tg.sendMessage(m.chat.id,value)}
  private async subscribe(m:TgMessage){const uid=m.from!.id,cid=m.chat.id,lang=await this.lang(uid),sub=await this.db.subscription(uid);if(sub?.active){await this.buttons(cid,`✅ ${text("until",lang)} ${String(sub.expires_at).slice(0,10)} (${sub.days_left} ${text("days",lang)})`,kb([[{text:`🔄 ${text("renew",lang)}`,callback_data:"sub:choose"}]]));return}const u=await this.db.usage(uid);await this.buttons(cid,`📱 <b>${text("subscription",lang)} — 30 ${text("days",lang)}</b>\n✅ ${text("unlimited",lang)}\n🆓 ${text("left_today",lang)}: ${Math.max(0,LIMITS.freeDaily-u.daily)}`,kb([[{text:`💳 ${text("subscribe",lang)}`,callback_data:"sub:choose"}]]))}
  private async status(m:TgMessage){const uid=m.from!.id,lang=await this.lang(uid),sub=await this.db.subscription(uid);if(sub?.active)await this.tg.sendMessage(m.chat.id,`✅ <b>${text("active",lang)}</b> ${text("until",lang)} ${String(sub.expires_at).slice(0,10)} (${sub.days_left} ${text("days",lang)})`);else{const u=await this.db.usage(uid);await this.tg.sendMessage(m.chat.id,`❌ <b>${text("no_sub_short",lang)}</b>\n🆓 ${text("left_today",lang)}: ${Math.max(0,LIMITS.freeDaily-u.daily)}\n/subscribe`)}}
  private async support(m:TgMessage){const lang=await this.lang(m.from!.id);await this.buttons(m.chat.id,`<b>${text("support_title",lang)}</b>\n\n• ${text("ask_question",lang)}\n• ${text("suggest_idea",lang)}\n\n${text("choose",lang)} 👇`,kb([[{text:`❓ ${text("question",lang)}`,callback_data:"sup:write:question"}],[{text:`💡 ${text("suggestion",lang)}`,callback_data:"sup:write:suggestion"}],[{text:`📋 ${text("my_tickets",lang)}`,callback_data:"sup:my"}]]))}
@@ -112,4 +113,71 @@ export class Bot {
  private async replyComments(m:TgMessage){const uid=m.from!.id,cid=m.chat.id,lang=await this.lang(uid),replied=m.reply_to_message!,match=(replied.text||replied.caption||"").match(/^(?:📷|🎥)?\s*(?:<b>)?(\d+)\./),fallback=(m.text||"").match(/^(\d+)$/),number=Number(match?.[1]||fallback?.[1]);if(!number)return;const username=await this.db.state(cid,"last_username");if(!username){await this.tg.sendMessage(cid,"❌ Send a username first.");return}const access=await this.access(uid);if(!access.ok){await this.db.logEvent(uid,"free_exhausted",access.kind);await this.buttons(cid,access.note,kb([[{text:text("subscribe_btn",lang),callback_data:"sub:choose"}]]));return}const limited=await this.db.rateLimit(uid);if(limited){await this.tg.sendMessage(cid,`⏳ ${limited}`);return}const loading=await this.tg.sendMessage(cid,"💬 Загружаю комментарии...");try{const found=await fetchComments(this.env,username,number-1,20);await this.tg.deleteMessage(cid,loading.message_id).catch(()=>{});if(found.status==="all_dead"){await this.tg.sendMessage(cid,text("all_dead",lang));return}if(found.status==="browser_busy"){await this.tg.sendMessage(cid,"⏳ Browser Run занят. Аккаунты не отключены; повторите через 30 секунд.");return}if(found.status==="service_error"){await this.tg.sendMessage(cid,"⚠️ Threads временно не ответил. Попробуйте позже.");return}if(found.status==="post_not_found"||found.status==="user_not_found"){await this.tg.sendMessage(cid,"❌ Post not found.");return}if(!found.data?.length){await this.tg.sendMessage(cid,"😔 No comments.");return}await Promise.all([this.db.logRequest(uid,`${username}/cmt/${number}`),this.db.logEvent(uid,"comments_request",username),this.db.logEvent(uid,"request",`comments:${username}`)]);if(!await this.db.hasSubscription(uid)&&!isAdmin(this.env,uid))await this.db.logEvent(uid,"free_request",`cmt:${username}/${number}`);const key=`${username}_cmt_${number-1}`;await this.db.setCache(key,"comments",found.data.map(c=>({text:c.text,author:c.author})));await this.tg.sendMessage(cid,`💬 <b>@${esc(username)}</b> (${found.data.length})`);await this.sendComments(cid,found.data.slice(0,5),0);if(found.data.length>5)await this.buttons(cid,`✅ 1–5 ${text("of",lang)} ${found.data.length}`,kb([[{text:`➡️ ${text("more",lang)} (6–${Math.min(10,found.data.length)})`,callback_data:`cmt:${username}:${number-1}:1`}]]));else await this.tg.sendMessage(cid,`✅ ${text("all",lang)} ${found.data.length}.`)}catch(error){await this.tg.deleteMessage(cid,loading.message_id).catch(()=>{});await this.alert(`Bot error: ${error}`);await this.tg.sendMessage(cid,`❌ <code>${esc(String(error).slice(0,300))}</code>`)}}
  private async sendComments(cid:number,comments:Comment[],start:number){for(let i=0;i<comments.length;i++)await this.tg.sendMessage(cid,`<b>${start+i+1}. ${esc(comments[i].author||"—")}</b>\n${esc(comments[i].text.slice(0,1000))}`)}
  private async commentsPage(cb:CallbackQuery){const [,username,indexRaw,pageRaw]=cb.data!.split(":"),index=Number(indexRaw),page=Number(pageRaw),cid=cb.message!.chat.id,lang=await this.lang(cb.from.id),comments=await this.db.cache<Comment[]>(`${username}_cmt_${index}`,"comments");await this.tg.editMarkup(cid,cb.message!.message_id).catch(()=>{});if(!comments){await this.tg.sendMessage(cid,"⏳ Cache expired.");return}const start=page*5,current=comments.slice(start,start+5),end=start+current.length;if(!current.length){await this.tg.sendMessage(cid,text("no_more",lang));return}await this.sendComments(cid,current,start);if(comments.length>end)await this.buttons(cid,`✅ ${start+1}–${end} ${text("of",lang)} ${comments.length}`,kb([[{text:`➡️ ${text("more",lang)} (${end+1}–${Math.min(end+5,comments.length)})`,callback_data:`cmt:${username}:${index}:${page+1}`}]]));else await this.tg.sendMessage(cid,`✅ ${text("all",lang)} ${comments.length}.`)}
+ // ============================
+ // УПРАВЛЕНИЕ АККАУНТАМИ
+ // ============================
+ private async accountsList(m:TgMessage){
+  if(!isAdmin(this.env,m.from!.id))return;
+  const stats:any[]=await this.db.accountStats();
+  if(!stats.length){await this.tg.sendMessage(m.chat.id,"📂 Аккаунтов нет.\nПришли <b>JSON файл</b> (Cookie-Editor/Playwright) — сохраню и запущу.");return}
+  let value="📂 <b>Аккаунты</b>\n\n";
+  for(const s of stats)value+=`${s.is_alive?'🟢':'🔴'} <b>${esc(s.name)}</b> ⏰${s.hourly_requests}/${LIMITS.accountHourly} | 📨${s.requests_count} | ❌${s.errors_count}\n`;
+  value+="\n➕ Пришли JSON файл — добавить\n🩺 /account_check\n🗑 /account_del имя\n📦 /account_export имя";
+  await this.tg.sendMessage(m.chat.id,value);
+ }
+ private async accountCheck(m:TgMessage){
+  if(!isAdmin(this.env,m.from!.id))return;
+  const loading=await this.tg.sendMessage(m.chat.id,"🩺 Проверяю cookies...");
+  const stats:any[]=await this.db.accountStats();
+  const lines:string[]=[];
+  for(const a of stats){
+   const d=diagnoseAccountCookies(a.name,Boolean(a.is_alive),String(a.cookies||""));
+   if(d.issues.length)lines.push(`${d.isAlive?'🟢':'🔴'} <b>${esc(d.name)}</b>: ${d.issues.join('; ')}`);
+  }
+  const text=lines.length?lines.join("\n"):"✅ Все аккаунты в порядке";
+  await this.tg.deleteMessage(m.chat.id,loading.message_id).catch(()=>{});
+  await this.tg.sendMessage(m.chat.id,`🩺 <b>Диагностика</b>\n\n${text}`);
+ }
+ private async accountDelete(m:TgMessage){
+  if(!isAdmin(this.env,m.from!.id))return;
+  const p=(m.text||"").split(/\s+/,2);
+  if(p.length<2){await this.tg.sendMessage(m.chat.id,"<code>/account_del имя</code>");return}
+  const name=p[1];
+  const account=await this.db.accountCookie(name);
+  if(account)await this.db.accountDelete(name);
+  await this.tg.sendMessage(m.chat.id,`${account?`🗑 <b>${esc(name)}</b> удалён`:`❌ Аккаунт "${esc(name)}" не найден`}`);
+ }
+ private async accountExport(m:TgMessage){
+  if(!isAdmin(this.env,m.from!.id))return;
+  const p=(m.text||"").split(/\s+/,2);
+  if(p.length<2){await this.tg.sendMessage(m.chat.id,"<code>/account_export имя</code>");return}
+  const name=p[1];
+  const account=await this.db.accountCookie(name);
+  if(!account){await this.tg.sendMessage(m.chat.id,`❌ Аккаунт "${esc(name)}" не найден`);return}
+  await this.tg.sendMessage(m.chat.id,"⚠️ Файл содержит cookies — доступ к аккаунту Threads. Не используй одни cookies в двух местах одновременно.");
+  const bytes=new TextEncoder().encode(account.cookies);
+  await this.tg.sendDocument(m.chat.id,bytes,`${name}.json`);
+ }
+ /** Обработка документа (JSON-файла с cookies) */
+ private async handleDocument(m:TgMessage){
+  if(!isAdmin(this.env,m.from!.id))return;
+  if(!m.document)return;
+  const fname=m.document.file_name||"";
+  if(!fname.toLowerCase().endsWith(".json")){await this.tg.sendMessage(m.chat.id,"❌ Пришли файл <b>.json</b> с cookies (Cookie-Editor или Playwright).");return}
+  const name=fname.replace(/\.json$/i,"");
+  if(!/^[\w.\-]{2,64}$/.test(name)){await this.tg.sendMessage(m.chat.id,"❌ Недопустимое имя файла.");return}
+  // Качаем файл через Telegram API
+  const file=await this.tg.getFile(m.document.file_id);
+  if(!file)return;
+  const resp=await fetch(`https://api.telegram.org/file/bot${this.env.TELEGRAM_TOKEN}/${file}`);
+  const raw=await resp.text();
+  const validation=validateCookiesJson(raw);
+  if(!validation.ok){await this.tg.sendMessage(m.chat.id,`❌ ${validation.error}`);return}
+  // Сохраняем в БД
+  await this.db.accountUpsert(name,raw);
+  // Диагностика
+  const d=diagnoseAccountCookies(name,true,raw);
+  const warn=d.issues.length?`\n⚠️ ${d.issues.join('; ')}`:"";
+  await this.tg.sendMessage(m.chat.id,`✅ <b>${esc(name)}</b> — cookies сохранены в D1${warn}\n\n/accounts — список`);
+ }
 }

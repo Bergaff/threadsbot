@@ -1,11 +1,14 @@
 import { Bot } from "./bot";
-import { adminIds, type Env } from "./config";
+import { adminIds, LIMITS, type Env } from "./config";
 import { Database } from "./db";
+import { diagnoseAccountCookies } from "./threads";
 import { Telegram, type TelegramUpdate } from "./telegram";
 
 function shouldHandleImmediately(update: TelegramUpdate): boolean {
   if (update.pre_checkout_query || update.message?.successful_payment) return true;
   if (update.message) {
+    // Document upload (JSON cookies) = fast DB operation.
+    if (update.message.document) return true;
     // Only a reply to a bot post can launch the comments browser. All other messages are fast.
     return update.message.reply_to_message?.from?.is_bot !== true;
   }
@@ -70,7 +73,23 @@ export default {
   },
 
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    // Only technical cleanup remains. Daily reports and automatic browser probes were removed.
-    ctx.waitUntil(new Database(env).cleanup().then(() => {}));
+    // Техническая очистка + самодиагностика аккаунтов
+    ctx.waitUntil(async () => {
+      const db = new Database(env);
+      await db.cleanup();
+      // Самодиагностика cookies: проверка раз в 6 часов
+      const stats: any[] = await db.accountStats();
+      const issues: string[] = [];
+      for (const a of stats) {
+        const d = diagnoseAccountCookies(a.name, Boolean(a.is_alive), String(a.cookies || ""));
+        if (d.issues.length) issues.push(`${d.isAlive ? '🟢' : '🔴'} <b>${d.name}</b>: ${d.issues.join('; ')}`);
+      }
+      if (issues.length) {
+        const tg = new Telegram(env.TELEGRAM_TOKEN);
+        await Promise.all(adminIds(env).map(id =>
+          tg.sendMessage(id, `🩺 <b>Самодиагностика аккаунтов</b>\n\n${issues.join('\n')}`).catch(() => {})
+        ));
+      }
+    }());
   },
 } satisfies ExportedHandler<Env, TelegramUpdate>;

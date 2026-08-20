@@ -21,7 +21,14 @@ export const LIMITS = {
   perDay: 50,
   cacheMinutes: 15,
   accountHourly: 20,
+  /** Как часто проверять cookies-файлы аккаунтов (в секундах) — 6ч */
+  diagnoseIntervalSec: 21_600,
+  /** За сколько дней до истечения cookies предупреждать */
+  cookieWarnDays: 7,
 } as const;
+
+/** Ключевые cookies, без которых сессия Threads не работает */
+export const KEY_COOKIES = new Set(["sessionid", "session_id", "ds_user_id", "ig_did"]);
 
 export const adminIds = (env: Env): number[] =>
   (env.ADMIN_IDS || "369330135,657708753").split(",").map(Number).filter(Number.isFinite);

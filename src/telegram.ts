@@ -4,7 +4,7 @@ export type Keyboard = { inline_keyboard: InlineButton[][] };
 export interface TgUser { id: number; is_bot?: boolean; username?: string; language_code?: string; }
 export interface TgMessage {
   message_id: number; chat: { id: number }; from?: TgUser; text?: string; caption?: string;
-  reply_to_message?: TgMessage;
+  reply_to_message?: TgMessage; document?: { file_id: string; file_name?: string };
   successful_payment?: { total_amount: number; invoice_payload: string };
 }
 export interface CallbackQuery { id: string; from: TgUser; data?: string; message?: TgMessage; }
@@ -51,6 +51,19 @@ export class Telegram {
     const response = await fetch(`https://api.telegram.org/bot${this.token}/sendPhoto`, { method: "POST", body: form });
     const data = await response.json<ApiResult<unknown>>();
     if (!data.ok) throw new Error(`Telegram sendPhoto: ${data.description || response.status}`);
+    return data.result;
+  }
+  async getFile(file_id: string): Promise<string> {
+    const result = await this.call<{ file_path: string }>("getFile", { file_id });
+    return result.file_path;
+  }
+  async sendDocument(chat_id: number, bytes: Uint8Array, filename: string): Promise<unknown> {
+    const form = new FormData();
+    form.set("chat_id", String(chat_id));
+    form.set("document", new Blob([bytes.buffer as ArrayBuffer], { type: "application/json" }), filename);
+    const response = await fetch(`https://api.telegram.org/bot${this.token}/sendDocument`, { method: "POST", body: form });
+    const data = await response.json<ApiResult<unknown>>();
+    if (!data.ok) throw new Error(`Telegram sendDocument: ${data.description || response.status}`);
     return data.result;
   }
 }
