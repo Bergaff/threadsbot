@@ -24,7 +24,7 @@ max_retries = 3
 max_concurrency = 1
 
 [triggers]
-crons = ["0 * * * *"] # только техническая очистка
+crons = ["0 */6 * * *"] # очистка + самодиагностика cookies каждые 6ч
 
 [observability]
 enabled = false
