@@ -1,7 +1,8 @@
 import { adminIds, isAdmin, LIMITS, type Env } from "./config";
 import { Database } from "./db";
 import { LANGUAGE_NAMES, languages, text } from "./i18n";
-import { fetchComments, fetchPosts, probeAccount, resetAccountStatuses, validateCookiesJson, diagnoseAccountCookies, type Comment, type Post } from "./threads";
+import { diagnoseAccountCookies, normalizeCookiesJson, parseThreadsUsername } from "./cookies";
+import { fetchComments, fetchPosts, probeAccount, resetAccountStatuses, type Comment, type Post } from "./threads";
 import { kb, Telegram, type CallbackQuery, type TelegramUpdate, type TgMessage } from "./telegram";
 
 const esc=(v:unknown)=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
@@ -17,7 +18,7 @@ export class Bot {
  private async alert(value:string){for(const id of adminIds(this.env))await this.tg.sendMessage(id,`🚨 <b>ALERT</b>\n\n${esc(value)}`).catch(()=>{})}
 
  async update(update:TelegramUpdate){if(update.pre_checkout_query){await this.tg.answerPreCheckoutQuery(update.pre_checkout_query.id);return}if(update.callback_query){await this.callback(update.callback_query);return}if(update.message)await this.message(update.message)}
- private async message(m:TgMessage){if(!m.from)return;const uid=m.from.id,cid=m.chat.id,raw=(m.text||m.caption||"").trim();if(await this.db.isBanned(uid))return;
+ private async message(m:TgMessage){if(!m.from)return;const uid=m.from.id,cid=m.chat.id,raw=(m.text||m.caption||"").trim();if(await this.db.isBanned(uid))return;this.tg.sendChatAction(cid,"typing").catch(()=>{});
   if(m.successful_payment){const exp=await this.db.activate(uid,"stars",m.successful_payment.total_amount);await this.db.logEvent(uid,"subscribe","stars");await this.tg.sendMessage(cid,`🎉 <b>${text("paid",await this.lang(uid))}!</b> ${text("until",await this.lang(uid))} ${fmtDate(exp)}`);return}
   if(m.reply_to_message?.from?.is_bot){await this.replyComments(m);return}
   const waiting=await this.db.state(uid,"waiting_support");if(waiting){await this.supportInput(m,waiting);return}
@@ -27,10 +28,10 @@ export class Bot {
   if(isAdmin(this.env,uid)&&/^\d+\s+.+/s.test(raw)){const match=raw.match(/^(\d+)\s+(.+)$/s)!;await this.answerTicket(cid,Number(match[1]),match[2]);return}
   await this.username(m,raw);
  }
- private async start(m:TgMessage){const uid=m.from!.id,cid=m.chat.id;if(!await this.db.hasLang(uid)){let lang=(m.from!.language_code||"ru").slice(0,2);if(!languages.includes(lang as any))lang="en";await this.db.setLang(uid,lang);await this.tg.sendMessage(cid,"🌍 Выберите язык / Select language / Sprache wählen:",this.languageKb());return}await this.removeButtons(cid);await this.db.logEvent(uid,"start");const lang=await this.lang(uid),sub=await this.db.subscription(uid),u=await this.db.usage(uid);const status=sub?.active?text("subscription_active",lang,{days:Number(sub.days_left)}):text("free_limit",lang,{daily:Math.max(0,LIMITS.freeDaily-u.daily),monthly:Math.max(0,LIMITS.freeMonthly-u.monthly)});await this.tg.sendMessage(cid,text("welcome",lang,{status}))}
+ private async start(m:TgMessage){const uid=m.from!.id,cid=m.chat.id;if(!await this.db.hasLang(uid)){let lang=(m.from!.language_code||"ru").slice(0,2);if(!languages.includes(lang as any))lang="en";await this.db.setLang(uid,lang);await this.tg.sendMessage(cid,"🌍 Выберите язык / Select language / Sprache wählen:",this.languageKb());return}const [lang,sub,u]=await Promise.all([this.lang(uid),this.db.subscription(uid),this.db.usage(uid)]);const status=sub?.active?text("subscription_active",lang,{days:Number(sub.days_left)}):text("free_limit",lang,{daily:Math.max(0,LIMITS.freeDaily-u.daily),monthly:Math.max(0,LIMITS.freeMonthly-u.monthly)});await this.tg.sendMessage(cid,text("welcome",lang,{status}));this.removeButtons(cid).catch(()=>{});this.db.logEvent(uid,"start").catch(()=>{})}
  private languageKb(){return kb([[{text:LANGUAGE_NAMES.ru,callback_data:"set_lang:ru"},{text:LANGUAGE_NAMES.en,callback_data:"set_lang:en"}],[{text:LANGUAGE_NAMES.de,callback_data:"set_lang:de"},{text:LANGUAGE_NAMES.es,callback_data:"set_lang:es"}],[{text:LANGUAGE_NAMES.pt,callback_data:"set_lang:pt"}]])}
- private async language(m:TgMessage){await this.removeButtons(m.chat.id);await this.tg.sendMessage(m.chat.id,text("select_language",await this.lang(m.from!.id)),this.languageKb())}
- private async help(m:TgMessage){await this.removeButtons(m.chat.id);let value=text("help",await this.lang(m.from!.id));if(isAdmin(this.env,m.from!.id))value+="\n\n🔐 /admin\n📂 /accounts\n🩺 /account_check\n🗑 /account_del имя\n📦 /account_export имя\n➕ Пришли JSON файл — добавить аккаунт";await this.tg.sendMessage(m.chat.id,value)}
+ private async language(m:TgMessage){await this.tg.sendMessage(m.chat.id,text("select_language",await this.lang(m.from!.id)),this.languageKb());this.removeButtons(m.chat.id).catch(()=>{})}
+ private async help(m:TgMessage){let value=text("help",await this.lang(m.from!.id));if(isAdmin(this.env,m.from!.id))value+="\n\n🔐 /admin\n📂 /accounts\n🩺 /account_check\n🗑 /account_del имя\n📦 /account_export имя\n➕ Пришли JSON файл (подпись = имя аккаунта) — добавить";await this.tg.sendMessage(m.chat.id,value);this.removeButtons(m.chat.id).catch(()=>{})}
  private async subscribe(m:TgMessage){const uid=m.from!.id,cid=m.chat.id,lang=await this.lang(uid),sub=await this.db.subscription(uid);if(sub?.active){await this.buttons(cid,`✅ ${text("until",lang)} ${String(sub.expires_at).slice(0,10)} (${sub.days_left} ${text("days",lang)})`,kb([[{text:`🔄 ${text("renew",lang)}`,callback_data:"sub:choose"}]]));return}const u=await this.db.usage(uid);await this.buttons(cid,`📱 <b>${text("subscription",lang)} — 30 ${text("days",lang)}</b>\n✅ ${text("unlimited",lang)}\n🆓 ${text("left_today",lang)}: ${Math.max(0,LIMITS.freeDaily-u.daily)}`,kb([[{text:`💳 ${text("subscribe",lang)}`,callback_data:"sub:choose"}]]))}
  private async status(m:TgMessage){const uid=m.from!.id,lang=await this.lang(uid),sub=await this.db.subscription(uid);if(sub?.active)await this.tg.sendMessage(m.chat.id,`✅ <b>${text("active",lang)}</b> ${text("until",lang)} ${String(sub.expires_at).slice(0,10)} (${sub.days_left} ${text("days",lang)})`);else{const u=await this.db.usage(uid);await this.tg.sendMessage(m.chat.id,`❌ <b>${text("no_sub_short",lang)}</b>\n🆓 ${text("left_today",lang)}: ${Math.max(0,LIMITS.freeDaily-u.daily)}\n/subscribe`)}}
  private async support(m:TgMessage){const lang=await this.lang(m.from!.id);await this.buttons(m.chat.id,`<b>${text("support_title",lang)}</b>\n\n• ${text("ask_question",lang)}\n• ${text("suggest_idea",lang)}\n\n${text("choose",lang)} 👇`,kb([[{text:`❓ ${text("question",lang)}`,callback_data:"sup:write:question"}],[{text:`💡 ${text("suggestion",lang)}`,callback_data:"sup:write:suggestion"}],[{text:`📋 ${text("my_tickets",lang)}`,callback_data:"sup:my"}]]))}
@@ -54,7 +55,7 @@ export class Bot {
   const value=`📋 <b>Operational report</b>\n🕐 ${new Date().toISOString().slice(0,19).replace('T',' ')} UTC\n\n👥 <b>Users</b>\nTotal: ${system.totalUsers} | New 24h: ${analytics.newUsers}\nDAU: ${analytics.dau} | Active 7d: ${analytics.active7d}\nFree limits hit: ${analytics.exhausted}\n\n📨 <b>Requests, 24h</b>\nTotal: ${analytics.requests}\nText: ${analytics.text} | Screens: ${analytics.img} | Comments: ${analytics.comments}\nCache entries now: ${system.cacheEntries}\nQueue processing now: ${system.processingUpdates}\n\n🌐 <b>Browser Run, 24h</b>\nLaunches: ${system.browserLaunches24h} | 429: ${system.browser42924h}\nBrowser time: ${browserMinutes.toFixed(1)} min\n30d projection: ${projectedHours.toFixed(1)} h\nPaid-plan browser overage estimate: $${estimatedBrowserOverage.toFixed(2)} + $5 base\n\n🤖 <b>Threads accounts</b>\nAlive: ${counts.alive||0}/${counts.enabled||0} enabled (${counts.total} total)\nAll-time requests: ${system.accountRequests} | Posts: ${system.postsSent} | Errors: ${system.accountErrors}\nCurrent hourly usage: ${system.hourlyRequests}\n${accountProblems}\n\n💳 <b>Business</b>\nActive subscriptions: ${subscribers.length} | New 24h: ${analytics.newSubs}\nRecorded revenue: $${analytics.revenue.toFixed(2)}\n\n🆘 <b>Moderation</b>\nOpen tickets: ${system.openTickets} | Answered 24h: ${system.answeredTickets24h}\nBanned users: ${system.banned}`;
   await this.tg.sendMessage(cid,value);
  }
- private async username(m:TgMessage,raw:string){const username=raw.replace(/^@/,""),uid=m.from!.id,lang=await this.lang(uid);if(!/^[\p{L}\p{N}._]{2,}$/u.test(username)){await this.tg.sendMessage(m.chat.id,text("invalid_username",lang));return}const access=await this.access(uid);if(!access.ok){await this.db.logEvent(uid,"free_exhausted",access.kind);await this.buttons(m.chat.id,`${access.note}\n\n<b>${text("subscribe_unlocks",lang)}</b>`,kb([[{text:text("subscribe_btn",lang),callback_data:"sub:choose"}]]));return}const limited=await this.db.rateLimit(uid);if(limited){await this.tg.sendMessage(m.chat.id,`⏳ ${limited}`);return}const counts=await this.db.accountCounts();if(!counts.alive){await this.alert("Все аккаунты мертвы!");await this.tg.sendMessage(m.chat.id,text("no_accounts",lang));return}await this.buttons(m.chat.id,`🔍 <b>@${esc(username)}</b> — ${text("format",lang)}:${access.note?`\n${access.note}`:""}`,kb([[{text:text("text_btn",lang),callback_data:`text:${username}:0`},{text:text("screens_btn",lang),callback_data:`img:${username}:0`}]]))}
+ private async username(m:TgMessage,raw:string){const username=parseThreadsUsername(raw),uid=m.from!.id,lang=await this.lang(uid);if(!username){await this.tg.sendMessage(m.chat.id,text("invalid_username",lang));return}const access=await this.access(uid);if(!access.ok){await this.db.logEvent(uid,"free_exhausted",access.kind);await this.buttons(m.chat.id,`${access.note}\n\n<b>${text("subscribe_unlocks",lang)}</b>`,kb([[{text:text("subscribe_btn",lang),callback_data:"sub:choose"}]]));return}const [limited,counts]=await Promise.all([this.db.rateLimit(uid),this.db.accountCounts()]);if(limited){await this.tg.sendMessage(m.chat.id,`⏳ ${limited}`);return}if(!counts.alive){await this.alert("Все аккаунты мертвы!");await this.tg.sendMessage(m.chat.id,text("no_accounts",lang));return}await this.buttons(m.chat.id,`🔍 <b>@${esc(username)}</b> — ${text("format",lang)}:${access.note?`\n${access.note}`:""}`,kb([[{text:text("text_btn",lang),callback_data:`text:${username}:0`},{text:text("screens_btn",lang),callback_data:`img:${username}:0`}]])) }
 
  private async callback(cb:CallbackQuery){if(!cb.data||!cb.message)return;const d=cb.data,uid=cb.from.id,cid=cb.message.chat.id;if(!d.startsWith("sub:check:")&&!d.startsWith("set_lang:"))await this.tg.answerCallbackQuery(cb.id).catch(()=>{});if(d.startsWith("set_lang:")){const lang=d.split(":")[1];await this.db.setLang(uid,languages.includes(lang as any)?lang:"en");await this.tg.answerCallbackQuery(cb.id,{text:text("language_set",lang)}).catch(()=>{});await this.tg.deleteMessage(cid,cb.message.message_id).catch(()=>{});const fake:{message_id:number;chat:{id:number};from:any}={message_id:0,chat:{id:cid},from:cb.from};await this.start(fake);return}if(d==="sub:choose"){const lang=await this.lang(uid);await this.buttons(cid,text("payment_method",lang),kb([[{text:`⭐ Stars (${LIMITS.priceStars}⭐)`,callback_data:"sub:stars"}],[{text:`💎 Crypto (${LIMITS.priceCryptoUsd}$)`,callback_data:"sub:crypto"}]]));return}if(d==="sub:stars"){const lang=await this.lang(uid);await this.tg.sendInvoice(cid,`${text("subscription",lang)} Threads Bot`,`30 ${text("days",lang)}`,`sub_${uid}`,LIMITS.priceStars);return}if(d==="sub:crypto")return this.crypto(cid,uid);if(d.startsWith("sub:check:"))return this.cryptoCheck(cb,Number(d.split(":")[2]));if(d.startsWith("sup:"))return this.supportCallback(cb);if(d.startsWith("ticket:"))return this.ticketCallback(cb);if(d.startsWith("adm:"))return this.adminCallback(cb);if(d.startsWith("cmt:"))return this.commentsPage(cb);if(/^(text|img):[\w.]+:\d+$/.test(d))return this.choice(cb)}
  private async crypto(cid:number,uid:number){const lang=await this.lang(uid),response=await fetch("https://pay.crypt.bot/api/createInvoice",{method:"POST",headers:{"content-type":"application/json","Crypto-Pay-API-Token":this.env.CRYPTO_BOT_TOKEN},body:JSON.stringify({asset:"USDT",amount:String(LIMITS.priceCryptoUsd),description:"Threads Bot Subscription — 30 days",payload:String(uid),paid_btn_name:"callback",paid_btn_url:`https://t.me/${(await this.tg.getMe()).username}`})});const data:any=await response.json();if(!data.ok){await this.tg.sendMessage(cid,"❌ Error.");return}await this.buttons(cid,`💎 <b>${LIMITS.priceCryptoUsd} USDT</b>\n${text("after_payment",lang)} «${text("i_paid",lang)}».`,kb([[{text:`💎 ${text("pay",lang)}`,url:data.result.pay_url}],[{text:`✅ ${text("i_paid",lang)}`,callback_data:`sub:check:${data.result.invoice_id}`}]]))}
@@ -129,14 +130,16 @@ export class Bot {
   if(!isAdmin(this.env,m.from!.id))return;
   const loading=await this.tg.sendMessage(m.chat.id,"🩺 Проверяю cookies...");
   const stats:any[]=await this.db.accountStats();
+  if(!stats.length){await this.tg.deleteMessage(m.chat.id,loading.message_id).catch(()=>{});await this.tg.sendMessage(m.chat.id,"📂 Аккаунтов нет. Пришли JSON файл.");return}
   const lines:string[]=[];
   for(const a of stats){
    const d=diagnoseAccountCookies(a.name,Boolean(a.is_alive),String(a.cookies||""));
-   if(d.issues.length)lines.push(`${d.isAlive?'🟢':'🔴'} <b>${esc(d.name)}</b>: ${d.issues.join('; ')}`);
+   const mark=d.isAlive?'🟢':'🔴';
+   const extra=d.issues.length?d.issues.join('; '):`ok, ${d.cookieCount} cookies`;
+   lines.push(`${mark} <b>${esc(d.name)}</b>: ${extra}`);
   }
-  const text=lines.length?lines.join("\n"):"✅ Все аккаунты в порядке";
   await this.tg.deleteMessage(m.chat.id,loading.message_id).catch(()=>{});
-  await this.tg.sendMessage(m.chat.id,`🩺 <b>Диагностика</b>\n\n${text}`);
+  await this.tg.sendMessage(m.chat.id,`🩺 <b>Диагностика</b>\n\n${lines.join("\n")}`);
  }
  private async accountDelete(m:TgMessage){
   if(!isAdmin(this.env,m.from!.id))return;
@@ -158,26 +161,25 @@ export class Bot {
   const bytes=new TextEncoder().encode(account.cookies);
   await this.tg.sendDocument(m.chat.id,bytes,`${name}.json`);
  }
- /** Обработка документа (JSON-файла с cookies) */
+ /** Обработка документа (JSON-файла с cookies). Подпись сообщения = имя аккаунта. */
  private async handleDocument(m:TgMessage){
   if(!isAdmin(this.env,m.from!.id))return;
   if(!m.document)return;
   const fname=m.document.file_name||"";
   if(!fname.toLowerCase().endsWith(".json")){await this.tg.sendMessage(m.chat.id,"❌ Пришли файл <b>.json</b> с cookies (Cookie-Editor или Playwright).");return}
-  const name=fname.replace(/\.json$/i,"");
-  if(!/^[\w.\-]{2,64}$/.test(name)){await this.tg.sendMessage(m.chat.id,"❌ Недопустимое имя файла.");return}
-  // Качаем файл через Telegram API
+  const caption=(m.caption||"").trim();
+  const name=(caption||fname.replace(/\.json$/i,"")).replace(/\s+/g,"_");
+  if(!/^[\w.\-]{2,64}$/.test(name)){await this.tg.sendMessage(m.chat.id,"❌ Недопустимое имя. Используй латиницу/цифры или подпись к файлу.");return}
   const file=await this.tg.getFile(m.document.file_id);
-  if(!file)return;
+  if(!file){await this.tg.sendMessage(m.chat.id,"❌ Не удалось скачать файл из Telegram.");return}
   const resp=await fetch(`https://api.telegram.org/file/bot${this.env.TELEGRAM_TOKEN}/${file}`);
+  if(!resp.ok){await this.tg.sendMessage(m.chat.id,`❌ Telegram file HTTP ${resp.status}`);return}
   const raw=await resp.text();
-  const validation=validateCookiesJson(raw);
-  if(!validation.ok){await this.tg.sendMessage(m.chat.id,`❌ ${validation.error}`);return}
-  // Сохраняем в БД
-  await this.db.accountUpsert(name,raw);
-  // Диагностика
-  const d=diagnoseAccountCookies(name,true,raw);
-  const warn=d.issues.length?`\n⚠️ ${d.issues.join('; ')}`:"";
-  await this.tg.sendMessage(m.chat.id,`✅ <b>${esc(name)}</b> — cookies сохранены в D1${warn}\n\n/accounts — список`);
+  const normalized=normalizeCookiesJson(raw);
+  if(!normalized.ok){await this.tg.sendMessage(m.chat.id,`❌ ${normalized.error}`);return}
+  await this.db.accountUpsert(name,normalized.json);
+  const d=diagnoseAccountCookies(name,true,normalized.json);
+  const warn=d.issues.length?`\n⚠️ ${d.issues.join('; ')}`:`\n🍪 ${d.cookieCount} cookies`;
+  await this.tg.sendMessage(m.chat.id,`✅ <b>${esc(name)}</b> — cookies сохранены в D1${warn}\n\n/accounts — список\n🩺 /account_check — диагностика`);
  }
 }

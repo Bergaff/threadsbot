@@ -1,7 +1,7 @@
 import { Bot } from "./bot";
 import { adminIds, type Env } from "./config";
 import { Database } from "./db";
-import { diagnoseAccountCookies } from "./threads";
+import { diagnoseAccountCookies } from "./cookies";
 import { Telegram, type TelegramUpdate } from "./telegram";
 
 /**

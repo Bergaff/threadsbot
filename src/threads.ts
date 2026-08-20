@@ -1,6 +1,17 @@
 import { launch, type BrowserContext, type Page } from "@cloudflare/playwright";
-import { LIMITS, KEY_COOKIES, type Env } from "./config";
+import { LIMITS, type Env } from "./config";
+import { playwrightCookies } from "./cookies";
 import { cleanPostText } from "./i18n";
+
+export {
+  diagnoseAccountCookies,
+  earliestCookieExpiry,
+  hasKeyCookies,
+  normalizeCookiesJson,
+  parseThreadsUsername,
+  validateCookiesJson,
+} from "./cookies";
+export type { AccountDiagnosis } from "./cookies";
 
 export interface Post { text: string; has_image: boolean; has_video: boolean; image?: Uint8Array }
 export interface Comment { author: string; text: string; top?: number }
@@ -14,66 +25,6 @@ const iso = () => new Date().toISOString();
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 class BrowserBusyError extends Error {}
-
-// ============================
-// ВАЛИДАЦИЯ И ДИАГНОСТИКА COOKIES
-// ============================
-
-/** Проверяет JSON-строку cookies. Возвращает (ok, result/err). */
-export function validateCookiesJson(raw: string): { ok: true; cookies: Record<string, unknown>[] } | { ok: false; error: string } {
-  let parsed: unknown;
-  try { parsed = JSON.parse(raw); }
-  catch (e) { return { ok: false, error: `JSON повреждён: ${e}` }; }
-  if (!Array.isArray(parsed) || parsed.length === 0) return { ok: false, error: "Нужен массив cookies (Cookie-Editor или Playwright)" };
-  for (const c of parsed) {
-    if (!c || typeof c !== "object" || !(c as Record<string, unknown>).name || (c as Record<string, unknown>).value === undefined)
-      return { ok: false, error: "Не все элементы имеют поля name/value" };
-  }
-  return { ok: true, cookies: parsed as Record<string, unknown>[] };
-}
-
-/** Самая ранняя дата истечения среди cookies (epoch ms) или null */
-export function earliestCookieExpiry(cookies: Record<string, unknown>[]): number | null {
-  const exps: number[] = [];
-  for (const c of cookies) {
-    const v = (c.expirationDate ?? c.expires) as number | undefined;
-    if (typeof v === "number" && v > 0) exps.push(v * 1000); // переводим секунды в ms
-  }
-  return exps.length ? Math.min(...exps) : null;
-}
-
-/** Есть ли ключевые cookies сессии */
-export function hasKeyCookies(cookies: Record<string, unknown>[]): boolean {
-  const names = new Set(cookies.map(c => String(c.name)));
-  return [...KEY_COOKIES].some(k => names.has(k));
-}
-
-export interface AccountDiagnosis {
-  name: string;
-  isAlive: boolean;
-  issues: string[];
-}
-
-/** Диагностика одного аккаунта по его cookies-строке из БД */
-export function diagnoseAccountCookies(name: string, isAlive: boolean, cookiesJson: string): AccountDiagnosis {
-  const issues: string[] = [];
-  const validation = validateCookiesJson(cookiesJson);
-  if (!validation.ok) {
-    issues.push(validation.error);
-  } else {
-    if (!hasKeyCookies(validation.cookies)) issues.push("нет ключевых cookies (sessionid/ig_did)");
-    const exp = earliestCookieExpiry(validation.cookies);
-    const now = Date.now();
-    if (exp !== null) {
-      if (exp < now) issues.push("cookies истекли — нужен новый экспорт");
-      else if (exp < now + LIMITS.cookieWarnDays * 86_400_000) {
-        const d = new Date(exp);
-        issues.push(`истекают ${String(d.getUTCDate()).padStart(2,'0')}.${String(d.getUTCMonth()+1).padStart(2,'0')}.${d.getUTCFullYear()}`);
-      }
-    }
-  }
-  return { name, isAlive, issues };
-}
 
 // ============================
 // BROWSER
@@ -133,8 +84,14 @@ async function openBrowser(env: Env, account: Account): Promise<Opened> {
         userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         viewport: { width: 680, height: 900 },
       });
-      await context.addCookies(cookieList(account.cookies));
       const page = await context.newPage();
+      // Как в рабочей Python-версии: сначала открываем домен, потом ставим cookies, потом reload.
+      // Иначе cookies с .threads.net / .instagram.com не прилипают к www.threads.com.
+      await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await sleep(2000);
+      await context.addCookies(cookieList(account.cookies));
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+      await sleep(3000);
       return { browser, context, page, startedAt: Date.now() };
     } catch (error) {
       await browser?.close().catch(() => {});

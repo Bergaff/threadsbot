@@ -12,6 +12,12 @@ export interface TelegramUpdate { update_id: number; message?: TgMessage; callba
 
 type ApiResult<T> = { ok: boolean; result: T; description?: string };
 
+function blobFromBytes(bytes: Uint8Array, type: string): Blob {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return new Blob([copy], { type });
+}
+
 export class Telegram {
   constructor(private readonly token: string) {}
   private async call<T>(method: string, body: Record<string, unknown>): Promise<T> {
@@ -23,8 +29,11 @@ export class Telegram {
     return data.result;
   }
   getMe(): Promise<TgUser> { return this.call("getMe", {}); }
+  sendChatAction(chat_id: number, action = "typing"): Promise<unknown> {
+    return this.call("sendChatAction", { chat_id, action });
+  }
   sendMessage(chat_id: number, text: string, reply_markup?: Keyboard): Promise<TgMessage> {
-    return this.call("sendMessage", { chat_id, text, parse_mode: "HTML", reply_markup });
+    return this.call("sendMessage", { chat_id, text, parse_mode: "HTML", reply_markup, disable_web_page_preview: true });
   }
   editText(chat_id: number, message_id: number, text: string, reply_markup?: Keyboard): Promise<unknown> {
     return this.call("editMessageText", { chat_id, message_id, text, parse_mode: "HTML", reply_markup });
@@ -47,7 +56,7 @@ export class Telegram {
   async sendPhoto(chatId: number, bytes: Uint8Array, caption: string): Promise<unknown> {
     const form = new FormData();
     form.set("chat_id", String(chatId)); form.set("caption", caption);
-    form.set("photo", new Blob([new Uint8Array(bytes).buffer as ArrayBuffer], { type: "image/png" }), "post.png");
+    form.set("photo", blobFromBytes(bytes, "image/png"), "post.png");
     const response = await fetch(`https://api.telegram.org/bot${this.token}/sendPhoto`, { method: "POST", body: form });
     const data = await response.json<ApiResult<unknown>>();
     if (!data.ok) throw new Error(`Telegram sendPhoto: ${data.description || response.status}`);
@@ -60,7 +69,7 @@ export class Telegram {
   async sendDocument(chat_id: number, bytes: Uint8Array, filename: string): Promise<unknown> {
     const form = new FormData();
     form.set("chat_id", String(chat_id));
-    form.set("document", new Blob([bytes.buffer as ArrayBuffer], { type: "application/json" }), filename);
+    form.set("document", blobFromBytes(bytes, "application/json"), filename);
     const response = await fetch(`https://api.telegram.org/bot${this.token}/sendDocument`, { method: "POST", body: form });
     const data = await response.json<ApiResult<unknown>>();
     if (!data.ok) throw new Error(`Telegram sendDocument: ${data.description || response.status}`);
