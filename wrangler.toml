@@ -51,4 +51,4 @@ head_sampling_rate = 1
 ADMIN_IDS = "369330135,657708753"
 STATS_EXCLUDE_IDS = "369330135,657708753"
 BASE_URL = "https://www.threads.com"
-VERSION = "pr5-2026-08-21-expiry"
+VERSION = "pr5-2026-08-21-notfound"

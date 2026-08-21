@@ -1,6 +1,7 @@
 import { launch, type BrowserContext, type Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
 import { playwrightCookies, snapshotHasSession } from "./cookies";
+import { isLoginUrl, isUserNotFoundPage } from "./profile";
 import { cleanPostText } from "./i18n";
 
 export {
@@ -161,11 +162,20 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
 }
 
 async function checkProfile(page: Page, env: Env, username: string): Promise<ThreadsStatus | null> {
+  // После openBrowser мы на главной. Если уже /login — сессия реально мертва.
+  if (isLoginUrl(page.url())) return "session_expired";
   await page.goto(`${BASE(env)}/@${username}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await sleep(4000);
   const body = await page.locator("body").innerText().catch(() => "");
-  if (["Page not found", "Страница не найдена", "isn't available", "недоступна"].some(x => body.includes(x))) return "user_not_found";
-  if (page.url().includes("login")) return "session_expired";
+  if (isUserNotFoundPage(body)) return "user_not_found";
+  if (isLoginUrl(page.url())) {
+    // Как в Python: несуществующий @username часто редиректит на /login.
+    // Проверяем главную — если там залогинены, профиль просто не существует.
+    await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await sleep(2000);
+    if (isLoginUrl(page.url())) return "session_expired";
+    return "user_not_found";
+  }
   await page.waitForSelector("span[dir='auto'],div[dir='auto']", { timeout: 15_000 }).catch(() => {});
   return null;
 }
@@ -340,7 +350,7 @@ export async function probeAccount(env: Env, name: string): Promise<{ name: stri
     opened = await openBrowser(env, account);
     await opened.page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await sleep(3000);
-    if (opened.page.url().includes("login")) {
+    if (isLoginUrl(opened.page.url())) {
       await markSessionExpired(env, name);
       return { name, ok: false, message: "Session expired" };
     }
