@@ -30,19 +30,22 @@ class BrowserBusyError extends Error {}
 // BROWSER
 // ============================
 
-const COLLECT_POSTS = `() => {
- const posts=[],seen=new Set();
- const containers=document.querySelectorAll('div[data-pressable-container="true"],article,div[role="article"]');
- for(const container of containers){let bestText='',has_image=false,has_video=false;
-  for(const img of container.querySelectorAll('img[src*="cdninstagram.com"],img[src*="fbcdn.net"]')){if((img.naturalWidth||img.width||0)>200){has_image=true;break}}
-  has_video=container.querySelectorAll('video,div[role="button"] svg[aria-label*="video"],div[role="button"] svg[aria-label="Play"]').length>0;
-  for(const el of container.querySelectorAll('span[dir="auto"],div[dir="auto"],span[class*="x1lliihq"]')){const text=(el.innerText||'').trim();if(text.length<20||/^(Follow|Подписаться|Translate|Перевести|See translation|See more|Like|Reply|Repost|Share|Verified|Автор|Ещё|Нравится|Поделиться)/i.test(text)||/^\d+$/.test(text)||/^\d{1,2}\s*[hчдms]$/i.test(text))continue;if(text.length>bestText.length)bestText=text}
-  if(bestText.length>25||has_image||has_video){const key=bestText.substring(0,100)+(has_image?'_img':'')+(has_video?'_vid':'');if(!seen.has(key)){seen.add(key);posts.push({text:bestText,has_image,has_video})}}
- } return posts;
-}`;
-
 function cookieList(raw: string): any[] {
   return playwrightCookies(raw);
+}
+
+async function addAccountCookies(context: BrowserContext, raw: string) {
+  const cookies = cookieList(raw) as Parameters<BrowserContext["addCookies"]>[0];
+  try {
+    await context.addCookies(cookies);
+    return;
+  } catch (first) {
+    let added = 0;
+    for (const cookie of cookies) {
+      try { await context.addCookies([cookie]); added++; } catch { /* skip one bad cookie */ }
+    }
+    if (!added) throw first;
+  }
 }
 
 function keepSessionCookies(raw: string): string | null {
@@ -82,7 +85,7 @@ async function openBrowser(env: Env, account: Account): Promise<Opened> {
       // Иначе cookies с .threads.net / .instagram.com не прилипают к www.threads.com.
       await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 30_000 });
       await sleep(2000);
-      await context.addCookies(cookieList(account.cookies));
+      await addAccountCookies(context, account.cookies);
       await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
       await sleep(3000);
       return { browser, context, page, startedAt: Date.now() };
@@ -111,7 +114,33 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
   const all: Post[] = [], seen = new Set<string>();
   let stall = 0;
   for (let i = 0; i < 35; i++) {
-    const evaluated = await page.evaluate(COLLECT_POSTS) as unknown;
+    const evaluated = await page.evaluate(() => {
+      const posts: { text: string; has_image: boolean; has_video: boolean }[] = [];
+      const seen = new Set<string>();
+      const containers = document.querySelectorAll('div[data-pressable-container="true"],article,div[role="article"]');
+      for (const container of containers) {
+        let bestText = "";
+        let has_image = false;
+        let has_video = false;
+        for (const img of container.querySelectorAll('img[src*="cdninstagram.com"],img[src*="fbcdn.net"]')) {
+          const node = img as HTMLImageElement;
+          if ((node.naturalWidth || node.width || 0) > 200) { has_image = true; break; }
+        }
+        has_video = container.querySelectorAll('video,div[role="button"] svg[aria-label*="video"],div[role="button"] svg[aria-label="Play"]').length > 0;
+        for (const el of container.querySelectorAll('span[dir="auto"],div[dir="auto"],span[class*="x1lliihq"]')) {
+          const text = ((el as HTMLElement).innerText || "").trim();
+          if (text.length < 20) continue;
+          if (/^(Follow|Подписаться|Translate|Перевести|See translation|See more|Like|Reply|Repost|Share|Verified|Автор|Ещё|Нравится|Поделиться)/i.test(text)) continue;
+          if (/^\d+$/.test(text) || /^\d{1,2}\s*[hчдms]$/i.test(text)) continue;
+          if (text.length > bestText.length) bestText = text;
+        }
+        if (bestText.length > 25 || has_image || has_video) {
+          const key = bestText.substring(0, 100) + (has_image ? "_img" : "") + (has_video ? "_vid" : "");
+          if (!seen.has(key)) { seen.add(key); posts.push({ text: bestText, has_image, has_video }); }
+        }
+      }
+      return posts;
+    }) as unknown;
     if (!Array.isArray(evaluated)) throw new Error("Threads returned an invalid posts collection");
     const current = evaluated as Post[];
     let added = 0;
@@ -186,7 +215,7 @@ async function capturePosts(page: Page, posts: Post[]): Promise<Post[]> {
   return result;
 }
 
-export async function fetchPosts(env: Env, username: string, mode: "text" | "img", amount = 20): Promise<{ data: Post[] | null; status: ThreadsStatus; account?: string }> {
+export async function fetchPosts(env: Env, username: string, mode: "text" | "img", amount = 20): Promise<{ data: Post[] | null; status: ThreadsStatus; account?: string; error?: string }> {
   const tried: string[] = [];
   while (true) {
     const account = await chooseAccount(env, tried);
@@ -207,7 +236,7 @@ export async function fetchPosts(env: Env, username: string, mode: "text" | "img
     } catch (error) {
       await markTransientError(env, account.name, error);
       if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name };
-      return { data: null, status: "service_error", account: account.name };
+      return { data: null, status: "service_error", account: account.name, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) };
     } finally {
       await closeBrowser(env, opened);
     }
@@ -255,7 +284,7 @@ async function collectComments(page: Page, target = 20): Promise<Comment[]> {
   return result.slice(0, target);
 }
 
-export async function fetchComments(env: Env, username: string, index: number, amount = 20): Promise<{ data: Comment[] | null; status: ThreadsStatus; account?: string }> {
+export async function fetchComments(env: Env, username: string, index: number, amount = 20): Promise<{ data: Comment[] | null; status: ThreadsStatus; account?: string; error?: string }> {
   const tried: string[] = [];
   while (true) {
     const account = await chooseAccount(env, tried);
@@ -290,7 +319,7 @@ export async function fetchComments(env: Env, username: string, index: number, a
     } catch (error) {
       await markTransientError(env, account.name, error);
       if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name };
-      return { data: null, status: "service_error", account: account.name };
+      return { data: null, status: "service_error", account: account.name, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) };
     } finally {
       await closeBrowser(env, opened);
     }
