@@ -118,6 +118,17 @@ npm run dev
 - Endpoint Telegram защищён и секретным URL, и заголовком `X-Telegram-Bot-Api-Secret-Token`.
 - Пользовательский текст экранируется перед отправкой в Telegram HTML.
 
+## Как принимать изменения с Arena, не мержа в `main`
+
+Рабочая ветка сессии (например `arena/01a020b8-threadsbot`) живёт отдельно от `main`.
+Pull Request — это только предложение. `main` не меняется, пока на GitHub не нажата
+зелёная кнопка **Merge**. Смотреть diff, тестировать ветку и даже делать
+`wrangler deploy` с неё можно без мержа. Подробности — в `GUIDE_ACCOUNTS.md`, раздел 6.
+
+Чтобы **выкатить эту ветку на живой Worker из Google Colab** (без мержа):
+[`notebooks/deploy_branch_no_merge.ipynb`](notebooks/deploy_branch_no_merge.ipynb)
+→ [открыть в Colab](https://colab.research.google.com/github/Bergaff/threadsbot/blob/arena/01a020b8-threadsbot/notebooks/deploy_branch_no_merge.ipynb).
+
 ## Старый Python-код
 
 `bot.py` и `threads_check.py` оставлены как референс для сверки поведения. Production entrypoint теперь `src/index.ts`.
