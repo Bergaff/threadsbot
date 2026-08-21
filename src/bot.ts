@@ -148,7 +148,8 @@ export class Bot {
    const d=diagnoseAccountCookies(a.name,Boolean(a.is_alive),String(a.cookies||""));
    if(d.missingKeys.includes("sessionid")) await this.db.accountMarkDead(a.name,"no sessionid");
    const mark=d.missingKeys.includes("sessionid")?'🔴':(d.isAlive?'🟢':'🔴');
-   const extra=d.issues.length?d.issues.join('; '):`ok, ${d.cookieCount} cookies`;
+   const exp=d.expiresAt?` до ${String(new Date(d.expiresAt).getUTCDate()).padStart(2,'0')}.${String(new Date(d.expiresAt).getUTCMonth()+1).padStart(2,'0')}.${new Date(d.expiresAt).getUTCFullYear()}`:' без срока';
+   const extra=d.issues.length?d.issues.join('; '):`ok, ${d.cookieCount} cookies${exp}`;
    const names=d.names.length?`\n   🍪 ${esc(d.names.slice(0,20).join(', '))}${d.names.length>20?'…':''}`:"";
    lines.push(`${mark} <b>${esc(d.name)}</b>: ${extra}${names}`);
   }
