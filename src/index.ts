@@ -126,10 +126,15 @@ export default {
     for (const message of batch.messages) {
       const update = message.body;
       const existing = await env.DB
-        .prepare("SELECT status FROM processed_updates WHERE update_id=?")
+        .prepare("SELECT status, updated_at FROM processed_updates WHERE update_id=?")
         .bind(update.update_id)
-        .first<{ status: string }>();
+        .first<{ status: string; updated_at: string }>();
       if (existing?.status === "done") { message.ack(); continue; }
+      if (existing?.status === "processing") {
+        // Повторная доставка того же update, пока браузер ещё работает — не шлём второй «⏳».
+        message.ack();
+        continue;
+      }
       await env.DB
         .prepare("INSERT INTO processed_updates VALUES(?,'processing',?) ON CONFLICT(update_id) DO UPDATE SET status='processing',updated_at=excluded.updated_at")
         .bind(update.update_id, new Date().toISOString())

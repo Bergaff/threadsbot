@@ -2,7 +2,7 @@ import { LIMITS, type Env, excludedIds } from "./config";
 
 const now = () => new Date().toISOString();
 const since = (ms: number) => new Date(Date.now() - ms).toISOString();
-export type StateName = "last_button" | "last_username" | "waiting_support" | "admin_reply";
+export type StateName = "last_button" | "last_username" | "waiting_support" | "admin_reply" | "fetch_lock";
 
 export class Database {
   constructor(private readonly env: Env) {}
