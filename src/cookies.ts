@@ -9,7 +9,10 @@ export interface AccountDiagnosis {
   missingKeys: string[];
   cookieCount: number;
   expiresAt: number | null;
+  names: string[];
 }
+
+const SESSION_ALIASES = new Set(["sessionid", "session_id", "ig_sessionid"]);
 
 export interface NormalizedCookies {
   ok: true;
@@ -65,9 +68,17 @@ export function validateCookiesJson(raw: string): { ok: true; cookies: CookieRec
     return { ok: false, error: "Нужен массив cookies (Cookie-Editor или Playwright)" };
   }
   for (const cookie of cookies) {
-    if (!cookie || typeof cookie !== "object" || !cookie.name || cookie.value === undefined) {
+    if (!cookie || typeof cookie !== "object") {
       return { ok: false, error: "Не все элементы имеют поля name/value" };
     }
+    const rec = cookie as CookieRecord;
+    const name = rec.name ?? rec.Name;
+    const value = rec.value ?? rec.Value;
+    if (!name || value === undefined) {
+      return { ok: false, error: "Не все элементы имеют поля name/value" };
+    }
+    rec.name = String(name);
+    rec.value = value;
   }
   return { ok: true, cookies };
 }
@@ -84,33 +95,52 @@ export function earliestCookieExpiry(cookies: CookieRecord[]): number | null {
   return expiries.length ? Math.min(...expiries) : null;
 }
 
-export function cookieNames(cookies: CookieRecord[]): Set<string> {
-  return new Set(cookies.map(cookie => String(cookie.name)));
+export function cookieNameList(cookies: CookieRecord[]): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const cookie of cookies) {
+    const name = String(cookie.name ?? cookie.Name ?? "");
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
 }
 
-/** sessionid обязателен; ds_user_id и ig_did желательны. */
+export function cookieNames(cookies: CookieRecord[]): Set<string> {
+  return new Set(cookieNameList(cookies));
+}
+
+/** sessionid обязателен (HttpOnly). Без него экспорт из Cookie-Editor бесполезен. */
 export function missingKeyCookies(cookies: CookieRecord[]): string[] {
-  const names = cookieNames(cookies);
+  const names = new Set(cookieNameList(cookies).map(name => name.toLowerCase()));
   const missing: string[] = [];
-  if (!names.has("sessionid") && !names.has("session_id")) missing.push("sessionid");
+  if (![...SESSION_ALIASES].some(alias => names.has(alias))) missing.push("sessionid");
   if (!names.has("ds_user_id")) missing.push("ds_user_id");
   if (!names.has("ig_did")) missing.push("ig_did");
   return missing;
 }
 
 export function hasKeyCookies(cookies: CookieRecord[]): boolean {
-  return missingKeyCookies(cookies).length === 0 || cookieNames(cookies).has("sessionid") || cookieNames(cookies).has("session_id");
+  return !missingKeyCookies(cookies).includes("sessionid");
+}
+
+export function snapshotHasSession(raw: string): boolean {
+  const validation = validateCookiesJson(raw);
+  return validation.ok && !missingKeyCookies(validation.cookies).includes("sessionid");
 }
 
 export function diagnoseAccountCookies(name: string, isAlive: boolean, cookiesJson: string): AccountDiagnosis {
   const issues: string[] = [];
   const validation = validateCookiesJson(cookiesJson);
   if (!validation.ok) {
-    return { name, isAlive, issues: [validation.error], missingKeys: [...KEY_COOKIES], cookieCount: 0, expiresAt: null };
+    return { name, isAlive, issues: [validation.error], missingKeys: [...KEY_COOKIES], cookieCount: 0, expiresAt: null, names: [] };
   }
+  const names = cookieNameList(validation.cookies);
   const missingKeys = missingKeyCookies(validation.cookies);
-  if (missingKeys.includes("sessionid")) issues.push("нет sessionid — сессия не рабочая, нужен новый экспорт");
-  else if (missingKeys.length) issues.push(`нет ${missingKeys.join(", ")}`);
+  if (missingKeys.includes("sessionid")) {
+    issues.push("нет sessionid (HttpOnly). В Cookie-Editor включи HttpOnly и экспортни JSON заново");
+  } else if (missingKeys.length) issues.push(`нет ${missingKeys.join(", ")}`);
   const expiresAt = earliestCookieExpiry(validation.cookies);
   const now = Date.now();
   if (expiresAt !== null) {
@@ -118,7 +148,7 @@ export function diagnoseAccountCookies(name: string, isAlive: boolean, cookiesJs
     if (expiresAt < now) issues.push(`cookies истекли ${stamp} — нужен новый экспорт`);
     else if (expiresAt < now + LIMITS.cookieWarnDays * 86_400_000) issues.push(`истекают ${stamp}`);
   }
-  return { name, isAlive, issues, missingKeys, cookieCount: validation.cookies.length, expiresAt };
+  return { name, isAlive, issues, missingKeys, cookieCount: validation.cookies.length, expiresAt, names };
 }
 
 export function normalizeCookiesJson(raw: string): NormalizedCookies | { ok: false; error: string } {

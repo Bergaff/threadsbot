@@ -75,12 +75,16 @@ export class Database {
   async accountDelete(name:string) { return this.db.prepare("DELETE FROM threads_accounts WHERE name=?").bind(name).run(); }
   /** ВАЖНО: сохраняет/обновляет cookies аккаунта. Раньше здесь была опечатка iso() -> ReferenceError, из-за
    *  чего загрузка JSON и запись «жила» аккаунта падали. Теперь используется общий now(). */
-  accountUpsert(name: string, cookies: string) {
+  accountUpsert(name: string, cookies: string, alive = true, lastError: string | null = null) {
     const ts = now();
+    const flag = alive ? 1 : 0;
     return this.db.prepare(
-      "INSERT INTO threads_accounts(name,cookies,enabled,is_alive,hourly_reset,updated_at) VALUES(?,?,1,1,?,?) " +
-      "ON CONFLICT(name) DO UPDATE SET cookies=excluded.cookies,enabled=1,is_alive=1,last_error=NULL,updated_at=excluded.updated_at"
-    ).bind(name, cookies, ts, ts).run();
+      "INSERT INTO threads_accounts(name,cookies,enabled,is_alive,last_error,hourly_reset,updated_at) VALUES(?,?,1,?,?,?,?) " +
+      "ON CONFLICT(name) DO UPDATE SET cookies=excluded.cookies,enabled=1,is_alive=excluded.is_alive,last_error=excluded.last_error,updated_at=excluded.updated_at"
+    ).bind(name, cookies, flag, lastError, ts, ts).run();
+  }
+  accountMarkDead(name: string, reason: string) {
+    return this.db.prepare("UPDATE threads_accounts SET is_alive=0,last_error=?,updated_at=? WHERE name=?").bind(reason, now(), name).run();
   }
 
   async analytics() {

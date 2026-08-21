@@ -1,6 +1,6 @@
 import { launch, type BrowserContext, type Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
-import { playwrightCookies } from "./cookies";
+import { playwrightCookies, snapshotHasSession } from "./cookies";
 import { cleanPostText } from "./i18n";
 
 export {
@@ -42,18 +42,11 @@ const COLLECT_POSTS = `() => {
 }`;
 
 function cookieList(raw: string): any[] {
-  const parsed = JSON.parse(raw) as Record<string, unknown>[];
-  if (!Array.isArray(parsed)) throw new Error("Invalid cookies JSON");
-  return parsed.map(c => {
-    let sameSite = String(c.sameSite || "Lax");
-    if (["unspecified", "null", ""].includes(sameSite)) sameSite = "Lax";
-    else if (["no_restriction", "none"].includes(sameSite.toLowerCase())) sameSite = "None";
-    else sameSite = sameSite[0].toUpperCase() + sameSite.slice(1).toLowerCase();
-    const out: any = { name: c.name, value: c.value, domain: c.domain, path: c.path || "/", httpOnly: Boolean(c.httpOnly), secure: c.secure !== false, sameSite };
-    const expires = c.expirationDate ?? c.expires;
-    if (typeof expires === "number" && expires > 0) out.expires = expires;
-    return out;
-  });
+  return playwrightCookies(raw);
+}
+
+function keepSessionCookies(raw: string): string | null {
+  return snapshotHasSession(raw) ? raw : null;
 }
 
 async function logBrowser(env: Env, type: string, data = "") {
@@ -208,8 +201,8 @@ export async function fetchPosts(env: Env, username: string, mode: "text" | "img
       let data = await collectPosts(opened.page, amount);
       if (!data.length) return { data: null, status: "no_posts", account: account.name };
       if (mode === "img") data = await capturePosts(opened.page, data);
-      const updated = JSON.stringify(await opened.context.cookies());
-      await markSuccess(env, account.name, data.length, updated);
+      const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+      await markSuccess(env, account.name, data.length, updated || undefined);
       return { data, status: "ok", account: account.name };
     } catch (error) {
       await markTransientError(env, account.name, error);
@@ -291,8 +284,8 @@ export async function fetchComments(env: Env, username: string, index: number, a
       await sleep(4000);
       await opened.page.evaluate(() => window.scrollBy(0, 800));
       const data = await collectComments(opened.page, amount);
-      const updated = JSON.stringify(await opened.context.cookies());
-      await markSuccess(env, account.name, data.length, updated);
+      const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+      await markSuccess(env, account.name, data.length, updated || undefined);
       return { data, status: "ok", account: account.name };
     } catch (error) {
       await markTransientError(env, account.name, error);
@@ -322,8 +315,12 @@ export async function probeAccount(env: Env, name: string): Promise<{ name: stri
       await markSessionExpired(env, name);
       return { name, ok: false, message: "Session expired" };
     }
-    const updated = JSON.stringify(await opened.context.cookies());
-    await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,cookies=?,updated_at=? WHERE name=?").bind(updated, iso(), name).run();
+    const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+    if (updated) {
+      await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,cookies=?,updated_at=? WHERE name=?").bind(updated, iso(), name).run();
+    } else {
+      await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,updated_at=? WHERE name=?").bind(iso(), name).run();
+    }
     return { name, ok: true, message: "Session is valid" };
   } catch (error) {
     await markTransientError(env, name, error);

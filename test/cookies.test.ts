@@ -92,4 +92,20 @@ describe("cookies json", () => {
     const d = diagnoseAccountCookies("acc", true, raw);
     expect(d.issues.some(x => x.includes("истекли"))).toBe(true);
   });
+  it("flags export without HttpOnly sessionid and lists names", () => {
+    const raw = JSON.stringify([
+      { name: "csrftoken", value: "a" },
+      { name: "mid", value: "b" },
+      { name: "ig_did", value: "c" },
+    ]);
+    const d = diagnoseAccountCookies("gecko", true, raw);
+    expect(d.missingKeys).toContain("sessionid");
+    expect(d.names).toEqual(["csrftoken", "mid", "ig_did"]);
+    expect(d.issues.some(x => x.includes("HttpOnly"))).toBe(true);
+  });
+  it("accepts sessionid case-insensitively", () => {
+    const raw = JSON.stringify([{ name: "SessionID", value: "x" }, { name: "ds_user_id", value: "1" }, { name: "ig_did", value: "z" }]);
+    const d = diagnoseAccountCookies("acc", true, raw);
+    expect(d.missingKeys).not.toContain("sessionid");
+  });
 });

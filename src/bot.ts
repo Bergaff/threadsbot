@@ -124,7 +124,7 @@ export class Bot {
     ?"\n⚠️ Нет Queue или Browser binding.\nНужен <b>Workers Paid</b> и деплой через <code>npx wrangler deploy</code>.\nСмена git-ветки в Cloudflare сама код не выкатывает — нужен успешный Build."
     :"\n✅ Bindings на месте. Если посты не идут — Workers → Logs и Queue threadsbot-updates.";
   await this.tg.sendMessage(m.chat.id,
-    `🧭 <b>Diag</b>\nversion: <code>${esc(version)}</code>\nqueue: ${queue?"✅":"❌"} UPDATES\nbrowser: ${browser?"✅":"❌"} BROWSER\naccounts: ${counts.alive||0}/${counts.total} alive\n${paidHint}\n\nЖивой код = version pr5-2026-08-20-deploy. Если version unknown — задеплоен старый main.`);
+    `🧭 <b>Diag</b>\nversion: <code>${esc(version)}</code>\nqueue: ${queue?"✅":"❌"} UPDATES\nbrowser: ${browser?"✅":"❌"} BROWSER\naccounts: ${counts.alive||0}/${counts.total} alive\n${paidHint}\n\nЕсли version unknown — это старый main, передеплой Arena-ветку.`);
  }
  // ============================
  // УПРАВЛЕНИЕ АККАУНТАМИ
@@ -146,9 +146,11 @@ export class Bot {
   const lines:string[]=[];
   for(const a of stats){
    const d=diagnoseAccountCookies(a.name,Boolean(a.is_alive),String(a.cookies||""));
-   const mark=d.isAlive?'🟢':'🔴';
+   if(d.missingKeys.includes("sessionid")) await this.db.accountMarkDead(a.name,"no sessionid");
+   const mark=d.missingKeys.includes("sessionid")?'🔴':(d.isAlive?'🟢':'🔴');
    const extra=d.issues.length?d.issues.join('; '):`ok, ${d.cookieCount} cookies`;
-   lines.push(`${mark} <b>${esc(d.name)}</b>: ${extra}`);
+   const names=d.names.length?`\\n   🍪 ${esc(d.names.slice(0,20).join(', '))}${d.names.length>20?'…':''}`:"";
+   lines.push(`${mark} <b>${esc(d.name)}</b>: ${extra}${names}`);
   }
   await this.tg.deleteMessage(m.chat.id,loading.message_id).catch(()=>{});
   await this.tg.sendMessage(m.chat.id,`🩺 <b>Диагностика</b>\n\n${lines.join("\n")}`);
@@ -189,9 +191,12 @@ export class Bot {
   const raw=await resp.text();
   const normalized=normalizeCookiesJson(raw);
   if(!normalized.ok){await this.tg.sendMessage(m.chat.id,`❌ ${normalized.error}`);return}
-  await this.db.accountUpsert(name,normalized.json);
   const d=diagnoseAccountCookies(name,true,normalized.json);
+  const alive=!d.missingKeys.includes("sessionid");
+  await this.db.accountUpsert(name,normalized.json,alive,alive?null:"no sessionid");
   const warn=d.issues.length?`\n⚠️ ${d.issues.join('; ')}`:`\n🍪 ${d.cookieCount} cookies`;
-  await this.tg.sendMessage(m.chat.id,`✅ <b>${esc(name)}</b> — cookies сохранены в D1${warn}\n\n/accounts — список\n🩺 /account_check — диагностика`);
+  const names=d.names.length?`\n🍪 ${esc(d.names.slice(0,25).join(', '))}`:"";
+  const hint=alive?"":"\n\nsessionid — HttpOnly. Cookie-Editor: включи HttpOnly → Export JSON → пришли файл снова.";
+  await this.tg.sendMessage(m.chat.id,`${alive?"✅":"⚠️"} <b>${esc(name)}</b> — cookies в D1${alive?"":" (не живой)"}${warn}${names}${hint}\n\n/accounts — список\n🩺 /account_check`);
  }
 }
