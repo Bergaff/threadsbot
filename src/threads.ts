@@ -14,7 +14,35 @@ export {
 } from "./cookies";
 export type { AccountDiagnosis } from "./cookies";
 
-export interface Post { text: string; has_image: boolean; has_video: boolean; image?: Uint8Array }
+export interface Post {
+  text: string;
+  has_image: boolean;
+  has_video: boolean;
+  image?: Uint8Array;
+  imageUrl?: string;
+  images?: string[];
+  postUrl?: string;
+  likes?: string;
+  replies?: string;
+  date?: string;
+  author?: string;
+  authorAvatar?: string;
+}
+
+export interface ProfileMeta {
+  username: string;
+  displayName: string;
+  bio: string;
+  avatar: string;
+  followers: string;
+  verified: boolean;
+}
+
+export interface ProfileData {
+  profile: ProfileMeta;
+  posts: Post[];
+}
+
 export interface Comment { author: string; text: string; top?: number }
 export type ThreadsStatus = "ok" | "user_not_found" | "session_expired" | "no_posts" | "post_not_found" | "all_dead" | "browser_busy" | "service_error";
 type Account = { name: string; cookies: string; hourly_requests: number; hourly_reset: string };
@@ -116,18 +144,62 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
   let stall = 0;
   for (let i = 0; i < 35; i++) {
     const evaluated = await page.evaluate(() => {
-      const posts: { text: string; has_image: boolean; has_video: boolean }[] = [];
+      const posts: {
+        text: string;
+        has_image: boolean;
+        has_video: boolean;
+        imageUrl?: string;
+        images?: string[];
+        postUrl?: string;
+        likes?: string;
+        replies?: string;
+        date?: string;
+        author?: string;
+        authorAvatar?: string;
+      }[] = [];
       const seen = new Set<string>();
       const containers = document.querySelectorAll('div[data-pressable-container="true"],article,div[role="article"]');
       for (const container of containers) {
         let bestText = "";
         let has_image = false;
         let has_video = false;
+        const imgList: string[] = [];
+
         for (const img of container.querySelectorAll('img[src*="cdninstagram.com"],img[src*="fbcdn.net"]')) {
           const node = img as HTMLImageElement;
-          if ((node.naturalWidth || node.width || 0) > 200) { has_image = true; break; }
+          const src = node.currentSrc || node.src;
+          if ((node.naturalWidth || node.width || 0) > 150 || (src && !src.includes("s150x150") && !src.includes("s50x50") && !node.alt?.includes("profile picture"))) {
+            has_image = true;
+            if (src && !imgList.includes(src)) imgList.push(src);
+          }
         }
         has_video = container.querySelectorAll('video,div[role="button"] svg[aria-label*="video"],div[role="button"] svg[aria-label="Play"]').length > 0;
+
+        let postUrl = "";
+        const pLink = container.querySelector('a[href*="/post/"]') as HTMLAnchorElement | null;
+        if (pLink) {
+          postUrl = pLink.getAttribute("href") || "";
+        }
+
+        let author = "";
+        const authorLink = container.querySelector('a[href^="/@"][role="link"], a[href^="/@"]');
+        if (authorLink) {
+          const m = (authorLink.getAttribute("href") || "").match(/\/@([A-Za-z0-9._]+)/);
+          if (m) author = m[1];
+        }
+
+        let authorAvatar = "";
+        const avatarImg = container.querySelector('img[alt*="profile picture"], img[alt*="фото профиля"]') as HTMLImageElement | null;
+        if (avatarImg) {
+          authorAvatar = avatarImg.currentSrc || avatarImg.src || "";
+        }
+
+        let date = "";
+        const timeEl = container.querySelector("time");
+        if (timeEl) {
+          date = (timeEl.getAttribute("datetime") || timeEl.innerText || "").trim();
+        }
+
         for (const el of container.querySelectorAll('span[dir="auto"],div[dir="auto"],span[class*="x1lliihq"]')) {
           const text = ((el as HTMLElement).innerText || "").trim();
           if (text.length < 20) continue;
@@ -137,7 +209,20 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
         }
         if (bestText.length > 25 || has_image || has_video) {
           const key = bestText.substring(0, 100) + (has_image ? "_img" : "") + (has_video ? "_vid" : "");
-          if (!seen.has(key)) { seen.add(key); posts.push({ text: bestText, has_image, has_video }); }
+          if (!seen.has(key)) {
+            seen.add(key);
+            posts.push({
+              text: bestText,
+              has_image,
+              has_video,
+              imageUrl: imgList[0],
+              images: imgList,
+              postUrl,
+              author,
+              authorAvatar,
+              date,
+            });
+          }
         }
       }
       return posts;
@@ -223,6 +308,90 @@ async function capturePosts(page: Page, posts: Post[]): Promise<Post[]> {
     } catch { /* one failed screenshot must not fail the whole request */ }
   }
   return result;
+}
+
+async function collectProfileHeader(page: Page, fallbackUsername: string): Promise<ProfileMeta> {
+  return await page.evaluate((uname) => {
+    let displayName = uname;
+    let bio = "";
+    let avatar = "";
+    let followers = "";
+    let verified = false;
+
+    // Avatar
+    for (const img of document.querySelectorAll('header img, img[alt*="profile picture"], img[alt*="фото профиля"]')) {
+      const el = img as HTMLImageElement;
+      const src = el.currentSrc || el.src;
+      if (src && !src.includes("data:") && (el.naturalWidth || el.width || 0) > 30) {
+        avatar = src;
+        break;
+      }
+    }
+
+    // Display Name
+    const h1 = document.querySelector('header h1, h1, header h2');
+    if (h1 && (h1 as HTMLElement).innerText.trim()) {
+      displayName = (h1 as HTMLElement).innerText.trim();
+    }
+
+    // Bio
+    const bioCandidate = document.querySelector('header span[dir="auto"], header div[dir="auto"]');
+    if (bioCandidate) {
+      bio = (bioCandidate as HTMLElement).innerText.trim();
+    }
+
+    // Followers
+    for (const el of document.querySelectorAll('header span, header div')) {
+      const t = ((el as HTMLElement).innerText || "").trim();
+      if (/(\d+[\d.,]*\s*(тыс\.|млн|k|m|followers|подписчик|seguidore))/i.test(t)) {
+        followers = t;
+        break;
+      }
+    }
+
+    // Verified badge
+    verified = document.querySelectorAll('header svg[aria-label*="Verified"], header svg[aria-label*="Подтверждено"]').length > 0;
+
+    return {
+      username: uname,
+      displayName,
+      bio,
+      avatar,
+      followers,
+      verified,
+    };
+  }, fallbackUsername);
+}
+
+export async function fetchProfileWithPosts(
+  env: Env,
+  username: string,
+  amount = 20
+): Promise<{ data: ProfileData | null; status: ThreadsStatus; account?: string; error?: string }> {
+  const tried: string[] = [];
+  while (true) {
+    const account = await chooseAccount(env, tried);
+    if (!account) return { data: null, status: "all_dead" };
+    tried.push(account.name);
+    let opened: Opened | undefined;
+    try {
+      opened = await openBrowser(env, account);
+      const invalid = await checkProfile(opened.page, env, username);
+      if (invalid === "session_expired") { await markSessionExpired(env, account.name); continue; }
+      if (invalid) return { data: null, status: invalid, account: account.name };
+      const profile = await collectProfileHeader(opened.page, username);
+      const posts = await collectPosts(opened.page, amount);
+      const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+      await markSuccess(env, account.name, posts.length, updated || undefined);
+      return { data: { profile, posts }, status: "ok", account: account.name };
+    } catch (error) {
+      await markTransientError(env, account.name, error);
+      if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name };
+      return { data: null, status: "service_error", account: account.name, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) };
+    } finally {
+      await closeBrowser(env, opened);
+    }
+  }
 }
 
 export async function fetchPosts(env: Env, username: string, mode: "text" | "img", amount = 20): Promise<{ data: Post[] | null; status: ThreadsStatus; account?: string; error?: string }> {

@@ -3,6 +3,16 @@ import { adminIds, type Env } from "./config";
 import { Database } from "./db";
 import { diagnoseAccountCookies } from "./cookies";
 import { Telegram, type TelegramUpdate } from "./telegram";
+import { fetchComments, fetchProfileWithPosts, type ProfileData, type Comment } from "./threads";
+import {
+  handleImageProxy,
+  renderHomePage,
+  renderPrivacyPage,
+  renderProfilePage,
+  renderRobotsTxt,
+  renderSitemap,
+  renderTermsPage,
+} from "./web";
 
 /**
  * Быстрые апдейты обрабатываются прямо в fetch() (через ctx.waitUntil, чтобы Telegram
@@ -40,6 +50,112 @@ async function notifyError(env: Env, error: unknown) {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // ==========================================
+    // ВЕБ-САЙТ И ЗЕРКАЛО ДЛЯ БРАУЗЕРА (БЕЗ VPN)
+    // ==========================================
+
+    // Главная страница
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      return renderHomePage(env);
+    }
+
+    // Служебные страницы и SEO
+    if (url.pathname === "/terms") return renderTermsPage();
+    if (url.pathname === "/privacy") return renderPrivacyPage();
+    if (url.pathname === "/robots.txt") return renderRobotsTxt(url.origin);
+    if (url.pathname === "/sitemap.xml") {
+      return renderSitemap(url.origin, ["durov", "mosseri", "zuck", "mrbeast", "openai", "techcrunch"]);
+    }
+
+    // Прокси для изображений (чтобы грузились без VPN в РФ)
+    if (url.pathname === "/api/img") {
+      return handleImageProxy(request);
+    }
+
+    // Просмотр профиля: /@username или /profile/username
+    const profileMatch = url.pathname.match(/^\/(?:@|profile\/)([A-Za-z0-9._]+)$/);
+    if (profileMatch) {
+      const username = profileMatch[1].toLowerCase();
+      const db = new Database(env);
+      const cached = await db.cache<ProfileData>(username, "web_profile");
+      return renderProfilePage(env, username, cached);
+    }
+
+    // API для получения данных профиля и постов (для "крутить как обычный тредс")
+    if (url.pathname.startsWith("/api/profile/")) {
+      const username = decodeURIComponent(url.pathname.slice("/api/profile/".length)).replace(/^@/, "").toLowerCase();
+      if (!username || !/^[A-Za-z0-9._]{1,60}$/.test(username)) {
+        return Response.json({ ok: false, error: "Некорректный username" }, { status: 400 });
+      }
+
+      const db = new Database(env);
+      // Сначала проверяем D1 кеш
+      const cached = await db.cache<ProfileData>(username, "web_profile");
+      if (cached) {
+        return Response.json({ ok: true, cached: true, ...cached });
+      }
+
+      // Если нет в кеше и есть браузер — запрашиваем
+      if (!env.BROWSER) {
+        return Response.json({ ok: false, error: "Browser Run недоступен на этом плане Cloudflare" }, { status: 503 });
+      }
+
+      const counts = await db.accountCounts();
+      if (!counts.alive) {
+        return Response.json({
+          ok: false,
+          error: "Нет активных технических аккаунтов Threads. Добавьте JSON cookies через Telegram-бот (/accounts).",
+        }, { status: 503 });
+      }
+
+      try {
+        const fetched = await fetchProfileWithPosts(env, username, 20);
+        if (fetched.status === "ok" && fetched.data) {
+          await db.setCache(username, "web_profile", fetched.data);
+          return Response.json({ ok: true, cached: false, ...fetched.data });
+        }
+        return Response.json({
+          ok: false,
+          status: fetched.status,
+          error: fetched.status === "user_not_found" ? "Профиль не найден в Threads" : (fetched.error || fetched.status),
+        });
+      } catch (err) {
+        return Response.json({ ok: false, error: String(err) }, { status: 500 });
+      }
+    }
+
+    // API для комментариев поста
+    const commentsMatch = url.pathname.match(/^\/api\/comments\/([A-Za-z0-9._]+)\/(\d+)$/);
+    if (commentsMatch) {
+      const username = commentsMatch[1].toLowerCase();
+      const postIndex = Number(commentsMatch[2]);
+      const db = new Database(env);
+      const cacheKey = `${username}_cmt_${postIndex}`;
+      const cached = await db.cache<Comment[]>(cacheKey, "comments");
+      if (cached) {
+        return Response.json({ ok: true, cached: true, comments: cached });
+      }
+
+      if (!env.BROWSER) {
+        return Response.json({ ok: false, error: "Browser Run недоступен" }, { status: 503 });
+      }
+
+      try {
+        const fetched = await fetchComments(env, username, postIndex, 15);
+        if (fetched.status === "ok" && fetched.data) {
+          await db.setCache(cacheKey, "comments", fetched.data);
+          return Response.json({ ok: true, cached: false, comments: fetched.data });
+        }
+        return Response.json({ ok: false, error: fetched.error || fetched.status });
+      } catch (err) {
+        return Response.json({ ok: false, error: String(err) }, { status: 500 });
+      }
+    }
+
+    // ==========================================
+    // ТЕЛЕГРАМ БОТ И СИСТЕМНЫЕ ЭНДПОИНТЫ
+    // ==========================================
 
     if (url.pathname === "/health") {
       const accounts = await new Database(env).accountCounts();
