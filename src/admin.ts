@@ -345,6 +345,66 @@ const ADMIN_STYLES = `
     z-index: 1001;
     display: none;
   }
+
+  /* Light Theme */
+  html[data-theme="light"] body {
+    --s: 180px;
+    --c1: #efefef;
+    --c2: #e0e0e0;
+    --c3: #e8e8e8;
+    background-color: #efefef;
+    color: #1a1a1a;
+  }
+  html[data-theme="light"] .admin-header {
+    background: #ffffff;
+    border-bottom: 1px solid #d5d5d5;
+  }
+  html[data-theme="light"] .admin-header-title {
+    color: #111111;
+  }
+  html[data-theme="light"] .admin-card {
+    background: #ffffff;
+    border: 1px solid #d5d5d5;
+    color: #1a1a1a;
+  }
+  html[data-theme="light"] .admin-card-title {
+    color: #111111;
+    border-bottom: 1px solid #e5e5e5;
+  }
+  html[data-theme="light"] .stat-item {
+    background: #f8f8f8;
+    border: 1px solid #dcdcdc;
+  }
+  html[data-theme="light"] .stat-value {
+    color: #111111;
+  }
+  html[data-theme="light"] .accounts-table th {
+    background: #f4f4f4;
+    border-bottom: 1px solid #d5d5d5;
+    color: #333333;
+  }
+  html[data-theme="light"] .accounts-table td {
+    border-bottom: 1px solid #e8e8e8;
+    color: #222222;
+  }
+  html[data-theme="light"] .accounts-table tr:hover {
+    background: #f7f7f7;
+  }
+  html[data-theme="light"] .btn-admin {
+    background: #f4f4f4;
+    border: 1px solid #cccccc;
+    color: #111111;
+  }
+  html[data-theme="light"] .btn-admin:hover {
+    background: #eaeaea;
+    border-color: #888888;
+  }
+  html[data-theme="light"] .form-group input,
+  html[data-theme="light"] .form-group textarea {
+    background: #ffffff;
+    border: 1px solid #cccccc;
+    color: #111111;
+  }
 `;
 
 function renderLoginPage(isError = false): Response {
@@ -353,7 +413,16 @@ function renderLoginPage(isError = false): Response {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
   <title>Вход в панель администратора</title>
+  <script>
+    (function(){
+      var t = localStorage.getItem('threads_theme');
+      if (t === 'light' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
   <style>${ADMIN_STYLES}</style>
 </head>
 <body>
@@ -420,13 +489,23 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
   <title>Управление ботом и сайтом - Admin</title>
+  <script>
+    (function(){
+      var t = localStorage.getItem('threads_theme');
+      if (t === 'light' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
   <style>${ADMIN_STYLES}</style>
 </head>
 <body>
   <header class="admin-header">
     <div class="admin-header-title">Threads Viewer - Админ панель</div>
-    <div style="display:flex;gap:10px;align-items:center;">
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button type="button" class="btn-admin" onclick="toggleTheme()" id="themeToggleBtn">Тема: Светлая</button>
       <a href="/" target="_blank" style="font-size:0.82rem;color:#888;">Открыть сайт</a>
       <a href="/admin/logout" class="btn-admin" style="font-size:0.78rem;">Выйти</a>
     </div>
@@ -434,7 +513,7 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
 
   <main class="admin-container">
     <section class="admin-card">
-      <div class="admin-card-title">Системный статус и состояние ботов</div>
+      <div class="admin-card-title">Системный статус и инфраструктура</div>
       <div class="stats-grid">
         <div class="stat-item">
           <div class="stat-label">Версия</div>
@@ -453,12 +532,12 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
           <div class="stat-value">${counts.alive || 0} / ${counts.total} живых</div>
         </div>
         <div class="stat-item">
-          <div class="stat-label">Пользователей</div>
+          <div class="stat-label">Всего пользователей (TG)</div>
           <div class="stat-value">${system.totalUsers}</div>
         </div>
         <div class="stat-item">
-          <div class="stat-label">Запросов за 24ч</div>
-          <div class="stat-value">${analytics.requests}</div>
+          <div class="stat-label">Всего запросов (24ч)</div>
+          <div class="stat-value" style="color:#0084ff;">${analytics.totalRequests}</div>
         </div>
         <div class="stat-item">
           <div class="stat-label">Время браузера 24ч</div>
@@ -466,7 +545,33 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         </div>
         <div class="stat-item">
           <div class="stat-label">Платные подписки</div>
-          <div class="stat-value">${analytics.newSubs}</div>
+          <div class="stat-value">${analytics.newSubs} ($${analytics.revenue.toFixed(2)})</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-card">
+      <div class="admin-card-title">Разделение источников запросов (Бот vs Сайт за 24ч)</div>
+      <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
+        <div class="stat-item" style="border-left: 3px solid #22c55e;">
+          <div class="stat-label" style="font-weight:700;color:#22c55e;">Telegram-бот (@${esc(env.BOT_USERNAME || 'threadsreaderbot')})</div>
+          <div class="stat-value">${analytics.botRequests} запросов</div>
+          <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.4;">
+            <div>- Текст: ${analytics.text}</div>
+            <div>- Фото/скрины: ${analytics.img}</div>
+            <div>- Комментарии: ${analytics.comments}</div>
+            <div>- Активных (DAU): ${analytics.dau} (7 дней: ${analytics.active7d})</div>
+          </div>
+        </div>
+        <div class="stat-item" style="border-left: 3px solid #3b82f6;">
+          <div class="stat-label" style="font-weight:700;color:#3b82f6;">Веб-сайт (зеркало Threads)</div>
+          <div class="stat-value">${analytics.webRequests} запросов</div>
+          <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.4;">
+            <div>- Просмотров страниц: ${analytics.webViews}</div>
+            <div>- Запросов профилей (API): ${analytics.webApi}</div>
+            <div>- Запросов комментариев: ${analytics.webComments}</div>
+            <div>- Редиректов в бота: прямые ссылки</div>
+          </div>
         </div>
       </div>
     </section>
@@ -624,6 +729,26 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
           showToast('Ошибка запроса: ' + err);
         });
     }
+
+    function toggleTheme() {
+      var isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      if (isLight) {
+        document.documentElement.removeAttribute('data-theme');
+        localStorage.setItem('threads_theme', 'dark');
+      } else {
+        document.documentElement.setAttribute('data-theme', 'light');
+        localStorage.setItem('threads_theme', 'light');
+      }
+      updateAdminThemeBtn();
+    }
+
+    function updateAdminThemeBtn() {
+      var b = document.getElementById('themeToggleBtn');
+      if (!b) return;
+      var isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      b.innerText = isLight ? 'Тема: Тёмная' : 'Тема: Светлая';
+    }
+    updateAdminThemeBtn();
   </script>
 </body>
 </html>`;

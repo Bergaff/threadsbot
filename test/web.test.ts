@@ -68,6 +68,10 @@ describe("Web Viewer SSR & Routing", () => {
     expect(html).toContain("fillSearch('zuck')");
     expect(html).toContain("blue-example-link");
     expect(html).toContain("zuck</span>");
+    expect(html).toContain('data-theme="light"');
+    expect(html).toContain("themeToggleBtn");
+    expect(html).toContain('content="no-referrer"');
+    expect(html).toContain("https://t.me/threadsreaderbot");
   });
 
   it("renders English homepage when requested", async () => {
@@ -113,6 +117,10 @@ describe("Web Viewer SSR & Routing", () => {
     expect(html).toContain("First post text &lt;alert&gt;");
     expect(html).toContain("https://scontent.cdninstagram.com/pic.jpg");
     expect(html).toContain("post-mention");
+    expect(html).toContain('referrerpolicy="no-referrer"');
+    expect(html).toContain('like-count');
+    expect(html).toContain('comment-btn');
+    expect(html).toContain('comments-loading');
   });
 
   it("renders terms and privacy policy pages", async () => {

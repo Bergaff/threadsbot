@@ -201,6 +201,36 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
           date = (timeEl.getAttribute("datetime") || timeEl.innerText || "").trim();
         }
 
+        let likes = "";
+        for (const svg of container.querySelectorAll('svg[aria-label]')) {
+          const label = svg.getAttribute("aria-label") || "";
+          const m = label.match(/(\d[\d.,KMkмk]*)\s*(?:likes|like|отмет|нравится)/i);
+          if (m) { likes = m[1]; break; }
+        }
+        if (!likes) {
+          const heart = container.querySelector('svg[aria-label*="Like"], svg[aria-label*="Нравится"], svg[aria-label*="like"]');
+          if (heart) {
+            const parent = heart.closest('div[role="button"]') || heart.parentElement;
+            const countEl = parent?.parentElement?.querySelector("span") || parent?.nextElementSibling;
+            const txt = (countEl?.textContent || "").trim();
+            if (/^[\d.,KMkмk]+$/.test(txt)) likes = txt;
+          }
+        }
+        if (!likes) {
+          const liked = container.querySelector('a[href*="/liked_by/"]');
+          if (liked) {
+            const match = (liked.textContent || "").match(/[\d.,KMkмk]+/);
+            if (match) likes = match[0];
+          }
+        }
+
+        let replies = "";
+        for (const a of container.querySelectorAll('a[href*="/post/"]')) {
+          const txt = (a.textContent || "").trim();
+          const m = txt.match(/(\d[\d.,KMkмk]*)\s*(?:replies|reply|ответов|ответа)/i);
+          if (m) { replies = m[1]; break; }
+        }
+
         for (const el of container.querySelectorAll('span[dir="auto"],div[dir="auto"],span[class*="x1lliihq"]')) {
           const text = ((el as HTMLElement).innerText || "").trim();
           if (text.length < 20) continue;
@@ -222,6 +252,8 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
               author,
               authorAvatar,
               date,
+              likes,
+              replies,
             });
           }
         }

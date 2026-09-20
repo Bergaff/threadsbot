@@ -99,10 +99,35 @@ export class Database {
       this.db.prepare(`SELECT event_data,COUNT(*) c FROM user_events WHERE event_type='request' AND timestamp>?${clause} GROUP BY event_data`).bind(one,...excluded),
       this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='subscribe' AND timestamp>?${clause}`).bind(one,...excluded),
       this.db.prepare(`SELECT COALESCE(SUM(total_paid),0) c FROM subscriptions WHERE expires_at>?${clause}`).bind(since(30*86_400_000),...excluded),
+      this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='web_view' AND timestamp>?`).bind(one),
+      this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='web_api' AND timestamp>?`).bind(one),
+      this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='web_comments' AND timestamp>?`).bind(one),
     ];
     const r=await this.db.batch(queries); const modes=(r[5]?.results || []) as {event_data?:string;c:number}[];
     const count=(i:number)=>Number((r[i]?.results?.[0] as {c:number}|undefined)?.c||0);
-    return {newUsers:count(0),dau:count(1),active7d:count(2),requests:count(3),exhausted:count(4),newSubs:count(6),revenue:count(7),text:modes.filter(x=>(x?.event_data||'').startsWith('text:')).reduce((a,x)=>a+Number(x.c),0),img:modes.filter(x=>(x?.event_data||'').startsWith('img:')).reduce((a,x)=>a+Number(x.c),0),comments:modes.filter(x=>(x?.event_data||'').startsWith('comments:')).reduce((a,x)=>a+Number(x.c),0)};
+    const botReqs = count(3);
+    const webViews = count(8);
+    const webApi = count(9);
+    const webComments = count(10);
+    const webRequests = webViews + webApi + webComments;
+    return {
+      newUsers: count(0),
+      dau: count(1),
+      active7d: count(2),
+      requests: botReqs,
+      botRequests: botReqs,
+      webViews,
+      webApi,
+      webComments,
+      webRequests,
+      totalRequests: botReqs + webRequests,
+      exhausted: count(4),
+      newSubs: count(6),
+      revenue: count(7),
+      text: modes.filter(x=>(x?.event_data||'').startsWith('text:')).reduce((a,x)=>a+Number(x.c),0),
+      img: modes.filter(x=>(x?.event_data||'').startsWith('img:')).reduce((a,x)=>a+Number(x.c),0),
+      comments: modes.filter(x=>(x?.event_data||'').startsWith('comments:')).reduce((a,x)=>a+Number(x.c),0),
+    };
   }
   async systemStats() {
     const one = since(86_400_000);

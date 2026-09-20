@@ -43,8 +43,13 @@ function formatPostText(text: string): string {
   return withTags.replace(/\n/g, "<br>");
 }
 
-function getBotUsername(env: Env): string {
-  return "threads_reader_bot";
+function safeMediaUrl(raw: string): string {
+  if (!raw) return "";
+  return raw.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+}
+
+function getBotUsername(env?: Env): string {
+  return env?.BOT_USERNAME || "threadsreaderbot";
 }
 
 const COMMON_STYLES = `
@@ -142,6 +147,20 @@ const COMMON_STYLES = `
     cursor: pointer;
   }
   .btn-lang-toggle:hover {
+    color: #ffffff;
+    border-color: #555555;
+  }
+  .btn-theme-toggle {
+    background: #1c1c1c;
+    border: 1px solid #333333;
+    color: #aaaaaa;
+    padding: 5px 9px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-theme-toggle:hover {
     color: #ffffff;
     border-color: #555555;
   }
@@ -436,15 +455,49 @@ const COMMON_STYLES = `
     font-weight: 700;
   }
 
+  .like-count, .comment-count {
+    color: #888888;
+    font-size: 0.78rem;
+    margin-left: 2px;
+  }
+  .toolbar-btn.active .like-count {
+    color: #0084ff;
+  }
+
   /* Comments */
   .comments-box {
     margin-top: 10px;
-    padding-top: 10px;
+    padding: 10px 12px;
+    background: #0f0f0f;
     border-top: 1px solid #202020;
     display: none;
   }
-  .comment-row {
+  .comments-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 6px 0;
+    font-size: 0.82rem;
+    color: #888888;
+  }
+  .loading-bar {
+    display: inline-block;
+    width: 12px;
+    height: 3px;
+    background: #0084ff;
+  }
+  .comments-empty {
+    font-size: 0.82rem;
+    color: #777777;
+    padding: 6px 0;
+  }
+  .comments-error {
+    font-size: 0.82rem;
+    color: #f87171;
+    padding: 6px 0;
+  }
+  .comment-row {
+    padding: 8px 0;
     border-bottom: 1px solid #1c1c1c;
     font-size: 0.82rem;
   }
@@ -454,8 +507,17 @@ const COMMON_STYLES = `
     color: #ffffff;
     margin-bottom: 2px;
   }
+  .comment-author-name a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .comment-author-name a:hover {
+    text-decoration: underline;
+  }
   .comment-content {
     color: #b5b5b5;
+    line-height: 1.4;
+    word-break: break-word;
   }
 
   /* Sponsor / Partner Box */
@@ -584,6 +646,218 @@ const COMMON_STYLES = `
     text-decoration: underline;
   }
 
+  /* ==========================================
+     LIGHT THEME
+     ========================================== */
+  html[data-theme="light"] body {
+    --s: 180px;
+    --c1: #efefef;
+    --c2: #e0e0e0;
+    --c3: #e8e8e8;
+    background: repeating-conic-gradient(
+          from 30deg,
+          #0000 0 120deg,
+          var(--c3) 0 180deg
+        )
+        calc(0.5 * var(--s)) calc(0.5 * var(--s) * 0.577),
+      repeating-conic-gradient(
+        from 30deg,
+        var(--c1) 0 60deg,
+        var(--c2) 0 120deg,
+        var(--c3) 0 180deg
+      );
+    background-size: var(--s) calc(var(--s) * 0.577);
+    background-color: #efefef;
+    color: #1a1a1a;
+  }
+  html[data-theme="light"] .navbar {
+    background: #ffffff;
+    border-bottom: 1px solid #d5d5d5;
+  }
+  html[data-theme="light"] .navbar-brand {
+    color: #111111;
+  }
+  html[data-theme="light"] .navbar-search input {
+    background: #f7f7f7;
+    border: 1px solid #cccccc;
+    color: #111111;
+  }
+  html[data-theme="light"] .navbar-search input:focus {
+    border-color: #777777;
+  }
+  html[data-theme="light"] .btn-nav-tg {
+    background: #1c1c1c;
+    border: 1px solid #1c1c1c;
+    color: #ffffff;
+  }
+  html[data-theme="light"] .btn-nav-tg:hover {
+    background: #333333;
+  }
+  html[data-theme="light"] .btn-lang-toggle,
+  html[data-theme="light"] .btn-theme-toggle {
+    background: #f4f4f4;
+    border: 1px solid #cccccc;
+    color: #444444;
+  }
+  html[data-theme="light"] .btn-lang-toggle:hover,
+  html[data-theme="light"] .btn-theme-toggle:hover {
+    background: #eaeaea;
+    border-color: #888888;
+    color: #111111;
+  }
+  html[data-theme="light"] .notice-bar {
+    background: #f8f8f8;
+    border-bottom: 1px solid #d5d5d5;
+    color: #444444;
+  }
+  html[data-theme="light"] .notice-bar a {
+    background: #eaeaea;
+    border: 1px solid #cccccc;
+    color: #111111;
+  }
+  html[data-theme="light"] .hero-card,
+  html[data-theme="light"] .profile-card,
+  html[data-theme="light"] .post-card,
+  html[data-theme="light"] .sponsor-card,
+  html[data-theme="light"] .terms-card,
+  html[data-theme="light"] .loading-card {
+    background: #ffffff;
+    border: 1px solid #d5d5d5;
+    color: #1a1a1a;
+  }
+  html[data-theme="light"] .hero-tag,
+  html[data-theme="light"] .sponsor-card-top span {
+    color: #666666;
+  }
+  html[data-theme="light"] .hero-title,
+  html[data-theme="light"] .profile-name,
+  html[data-theme="light"] .sponsor-title,
+  html[data-theme="light"] .terms-card h1,
+  html[data-theme="light"] .terms-card h2 {
+    color: #111111;
+  }
+  html[data-theme="light"] .hero-subtitle,
+  html[data-theme="light"] .profile-handle,
+  html[data-theme="light"] .sponsor-desc,
+  html[data-theme="light"] .terms-card p {
+    color: #555555;
+  }
+  html[data-theme="light"] .search-input,
+  html[data-theme="light"] .hero-search-form input {
+    background: #ffffff;
+    border: 1px solid #cccccc;
+    color: #111111;
+  }
+  html[data-theme="light"] .search-input:focus,
+  html[data-theme="light"] .hero-search-form input:focus {
+    border-color: #888888;
+  }
+  html[data-theme="light"] .search-btn,
+  html[data-theme="light"] .hero-search-form button {
+    background: #111111;
+    color: #ffffff;
+  }
+  html[data-theme="light"] .search-btn:hover,
+  html[data-theme="light"] .hero-search-form button:hover {
+    background: #333333;
+  }
+  html[data-theme="light"] .search-hint,
+  html[data-theme="light"] .example-hint {
+    color: #777777;
+  }
+  html[data-theme="light"] .blue-example-link {
+    color: #0066cc;
+  }
+  html[data-theme="light"] .profile-avatar-box,
+  html[data-theme="light"] .post-author-avatar {
+    background: #eaeaea;
+    border: 1px solid #cccccc;
+  }
+  html[data-theme="light"] .profile-bio {
+    color: #333333;
+  }
+  html[data-theme="light"] .profile-stats-row {
+    color: #777777;
+  }
+  html[data-theme="light"] .btn-sharp {
+    background: #f4f4f4;
+    border: 1px solid #cccccc;
+    color: #111111;
+  }
+  html[data-theme="light"] .btn-sharp:hover {
+    background: #eaeaea;
+    border-color: #888888;
+  }
+  html[data-theme="light"] .post-author-handle {
+    color: #111111;
+  }
+  html[data-theme="light"] .post-timestamp {
+    color: #777777;
+  }
+  html[data-theme="light"] .post-body-text {
+    color: #222222;
+  }
+  html[data-theme="light"] .post-mention {
+    color: #000000;
+  }
+  html[data-theme="light"] .post-link,
+  html[data-theme="light"] .post-hashtag {
+    color: #0066cc;
+  }
+  html[data-theme="light"] .post-media-box {
+    background: #f0f0f0;
+    border: 1px solid #e0e0e0;
+  }
+  html[data-theme="light"] .video-indicator {
+    background: #eaeaea;
+    border: 1px solid #cccccc;
+    color: #555555;
+  }
+  html[data-theme="light"] .post-toolbar {
+    border-top: 1px solid #e8e8e8;
+    color: #666666;
+  }
+  html[data-theme="light"] .toolbar-btn:hover {
+    color: #111111;
+  }
+  html[data-theme="light"] .toolbar-btn.active {
+    color: #0066cc;
+  }
+  html[data-theme="light"] .comments-box {
+    border-top: 1px solid #e8e8e8;
+    background: #fafafa;
+  }
+  html[data-theme="light"] .comment-row {
+    border-bottom: 1px solid #eaeaea;
+  }
+  html[data-theme="light"] .comment-author-name,
+  html[data-theme="light"] .comment-author-name a {
+    color: #111111;
+  }
+  html[data-theme="light"] .comment-content {
+    color: #333333;
+  }
+  html[data-theme="light"] .comments-loading {
+    color: #777777;
+  }
+  html[data-theme="light"] .sponsor-btn {
+    background: #111111;
+    color: #ffffff;
+  }
+  html[data-theme="light"] .sponsor-btn:hover {
+    background: #333333;
+  }
+  html[data-theme="light"] .footer-block {
+    border-top: 1px solid #d5d5d5;
+    color: #777777;
+  }
+  html[data-theme="light"] .footer-links-row a {
+    color: #666666;
+  }
+  html[data-theme="light"] .footer-links-row a:hover {
+    color: #111111;
+  }
+
   @media (max-width: 600px) {
     .navbar-search { display: none; }
     .hero-title { font-size: 1.3rem; }
@@ -699,6 +973,9 @@ function renderNavbar(env: Env, lang: Lang, searchDefault = ""): string {
         </form>
       </div>
       <div class="navbar-actions">
+        <button type="button" class="btn-theme-toggle" id="themeToggleBtn" onclick="toggleTheme()" title="Switch theme">
+          <span id="themeToggleText">${lang === 'en' ? 'Light' : 'Светлая'}</span>
+        </button>
         <a href="?lang=${t.other_lang_code}" onclick="setLangCookie('${t.other_lang_code}')" class="btn-lang-toggle" title="Switch language">
           ${t.other_lang}
         </a>
@@ -710,9 +987,10 @@ function renderNavbar(env: Env, lang: Lang, searchDefault = ""): string {
   `;
 }
 
-function renderNoticeBar(lang: Lang, username?: string): string {
+function renderNoticeBar(env: Env, lang: Lang, username?: string): string {
   const t = I18N[lang];
-  const tgLink = username ? `https://t.me/threads_reader_bot?start=sub_${username}` : "https://t.me/threads_reader_bot";
+  const tgUser = getBotUsername(env);
+  const tgLink = username ? `https://t.me/${tgUser}?start=sub_${username}` : `https://t.me/${tgUser}`;
   return `
     <div class="notice-bar">
       <span>${t.notice_text}</span>
@@ -721,20 +999,21 @@ function renderNoticeBar(lang: Lang, username?: string): string {
   `;
 }
 
-function renderSponsorSlot(lang: Lang): string {
+function renderSponsorSlot(env: Env, lang: Lang): string {
   const t = I18N[lang];
+  const tgUser = getBotUsername(env);
   return `
     <div class="sponsor-card">
       <div class="sponsor-card-top">
         <span>${t.sponsor_tag}</span>
-        <a href="https://t.me/threads_reader_bot" target="_blank" rel="noopener" style="color: #777; text-decoration: underline;">${t.sponsor_ad_label}</a>
+        <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener" style="color: #777; text-decoration: underline;">${t.sponsor_ad_label}</a>
       </div>
       <div class="sponsor-card-inner">
         <div class="sponsor-text">
           <h4>${t.sponsor_title}</h4>
           <p>${t.sponsor_desc}</p>
         </div>
-        <a href="https://t.me/threads_reader_bot" target="_blank" rel="noopener" class="sponsor-btn">
+        <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener" class="sponsor-btn">
           ${t.sponsor_btn}
         </a>
       </div>
@@ -751,13 +1030,22 @@ export function renderHomePage(env: Env, lang: Lang = "ru"): Response {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
   <title>${t.home_title}</title>
   <meta name="description" content="${t.home_desc}">
+  <script>
+    (function(){
+      var t = localStorage.getItem('threads_theme');
+      if (t === 'light' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
   <style>${COMMON_STYLES}</style>
 </head>
 <body>
   ${renderNavbar(env, lang)}
-  ${renderNoticeBar(lang)}
+  ${renderNoticeBar(env, lang)}
 
   <main class="container">
     <div class="hero-card">
@@ -775,7 +1063,7 @@ export function renderHomePage(env: Env, lang: Lang = "ru"): Response {
       </div>
     </div>
 
-    ${renderSponsorSlot(lang)}
+    ${renderSponsorSlot(env, lang)}
   </main>
 
   <footer class="footer-block">
@@ -831,6 +1119,30 @@ export function renderHomePage(env: Env, lang: Lang = "ru"): Response {
         window.location.href = '/@' + name + (currentLang === 'en' ? '?lang=en' : '');
       }
     }
+    function toggleTheme() {
+      var isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      if (isLight) {
+        document.documentElement.removeAttribute('data-theme');
+        localStorage.setItem('threads_theme', 'dark');
+      } else {
+        document.documentElement.setAttribute('data-theme', 'light');
+        localStorage.setItem('threads_theme', 'light');
+      }
+      updateThemeBtnText();
+    }
+    function updateThemeBtnText() {
+      var el = document.getElementById('themeToggleText');
+      if (!el) return;
+      var isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      var isEn = currentLang === 'en';
+      if (isEn) {
+        el.innerText = isLight ? 'Dark' : 'Light';
+      } else {
+        el.innerText = isLight ? 'Темная' : 'Светлая';
+      }
+    }
+    document.addEventListener('DOMContentLoaded', updateThemeBtnText);
+    updateThemeBtnText();
   </script>
 </body>
 </html>`;
@@ -871,7 +1183,7 @@ export function renderProfilePage(
 
     const mediaHtml = post.imageUrl
       ? `<div class="post-media-box">
-          <img src="${esc(post.imageUrl)}" data-orig="${esc(post.imageUrl)}" alt="Post image" onclick="openLightbox('${esc(post.imageUrl)}')" onerror="if(!this.dataset.proxy){this.dataset.proxy='1';this.src='/api/img?url='+encodeURIComponent(this.getAttribute('data-orig'));}" />
+          <img src="${esc(safeMediaUrl(post.imageUrl))}" data-orig="${esc(safeMediaUrl(post.imageUrl))}" alt="Post image" referrerpolicy="no-referrer" onclick="openLightbox('${esc(safeMediaUrl(post.imageUrl))}')" onerror="if(!this.dataset.proxied){this.dataset.proxied='1';this.src='/api/img?url='+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display='none';}" />
         </div>`
       : "";
 
@@ -883,7 +1195,7 @@ export function renderProfilePage(
       <article class="post-card" id="post-${idx}">
         <div class="post-card-top">
           <div class="post-author-block">
-            ${authorAvatar ? `<img src="${esc(authorAvatar)}" class="post-author-avatar" alt="${esc(authorName)}" />` : `<div class="post-author-avatar" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:11px;">@</div>`}
+            ${authorAvatar ? `<img src="${esc(safeMediaUrl(authorAvatar))}" data-orig="${esc(safeMediaUrl(authorAvatar))}" class="post-author-avatar" alt="${esc(authorName)}" referrerpolicy="no-referrer" onerror="if(!this.dataset.proxied){this.dataset.proxied='1';this.src='/api/img?url='+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display='none';}" />` : `<div class="post-author-avatar" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:11px;">@</div>`}
             <div>
               <a href="/@${esc(cleanUser)}${lang === 'en' ? '?lang=en' : ''}" class="post-author-handle">${esc(authorName)}</a>
               ${postDate ? `<div class="post-timestamp">${esc(postDate)}</div>` : ""}
@@ -902,20 +1214,20 @@ export function renderProfilePage(
         ${mediaHtml}
 
         <div class="post-toolbar">
-          <button class="toolbar-btn" onclick="toggleLike(this)">
+          <button class="toolbar-btn like-btn" onclick="toggleLike(this, '${esc(cleanUser)}_${idx}')" title="${t.like}">
             <span class="like-label">${t.like}</span>
+            <span class="like-count">${post.likes ? ` (${esc(post.likes)})` : ""}</span>
           </button>
-          <button class="toolbar-btn" onclick="toggleComments('${esc(cleanUser)}', ${idx})">
-            ${t.comments}
+          <button class="toolbar-btn comment-btn" onclick="toggleComments('${esc(cleanUser)}', ${idx}, this)" title="${t.comments}">
+            <span class="comment-label">${t.comments}</span>
+            <span class="comment-count">${post.replies ? ` (${esc(post.replies)})` : ""}</span>
           </button>
           <a href="https://t.me/${esc(tgUser)}?start=sub_${esc(cleanUser)}" target="_blank" rel="noopener" class="toolbar-btn" style="margin-left:auto;">
             ${t.in_bot}
           </a>
         </div>
 
-        <div class="comments-box" id="comments-${idx}">
-          <div style="font-size:0.8rem;color:#777;padding:6px 0;">${t.loading_comments}</div>
-        </div>
+        <div class="comments-box" id="comments-${idx}"></div>
       </article>
     `;
   }).join("");
@@ -927,13 +1239,22 @@ export function renderProfilePage(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
   <title>${pageTitle}</title>
   <meta name="description" content="Посты, фото и комментарии @${esc(cleanUser)} в Threads без регистрации и VPN.">
+  <script>
+    (function(){
+      var t = localStorage.getItem('threads_theme');
+      if (t === 'light' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
   <style>${COMMON_STYLES}</style>
 </head>
 <body>
   ${renderNavbar(env, lang, "@" + cleanUser)}
-  ${renderNoticeBar(lang, cleanUser)}
+  ${renderNoticeBar(env, lang, cleanUser)}
 
   <main class="container">
     <div class="profile-card">
@@ -944,7 +1265,7 @@ export function renderProfilePage(
         </div>
         <div class="profile-avatar-box">
           ${profile.avatar
-            ? `<img src="${esc(profile.avatar)}" class="profile-avatar-img" alt="${esc(cleanUser)}" onerror="this.style.display='none'" />`
+            ? `<img src="${esc(safeMediaUrl(profile.avatar))}" data-orig="${esc(safeMediaUrl(profile.avatar))}" class="profile-avatar-img" alt="${esc(cleanUser)}" referrerpolicy="no-referrer" onerror="if(!this.dataset.proxied){this.dataset.proxied='1';this.src='/api/img?url='+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display='none';}" />`
             : `<div class="profile-avatar-img" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:24px;">@</div>`}
         </div>
       </div>
@@ -967,7 +1288,7 @@ export function renderProfilePage(
       </div>
     </div>
 
-    ${renderSponsorSlot(lang)}
+    ${renderSponsorSlot(env, lang)}
 
     <section class="feed" id="postsFeed">
       ${postsHtml}
@@ -1045,15 +1366,59 @@ export function renderProfilePage(
       document.getElementById('lightbox').style.display = 'none';
     }
 
-    function toggleLike(btn) {
-      btn.classList.toggle('active');
-      var label = btn.querySelector('.like-label');
-      var base = '${t.like}';
-      label.innerText = btn.classList.contains('active') ? base + ' (1)' : base;
+    function toggleLike(btn, id) {
+      var active = btn.classList.toggle('active');
+      var key = 'liked_' + id;
+      var countEl = btn.querySelector('.like-count');
+      var curText = (countEl ? countEl.innerText : '').replace(/[()]/g, '').trim();
+      var num = parseInt(curText, 10);
+      if (active) {
+        localStorage.setItem(key, '1');
+        if (!isNaN(num)) {
+          countEl.innerText = ' (' + (num + 1) + ')';
+        } else if (!curText) {
+          countEl.innerText = ' (1)';
+        }
+      } else {
+        localStorage.removeItem(key);
+        if (!isNaN(num) && num > 1) {
+          countEl.innerText = ' (' + (num - 1) + ')';
+        } else {
+          countEl.innerText = '';
+        }
+      }
     }
 
-    function toggleComments(username, idx) {
+    function initLiked() {
+      var buttons = document.querySelectorAll('.like-btn');
+      buttons.forEach(function(b) {
+        var onclickStr = b.getAttribute('onclick') || '';
+        var match = onclickStr.match(/toggleLike\(this,\s*'([^']+)'\)/);
+        if (match && localStorage.getItem('liked_' + match[1])) {
+          b.classList.add('active');
+        }
+      });
+    }
+
+    function escHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatPostTextClient(text) {
+      var escaped = escHtml(text);
+      var withUrls = escaped.replace(/(https?:\\\/\\\/[^\\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="post-link">$1<\\\/a>');
+      var withMentions = withUrls.replace(/(^|\\s)@([A-Za-z0-9._]+)/g, '$1<a href="/@$2" class="post-mention">@$2<\\\/a>');
+      return withMentions.replace(/\\n/g, '<br>');
+    }
+
+    function toggleComments(username, idx, btn) {
       var box = document.getElementById('comments-' + idx);
+      if (!box) return;
       if (box.style.display === 'block') {
         box.style.display = 'none';
         return;
@@ -1062,27 +1427,61 @@ export function renderProfilePage(
 
       if (box.dataset.loaded) return;
 
+      box.innerHTML = '<div class="comments-loading"><span class="loading-bar"></span> ${t.loading_comments}</div>';
+
       fetch('/api/comments/' + encodeURIComponent(username) + '/' + idx)
         .then(function(res) { return res.json(); })
         .then(function(data) {
           box.dataset.loaded = 'true';
           if (!data.ok || !data.comments || !data.comments.length) {
-            box.innerHTML = '<div style="color:#777;font-size:0.8rem;padding:4px 0;">${t.no_comments}</div>';
+            box.innerHTML = '<div class="comments-empty">${t.no_comments}</div>';
             return;
           }
-          var html = '';
+          var html = '<div class="comments-list">';
           data.comments.forEach(function(c) {
+            var a = (c.author || '@anonymous').trim();
+            var handle = a.replace(/^@/, '');
             html += '<div class="comment-row">' +
-              '<div class="comment-author-name">' + (c.author || '-') + '</div>' +
-              '<div class="comment-content">' + (c.text || '') + '</div>' +
+              '<div class="comment-author-name"><a href="/@' + encodeURIComponent(handle) + (currentLang === 'en' ? '?lang=en' : '') + '">' + escHtml(a) + '</a></div>' +
+              '<div class="comment-content">' + formatPostTextClient(c.text || '') + '</div>' +
             '</div>';
           });
+          html += '</div>';
           box.innerHTML = html;
         })
         .catch(function() {
-          box.innerHTML = '<div style="color:#aa4444;font-size:0.8rem;padding:4px 0;">${t.toast_error}</div>';
+          box.innerHTML = '<div class="comments-error">${t.toast_error}</div>';
         });
     }
+
+    function toggleTheme() {
+      var isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      if (isLight) {
+        document.documentElement.removeAttribute('data-theme');
+        localStorage.setItem('threads_theme', 'dark');
+      } else {
+        document.documentElement.setAttribute('data-theme', 'light');
+        localStorage.setItem('threads_theme', 'light');
+      }
+      updateThemeBtnText();
+    }
+    function updateThemeBtnText() {
+      var el = document.getElementById('themeToggleText');
+      if (!el) return;
+      var isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      var isEn = currentLang === 'en';
+      if (isEn) {
+        el.innerText = isLight ? 'Dark' : 'Light';
+      } else {
+        el.innerText = isLight ? 'Темная' : 'Светлая';
+      }
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+      updateThemeBtnText();
+      initLiked();
+    });
+    updateThemeBtnText();
+    initLiked();
 
     function handleNavSearch(e) {
       e.preventDefault();
@@ -1168,7 +1567,16 @@ export function renderTermsPage(lang: Lang = "ru"): Response {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
   <title>${title} - Threads Viewer</title>
+  <script>
+    (function(){
+      var t = localStorage.getItem('threads_theme');
+      if (t === 'light' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
   <style>${COMMON_STYLES} .terms-card { background: #131313; border: 1px solid #2d2d2d; border-radius: 0; padding: 24px; margin: 30px auto; max-width: 680px; } .terms-card h1 { margin-bottom: 12px; font-size: 1.4rem; color: #fff; } .terms-card h2 { margin: 18px 0 6px; font-size: 1.05rem; color: #eee; } .terms-card p { color: #888888; margin-bottom: 10px; font-size: 0.88rem; }</style>
 </head>
 <body>
@@ -1217,7 +1625,16 @@ export function renderPrivacyPage(lang: Lang = "ru"): Response {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
   <title>${title} - Threads Viewer</title>
+  <script>
+    (function(){
+      var t = localStorage.getItem('threads_theme');
+      if (t === 'light' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
   <style>${COMMON_STYLES} .terms-card { background: #131313; border: 1px solid #2d2d2d; border-radius: 0; padding: 24px; margin: 30px auto; max-width: 680px; } .terms-card h1 { margin-bottom: 12px; font-size: 1.4rem; color: #fff; } .terms-card h2 { margin: 18px 0 6px; font-size: 1.05rem; color: #eee; } .terms-card p { color: #888888; margin-bottom: 10px; font-size: 0.88rem; }</style>
 </head>
 <body>
