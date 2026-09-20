@@ -753,18 +753,18 @@ function renderPromoBanner(username?: string): string {
 
 function renderAdSlot(): string {
   return `
-    <div class="ad-box" role="complementary" aria-label="Реклама">
+    <div class="ad-box" role="complementary" aria-label="Спонсорский блок">
       <div class="ad-label">
-        <span>Спонсорский блок / Реклама</span>
-        <span style="font-size: 0.65rem; opacity: 0.7;">Партнёрская сеть</span>
+        <span>⚡️ Спонсорский блок</span>
+        <a href="https://t.me/threads_reader_bot" target="_blank" rel="noopener" style="font-size: 0.68rem; color: #7d8590; text-decoration: underline;">Разместить рекламу</a>
       </div>
       <div class="ad-content">
         <div class="ad-text">
-          <h4>⚡️ Безлимитный доступ к Threads и Instagram</h4>
-          <p>Мгновенные уведомления о новых публикациях любимых блогеров без VPN.</p>
+          <h4>Надоело открывать через браузер?</h4>
+          <p>Быстрый доступ к Threads и Instagram в приложении без тормозов и ограничений.</p>
         </div>
         <a href="https://t.me/threads_reader_bot" target="_blank" rel="noopener" class="ad-button">
-          Подключить
+          Подключить доступ
         </a>
       </div>
     </div>
