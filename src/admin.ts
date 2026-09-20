@@ -346,64 +346,77 @@ const ADMIN_STYLES = `
     display: none;
   }
 
-  /* Light Theme */
+  /* Light Theme (Calm & Matte) */
   html[data-theme="light"] body {
     --s: 180px;
-    --c1: #efefef;
-    --c2: #e0e0e0;
-    --c3: #e8e8e8;
-    background-color: #efefef;
-    color: #1a1a1a;
+    --c1: #dcdfe3;
+    --c2: #d1d5db;
+    --c3: #d7dbe0;
+    background: repeating-conic-gradient(
+          from 30deg,
+          #0000 0 120deg,
+          var(--c3) 0 180deg
+        )
+        calc(0.5 * var(--s)) calc(0.5 * var(--s) * 0.577),
+      repeating-conic-gradient(
+        from 30deg,
+        var(--c1) 0 60deg,
+        var(--c2) 0 120deg,
+        var(--c3) 0 180deg
+      );
+    background-size: var(--s) calc(var(--s) * 0.577);
+    background-color: #dcdfe3;
+    color: #1e2022;
   }
   html[data-theme="light"] .admin-header {
-    background: #ffffff;
-    border-bottom: 1px solid #d5d5d5;
+    background: #eceef1;
+    border-bottom: 1px solid #c2c5cc;
   }
   html[data-theme="light"] .admin-header-title {
-    color: #111111;
+    color: #1a1c1e;
   }
   html[data-theme="light"] .admin-card {
-    background: #ffffff;
-    border: 1px solid #d5d5d5;
-    color: #1a1a1a;
+    background: #eceef1;
+    border: 1px solid #c2c5cc;
+    color: #1e2022;
   }
   html[data-theme="light"] .admin-card-title {
-    color: #111111;
-    border-bottom: 1px solid #e5e5e5;
+    color: #1a1c1e;
+    border-bottom: 1px solid #d2d5dc;
   }
   html[data-theme="light"] .stat-item {
-    background: #f8f8f8;
-    border: 1px solid #dcdcdc;
+    background: #e2e4e8;
+    border: 1px solid #c2c5cc;
   }
   html[data-theme="light"] .stat-value {
-    color: #111111;
+    color: #1a1c1e;
   }
   html[data-theme="light"] .accounts-table th {
-    background: #f4f4f4;
-    border-bottom: 1px solid #d5d5d5;
-    color: #333333;
+    background: #dfe2e6;
+    border-bottom: 1px solid #c2c5cc;
+    color: #3a3f47;
   }
   html[data-theme="light"] .accounts-table td {
-    border-bottom: 1px solid #e8e8e8;
-    color: #222222;
+    border-bottom: 1px solid #d4d7dc;
+    color: #26282b;
   }
   html[data-theme="light"] .accounts-table tr:hover {
-    background: #f7f7f7;
+    background: #e6e8ec;
   }
   html[data-theme="light"] .btn-admin {
-    background: #f4f4f4;
-    border: 1px solid #cccccc;
-    color: #111111;
+    background: #dfe2e6;
+    border: 1px solid #b8bcc4;
+    color: #1e2022;
   }
   html[data-theme="light"] .btn-admin:hover {
-    background: #eaeaea;
-    border-color: #888888;
+    background: #d4d7dc;
+    border-color: #8c909a;
   }
   html[data-theme="light"] .form-group input,
   html[data-theme="light"] .form-group textarea {
-    background: #ffffff;
-    border: 1px solid #cccccc;
-    color: #111111;
+    background: #f4f5f7;
+    border: 1px solid #c2c5cc;
+    color: #1e2022;
   }
 `;
 

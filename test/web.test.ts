@@ -118,9 +118,26 @@ describe("Web Viewer SSR & Routing", () => {
     expect(html).toContain("https://scontent.cdninstagram.com/pic.jpg");
     expect(html).toContain("post-mention");
     expect(html).toContain('referrerpolicy="no-referrer"');
-    expect(html).toContain('like-count');
+    expect(html).toContain('post-metric');
     expect(html).toContain('comment-btn');
     expect(html).toContain('comments-loading');
+    expect(html).toContain('status-card');
+    expect(html).toContain('comment-author-avatar');
+    expect(html).toContain('btn-nav-tg');
+    expect(html).toContain('btn-lang-toggle');
+    expect(html).toContain('btn-theme-toggle');
+    expect(html).toContain('height: 32px');
+    expect(html).toContain('min-height: 32px');
+    expect(html).toContain('max-height: 32px');
+  });
+
+  it("renders prominent error status card when profile is not found or error occurred", async () => {
+    const res = renderProfilePage(mockEnv, "nonexistent_user", null, "Профиль не найден в Threads", "ru");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("status-card-error");
+    expect(html).toContain("Профиль не найден в Threads");
+    expect(html).toContain("loadingStatusAction");
   });
 
   it("renders terms and privacy policy pages", async () => {

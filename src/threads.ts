@@ -43,7 +43,7 @@ export interface ProfileData {
   posts: Post[];
 }
 
-export interface Comment { author: string; text: string; top?: number }
+export interface Comment { author: string; text: string; avatar?: string; top?: number }
 export type ThreadsStatus = "ok" | "user_not_found" | "session_expired" | "no_posts" | "post_not_found" | "all_dead" | "browser_busy" | "service_error";
 type Account = { name: string; cookies: string; hourly_requests: number; hourly_reset: string };
 type Opened = { browser: any; context: BrowserContext; page: Page; startedAt: number };
@@ -202,33 +202,59 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
         }
 
         let likes = "";
-        for (const svg of container.querySelectorAll('svg[aria-label]')) {
-          const label = svg.getAttribute("aria-label") || "";
-          const m = label.match(/(\d[\d.,KMkмk]*)\s*(?:likes|like|отмет|нравится)/i);
-          if (m) { likes = m[1]; break; }
-        }
+        let replies = "";
+        const cText = (container as HTMLElement).innerText || "";
+
+        // 1. Text pattern match in container
+        const rMatch = cText.match(/(\d[\d.,KMkмk\s]*)\s*(?:replies|reply|ответов|ответа|ответ\b)/i);
+        if (rMatch) replies = rMatch[1].trim();
+
+        const lMatch = cText.match(/(\d[\d.,KMkмk\s]*)\s*(?:likes|like|отметок|отметки|отметка|нравится)\b/i);
+        if (lMatch) likes = lMatch[1].trim();
+
+        // 2. Aria-labels on elements
         if (!likes) {
-          const heart = container.querySelector('svg[aria-label*="Like"], svg[aria-label*="Нравится"], svg[aria-label*="like"]');
-          if (heart) {
-            const parent = heart.closest('div[role="button"]') || heart.parentElement;
-            const countEl = parent?.parentElement?.querySelector("span") || parent?.nextElementSibling;
-            const txt = (countEl?.textContent || "").trim();
-            if (/^[\d.,KMkмk]+$/.test(txt)) likes = txt;
+          for (const el of container.querySelectorAll("[aria-label]")) {
+            const label = el.getAttribute("aria-label") || "";
+            const m = label.match(/(\d[\d.,KMkмk\s]*)\s*(?:likes|like|отмет|нравится)/i);
+            if (m) { likes = m[1].trim(); break; }
           }
         }
+        if (!replies) {
+          for (const el of container.querySelectorAll("[aria-label]")) {
+            const label = el.getAttribute("aria-label") || "";
+            const m = label.match(/(\d[\d.,KMkмk\s]*)\s*(?:replies|reply|ответов|ответа)/i);
+            if (m) { replies = m[1].trim(); break; }
+          }
+        }
+
+        // 3. Heart SVG siblings
+        if (!likes) {
+          const heart = container.querySelector('svg[aria-label*="Like" i], svg[aria-label*="Нравится" i], svg[aria-label*="like" i]');
+          if (heart) {
+            const btn = heart.closest('div[role="button"], button') || heart.parentElement;
+            const countEl = btn?.querySelector("span") || btn?.nextElementSibling;
+            const txt = (countEl?.textContent || "").trim();
+            if (/^\d[\d.,KMkмk\s]*$/.test(txt)) likes = txt;
+          }
+        }
+
+        // 4. Liked_by link
         if (!likes) {
           const liked = container.querySelector('a[href*="/liked_by/"]');
           if (liked) {
             const match = (liked.textContent || "").match(/[\d.,KMkмk]+/);
-            if (match) likes = match[0];
+            if (match) likes = match[0].trim();
           }
         }
 
-        let replies = "";
-        for (const a of container.querySelectorAll('a[href*="/post/"]')) {
-          const txt = (a.textContent || "").trim();
-          const m = txt.match(/(\d[\d.,KMkмk]*)\s*(?:replies|reply|ответов|ответа)/i);
-          if (m) { replies = m[1]; break; }
+        // 5. Post link replies
+        if (!replies) {
+          for (const a of container.querySelectorAll('a[href*="/post/"]')) {
+            const txt = (a.textContent || "").trim();
+            const m = txt.match(/(\d[\d.,KMkмk\s]*)\s*(?:replies|reply|ответов|ответа)/i);
+            if (m) { replies = m[1].trim(); break; }
+          }
         }
 
         for (const el of container.querySelectorAll('span[dir="auto"],div[dir="auto"],span[class*="x1lliihq"]')) {
@@ -464,16 +490,21 @@ async function collectComments(page: Page, target = 20): Promise<Comment[]> {
       const out: any[] = [];
       for (const container of document.querySelectorAll('div[data-pressable-container="true"]')) {
         const top = (container as HTMLElement).getBoundingClientRect().top + window.scrollY;
-        const link = container.querySelector('a[href^="/@"][role="link"]');
+        const link = container.querySelector('a[href^="/@"][role="link"], a[href^="/@"]');
         const match = (link?.getAttribute("href") || "").match(/\/@([A-Za-z0-9._]+)/);
         const author = match ? "@" + match[1].toLowerCase() : "—";
+        let avatar = "";
+        const avatarImg = container.querySelector('img[alt*="profile picture"], img[alt*="фото профиля"], img[src*="cdninstagram.com"]') as HTMLImageElement | null;
+        if (avatarImg) {
+          avatar = avatarImg.currentSrc || avatarImg.src || "";
+        }
         let text = "";
         for (const span of container.querySelectorAll('span[dir="auto"]')) {
           const value = ((span as HTMLElement).innerText || "").trim();
           if (!value || value.length < 3 || value.toLowerCase() === author.replace("@", "") || /^(Follow|Подписаться|Translate|Перевести|Reply|Ответ|Repost|Share|Send|Like|More|Verified|See translation|Автор|Author|Ещё|Нравится|Поделиться)$/i.test(value) || /^\d+$/.test(value) || /^\d+\s*[hHчмсmsdд]$/.test(value)) continue;
           if (value.length > text.length) text = value;
         }
-        if (text && /[A-Za-zА-Яа-яÀ-ÿ\u0400-\u04FF\u4e00-\u9fff\u3040-\u30ff]/.test(text)) out.push({ author, text, top });
+        if (text && /[A-Za-zА-Яа-яÀ-ÿ\u0400-\u04FF\u4e00-\u9fff\u3040-\u30ff]/.test(text)) out.push({ author, text, avatar, top });
       }
       out.sort((a, b) => a.top - b.top);
       return out.slice(1);

@@ -123,46 +123,50 @@ const COMMON_STYLES = `
     border-color: #666666;
   }
   .navbar-actions {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
+  }
+  .btn-nav-tg,
+  .btn-lang-toggle,
+  .btn-theme-toggle {
+    height: 32px;
+    min-height: 32px;
+    max-height: 32px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1;
+    border-radius: 0;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    border: 1px solid #3d3d3d;
+    background: #242424;
+    color: #e0e0e0;
+    font-family: inherit;
+    box-shadow: none;
   }
   .btn-nav-tg {
     background: #2a2a2a;
-    border: 1px solid #3d3d3d;
+    border-color: #444444;
     color: #ffffff;
-    padding: 6px 12px;
-    border-radius: 0;
-    font-size: 0.82rem;
-    font-weight: 600;
-    box-shadow: none;
-  }
-  .btn-lang-toggle {
-    background: #1c1c1c;
-    border: 1px solid #333333;
-    color: #aaaaaa;
-    padding: 5px 9px;
-    font-size: 0.78rem;
     font-weight: 700;
-    cursor: pointer;
   }
-  .btn-lang-toggle:hover {
-    color: #ffffff;
-    border-color: #555555;
+  .btn-nav-tg:hover {
+    background: #363636;
+    border-color: #666666;
   }
-  .btn-theme-toggle {
-    background: #1c1c1c;
-    border: 1px solid #333333;
-    color: #aaaaaa;
-    padding: 5px 9px;
-    font-size: 0.78rem;
-    font-weight: 700;
-    cursor: pointer;
-    font-family: inherit;
-  }
+  .btn-lang-toggle:hover,
   .btn-theme-toggle:hover {
-    color: #ffffff;
+    background: #2e2e2e;
     border-color: #555555;
+    color: #ffffff;
   }
 
   /* Notice Bar */
@@ -455,19 +459,31 @@ const COMMON_STYLES = `
     font-weight: 700;
   }
 
-  .like-count, .comment-count {
+  .post-metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.82rem;
+    color: #999999;
+    user-select: none;
+  }
+  .post-metric-icon {
+    font-size: 0.95rem;
+  }
+  .post-metric-val {
+    font-weight: 700;
+    color: #cccccc;
+  }
+  .comment-count {
     color: #888888;
     font-size: 0.78rem;
     margin-left: 2px;
-  }
-  .toolbar-btn.active .like-count {
-    color: #0084ff;
   }
 
   /* Comments */
   .comments-box {
     margin-top: 10px;
-    padding: 10px 12px;
+    padding: 12px 14px;
     background: #0f0f0f;
     border-top: 1px solid #202020;
     display: none;
@@ -502,10 +518,24 @@ const COMMON_STYLES = `
     font-size: 0.82rem;
   }
   .comment-row:last-child { border-bottom: none; }
+  .comment-author-block {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 3px;
+  }
+  .comment-author-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 0;
+    border: 1px solid #333333;
+    background: #1f1f1f;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
   .comment-author-name {
     font-weight: 700;
     color: #ffffff;
-    margin-bottom: 2px;
   }
   .comment-author-name a {
     color: inherit;
@@ -518,6 +548,7 @@ const COMMON_STYLES = `
     color: #b5b5b5;
     line-height: 1.4;
     word-break: break-word;
+    padding-left: 28px;
   }
 
   /* Sponsor / Partner Box */
@@ -568,12 +599,57 @@ const COMMON_STYLES = `
     background: #353535;
   }
 
-  /* Status message */
-  .status-message {
-    text-align: center;
-    padding: 24px 12px;
-    color: #777777;
+  /* Status & Error Card (Prominent & Noticeable) */
+  .status-card {
+    background: #141414;
+    border: 1px solid #2d2d2d;
+    padding: 22px 18px;
+    margin: 16px 0;
+    text-align: left;
+    box-shadow: none;
+    border-radius: 0;
+  }
+  .status-card-loading {
+    border-left: 4px solid #0084ff;
+  }
+  .status-card-error {
+    border-left: 4px solid #ef4444;
+    background: #1c1414;
+    border-color: #442222;
+  }
+  .status-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .status-indicator-box {
+    width: 10px;
+    height: 10px;
+    background: #0084ff;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .status-card-error .status-indicator-box {
+    background: #ef4444;
+  }
+  .status-card h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin: 0;
+  }
+  .status-card p {
     font-size: 0.88rem;
+    color: #aaaaaa;
+    line-height: 1.45;
+    margin: 0;
+  }
+  .status-card-error h3 {
+    color: #fca5a5;
+  }
+  .status-card-error p {
+    color: #f87171;
   }
 
   /* Lightbox */
@@ -647,13 +723,13 @@ const COMMON_STYLES = `
   }
 
   /* ==========================================
-     LIGHT THEME
+     LIGHT THEME (CALM & MATTE)
      ========================================== */
   html[data-theme="light"] body {
     --s: 180px;
-    --c1: #efefef;
-    --c2: #e0e0e0;
-    --c3: #e8e8e8;
+    --c1: #dcdfe3;
+    --c2: #d1d5db;
+    --c3: #d7dbe0;
     background: repeating-conic-gradient(
           from 30deg,
           #0000 0 120deg,
@@ -667,195 +743,237 @@ const COMMON_STYLES = `
         var(--c3) 0 180deg
       );
     background-size: var(--s) calc(var(--s) * 0.577);
-    background-color: #efefef;
-    color: #1a1a1a;
+    background-color: #dcdfe3;
+    color: #1e2022;
   }
   html[data-theme="light"] .navbar {
-    background: #ffffff;
-    border-bottom: 1px solid #d5d5d5;
+    background: #eceef1;
+    border-bottom: 1px solid #c2c5cc;
   }
   html[data-theme="light"] .navbar-brand {
-    color: #111111;
+    color: #1a1c1e;
   }
   html[data-theme="light"] .navbar-search input {
-    background: #f7f7f7;
-    border: 1px solid #cccccc;
-    color: #111111;
+    background: #f4f5f7;
+    border: 1px solid #c2c5cc;
+    color: #1e2022;
   }
   html[data-theme="light"] .navbar-search input:focus {
-    border-color: #777777;
+    border-color: #6b7280;
   }
-  html[data-theme="light"] .btn-nav-tg {
-    background: #1c1c1c;
-    border: 1px solid #1c1c1c;
-    color: #ffffff;
-  }
-  html[data-theme="light"] .btn-nav-tg:hover {
-    background: #333333;
-  }
+  html[data-theme="light"] .btn-nav-tg,
   html[data-theme="light"] .btn-lang-toggle,
   html[data-theme="light"] .btn-theme-toggle {
-    background: #f4f4f4;
-    border: 1px solid #cccccc;
-    color: #444444;
+    height: 32px;
+    min-height: 32px;
+    max-height: 32px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #b8bcc4;
+    background: #dfe2e6;
+    color: #1e2022;
+  }
+  html[data-theme="light"] .btn-nav-tg {
+    background: #1e2022;
+    border-color: #1e2022;
+    color: #ffffff;
+    font-weight: 700;
+  }
+  html[data-theme="light"] .btn-nav-tg:hover {
+    background: #33363a;
   }
   html[data-theme="light"] .btn-lang-toggle:hover,
   html[data-theme="light"] .btn-theme-toggle:hover {
-    background: #eaeaea;
-    border-color: #888888;
+    background: #d4d7dc;
+    border-color: #8c909a;
     color: #111111;
   }
   html[data-theme="light"] .notice-bar {
-    background: #f8f8f8;
-    border-bottom: 1px solid #d5d5d5;
-    color: #444444;
+    background: #e6e8ec;
+    border-bottom: 1px solid #c2c5cc;
+    color: #4a5058;
   }
   html[data-theme="light"] .notice-bar a {
-    background: #eaeaea;
-    border: 1px solid #cccccc;
-    color: #111111;
+    background: #d8dade;
+    border: 1px solid #b8bcc4;
+    color: #1e2022;
   }
   html[data-theme="light"] .hero-card,
   html[data-theme="light"] .profile-card,
   html[data-theme="light"] .post-card,
   html[data-theme="light"] .sponsor-card,
-  html[data-theme="light"] .terms-card,
-  html[data-theme="light"] .loading-card {
-    background: #ffffff;
-    border: 1px solid #d5d5d5;
-    color: #1a1a1a;
+  html[data-theme="light"] .terms-card {
+    background: #eceef1;
+    border: 1px solid #c2c5cc;
+    color: #1e2022;
   }
   html[data-theme="light"] .hero-tag,
   html[data-theme="light"] .sponsor-card-top span {
-    color: #666666;
+    color: #5a6069;
   }
   html[data-theme="light"] .hero-title,
   html[data-theme="light"] .profile-name,
   html[data-theme="light"] .sponsor-title,
   html[data-theme="light"] .terms-card h1,
   html[data-theme="light"] .terms-card h2 {
-    color: #111111;
+    color: #1a1c1e;
   }
   html[data-theme="light"] .hero-subtitle,
   html[data-theme="light"] .profile-handle,
   html[data-theme="light"] .sponsor-desc,
   html[data-theme="light"] .terms-card p {
-    color: #555555;
+    color: #555a62;
   }
   html[data-theme="light"] .search-input,
   html[data-theme="light"] .hero-search-form input {
-    background: #ffffff;
-    border: 1px solid #cccccc;
-    color: #111111;
+    background: #f4f5f7;
+    border: 1px solid #c2c5cc;
+    color: #1e2022;
   }
   html[data-theme="light"] .search-input:focus,
   html[data-theme="light"] .hero-search-form input:focus {
-    border-color: #888888;
+    border-color: #6b7280;
   }
   html[data-theme="light"] .search-btn,
   html[data-theme="light"] .hero-search-form button {
-    background: #111111;
+    background: #1e2022;
     color: #ffffff;
   }
   html[data-theme="light"] .search-btn:hover,
   html[data-theme="light"] .hero-search-form button:hover {
-    background: #333333;
+    background: #33363a;
   }
   html[data-theme="light"] .search-hint,
   html[data-theme="light"] .example-hint {
-    color: #777777;
+    color: #6a6f78;
   }
   html[data-theme="light"] .blue-example-link {
     color: #0066cc;
   }
   html[data-theme="light"] .profile-avatar-box,
   html[data-theme="light"] .post-author-avatar {
-    background: #eaeaea;
-    border: 1px solid #cccccc;
+    background: #dfe2e6;
+    border: 1px solid #b8bcc4;
   }
   html[data-theme="light"] .profile-bio {
-    color: #333333;
+    color: #2c2e31;
   }
   html[data-theme="light"] .profile-stats-row {
-    color: #777777;
+    color: #6a6f78;
   }
   html[data-theme="light"] .btn-sharp {
-    background: #f4f4f4;
-    border: 1px solid #cccccc;
-    color: #111111;
+    background: #dfe2e6;
+    border: 1px solid #b8bcc4;
+    color: #1e2022;
   }
   html[data-theme="light"] .btn-sharp:hover {
-    background: #eaeaea;
-    border-color: #888888;
+    background: #d4d7dc;
+    border-color: #8c909a;
   }
   html[data-theme="light"] .post-author-handle {
-    color: #111111;
+    color: #1a1c1e;
   }
   html[data-theme="light"] .post-timestamp {
-    color: #777777;
+    color: #6a6f78;
   }
   html[data-theme="light"] .post-body-text {
-    color: #222222;
+    color: #26282b;
   }
   html[data-theme="light"] .post-mention {
-    color: #000000;
+    color: #111111;
   }
   html[data-theme="light"] .post-link,
   html[data-theme="light"] .post-hashtag {
     color: #0066cc;
   }
   html[data-theme="light"] .post-media-box {
-    background: #f0f0f0;
-    border: 1px solid #e0e0e0;
+    background: #e2e4e8;
+    border: 1px solid #c2c5cc;
   }
   html[data-theme="light"] .video-indicator {
-    background: #eaeaea;
-    border: 1px solid #cccccc;
-    color: #555555;
+    background: #dfe2e6;
+    border: 1px solid #b8bcc4;
+    color: #4a5058;
   }
   html[data-theme="light"] .post-toolbar {
-    border-top: 1px solid #e8e8e8;
-    color: #666666;
+    border-top: 1px solid #d2d5dc;
+    color: #555a62;
+  }
+  html[data-theme="light"] .post-metric {
+    color: #4a4f57;
+  }
+  html[data-theme="light"] .post-metric-val {
+    color: #1e2022;
+  }
+  html[data-theme="light"] .toolbar-btn {
+    color: #555a62;
   }
   html[data-theme="light"] .toolbar-btn:hover {
-    color: #111111;
-  }
-  html[data-theme="light"] .toolbar-btn.active {
-    color: #0066cc;
+    color: #1a1c1e;
   }
   html[data-theme="light"] .comments-box {
-    border-top: 1px solid #e8e8e8;
-    background: #fafafa;
+    border-top: 1px solid #d2d5dc;
+    background: #e4e6ea;
   }
   html[data-theme="light"] .comment-row {
-    border-bottom: 1px solid #eaeaea;
+    border-bottom: 1px solid #d4d7dc;
   }
   html[data-theme="light"] .comment-author-name,
   html[data-theme="light"] .comment-author-name a {
-    color: #111111;
+    color: #1a1c1e;
+  }
+  html[data-theme="light"] .comment-author-avatar {
+    border-color: #b8bcc4;
+    background: #d2d5dc;
   }
   html[data-theme="light"] .comment-content {
-    color: #333333;
+    color: #2e3034;
   }
   html[data-theme="light"] .comments-loading {
-    color: #777777;
+    color: #6a6f78;
+  }
+  html[data-theme="light"] .status-card {
+    background: #e6e8ec;
+    border: 1px solid #c2c5cc;
+  }
+  html[data-theme="light"] .status-card-loading {
+    border-left: 4px solid #0066cc;
+  }
+  html[data-theme="light"] .status-card-loading h3 {
+    color: #103060;
+  }
+  html[data-theme="light"] .status-card-loading p {
+    color: #3b4555;
+  }
+  html[data-theme="light"] .status-card-error {
+    background: #faeaea;
+    border-color: #f1b0b0;
+    border-left: 4px solid #dc2626;
+  }
+  html[data-theme="light"] .status-card-error h3 {
+    color: #991b1b;
+  }
+  html[data-theme="light"] .status-card-error p {
+    color: #b91c1c;
   }
   html[data-theme="light"] .sponsor-btn {
-    background: #111111;
+    background: #1e2022;
     color: #ffffff;
   }
   html[data-theme="light"] .sponsor-btn:hover {
-    background: #333333;
+    background: #33363a;
   }
   html[data-theme="light"] .footer-block {
-    border-top: 1px solid #d5d5d5;
-    color: #777777;
+    border-top: 1px solid #c2c5cc;
+    color: #6a6f78;
   }
   html[data-theme="light"] .footer-links-row a {
-    color: #666666;
+    color: #555a62;
   }
   html[data-theme="light"] .footer-links-row a:hover {
-    color: #111111;
+    color: #1a1c1e;
   }
 
   @media (max-width: 600px) {
@@ -1214,10 +1332,11 @@ export function renderProfilePage(
         ${mediaHtml}
 
         <div class="post-toolbar">
-          <button class="toolbar-btn like-btn" onclick="toggleLike(this, '${esc(cleanUser)}_${idx}')" title="${t.like}">
-            <span class="like-label">${t.like}</span>
-            <span class="like-count">${post.likes ? ` (${esc(post.likes)})` : ""}</span>
-          </button>
+          <span class="post-metric" title="${t.like}">
+            <span class="post-metric-icon">&#9825;</span>
+            <span class="post-metric-label">${t.like}:</span>
+            <span class="post-metric-val">${post.likes ? esc(post.likes) : "0"}</span>
+          </span>
           <button class="toolbar-btn comment-btn" onclick="toggleComments('${esc(cleanUser)}', ${idx}, this)" title="${t.comments}">
             <span class="comment-label">${t.comments}</span>
             <span class="comment-count">${post.replies ? ` (${esc(post.replies)})` : ""}</span>
@@ -1294,8 +1413,15 @@ export function renderProfilePage(
       ${postsHtml}
     </section>
 
-    <div id="loadingBox" class="status-message" style="${hasData ? "display:none;" : ""}">
-      <p id="loadingStatusText">${errorMessage ? esc(errorMessage) : t.loading_posts}</p>
+    <div id="loadingBox" class="status-card ${errorMessage ? 'status-card-error' : 'status-card-loading'}" style="${hasData ? "display:none;" : ""}">
+      <div class="status-card-header">
+        <span class="status-indicator-box"></span>
+        <h3 id="loadingStatusTitle">${errorMessage ? (lang === 'en' ? 'Profile Not Found or Error' : 'Профиль не найден или ошибка') : t.loading_posts}</h3>
+      </div>
+      <p id="loadingStatusText">${errorMessage ? esc(errorMessage) : (lang === 'en' ? 'Fetching profile, posts and media from Threads servers. This may take a few seconds...' : 'Запрашиваем профиль, посты и медиа с серверов Threads. Это занимает несколько секунд...')}</p>
+      <div id="loadingStatusAction" style="${errorMessage ? 'margin-top:14px;' : 'display:none;margin-top:14px;'}">
+        <a href="/?lang=${lang}" class="btn-sharp" style="display:inline-block;">${lang === 'en' ? 'Back to Home' : 'Вернуться на главную'}</a>
+      </div>
     </div>
 
     <div style="text-align: center; margin: 20px 0;" id="loadMoreSection" style="${hasData ? "" : "display:none;"}">
@@ -1366,40 +1492,6 @@ export function renderProfilePage(
       document.getElementById('lightbox').style.display = 'none';
     }
 
-    function toggleLike(btn, id) {
-      var active = btn.classList.toggle('active');
-      var key = 'liked_' + id;
-      var countEl = btn.querySelector('.like-count');
-      var curText = (countEl ? countEl.innerText : '').replace(/[()]/g, '').trim();
-      var num = parseInt(curText, 10);
-      if (active) {
-        localStorage.setItem(key, '1');
-        if (!isNaN(num)) {
-          countEl.innerText = ' (' + (num + 1) + ')';
-        } else if (!curText) {
-          countEl.innerText = ' (1)';
-        }
-      } else {
-        localStorage.removeItem(key);
-        if (!isNaN(num) && num > 1) {
-          countEl.innerText = ' (' + (num - 1) + ')';
-        } else {
-          countEl.innerText = '';
-        }
-      }
-    }
-
-    function initLiked() {
-      var buttons = document.querySelectorAll('.like-btn');
-      buttons.forEach(function(b) {
-        var onclickStr = b.getAttribute('onclick') || '';
-        var match = onclickStr.match(/toggleLike\(this,\s*'([^']+)'\)/);
-        if (match && localStorage.getItem('liked_' + match[1])) {
-          b.classList.add('active');
-        }
-      });
-    }
-
     function escHtml(str) {
       return String(str || '')
         .replace(/&/g, '&amp;')
@@ -1441,8 +1533,15 @@ export function renderProfilePage(
           data.comments.forEach(function(c) {
             var a = (c.author || '@anonymous').trim();
             var handle = a.replace(/^@/, '');
+            var avatarHtml = c.avatar
+              ? '<img src="' + escHtml(c.avatar) + '" data-orig="' + escHtml(c.avatar) + '" class="comment-author-avatar" alt="' + escHtml(handle) + '" referrerpolicy="no-referrer" onerror="if(!this.dataset.proxied){this.dataset.proxied=\'1\';this.src=\'/api/img?url=\'+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display=\'none\';}" />'
+              : '<div class="comment-author-avatar" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#777;">@</div>';
+
             html += '<div class="comment-row">' +
-              '<div class="comment-author-name"><a href="/@' + encodeURIComponent(handle) + (currentLang === 'en' ? '?lang=en' : '') + '">' + escHtml(a) + '</a></div>' +
+              '<div class="comment-author-block">' +
+                avatarHtml +
+                '<a href="/@' + encodeURIComponent(handle) + (currentLang === 'en' ? '?lang=en' : '') + '" class="comment-author-name">' + escHtml(a) + '</a>' +
+              '</div>' +
               '<div class="comment-content">' + formatPostTextClient(c.text || '') + '</div>' +
             '</div>';
           });
@@ -1476,12 +1575,8 @@ export function renderProfilePage(
         el.innerText = isLight ? 'Темная' : 'Светлая';
       }
     }
-    document.addEventListener('DOMContentLoaded', function() {
-      updateThemeBtnText();
-      initLiked();
-    });
+    document.addEventListener('DOMContentLoaded', updateThemeBtnText);
     updateThemeBtnText();
-    initLiked();
 
     function handleNavSearch(e) {
       e.preventDefault();
@@ -1497,13 +1592,31 @@ export function renderProfilePage(
           if (res.ok && res.posts && res.posts.length) {
             window.location.reload();
           } else {
+            var box = document.getElementById('loadingBox');
+            var title = document.getElementById('loadingStatusTitle');
             var txt = document.getElementById('loadingStatusText');
-            if (txt) txt.innerText = res.error || '${t.no_posts}';
+            var action = document.getElementById('loadingStatusAction');
+            if (box) box.className = 'status-card status-card-error';
+            if (title) {
+              title.innerText = res.status === 'user_not_found'
+                ? (currentLang === 'en' ? 'Profile Not Found in Threads' : 'Профиль не найден в Threads')
+                : (currentLang === 'en' ? 'Unable to Load Posts' : 'Не удалось загрузить посты');
+            }
+            if (txt) {
+              txt.innerText = res.error || (currentLang === 'en' ? 'User does not exist or has set their account to private.' : 'Пользователь не существует или закрыл аккаунт настройками приватности.');
+            }
+            if (action) action.style.display = 'block';
           }
         })
         .catch(function() {
+          var box = document.getElementById('loadingBox');
+          var title = document.getElementById('loadingStatusTitle');
           var txt = document.getElementById('loadingStatusText');
+          var action = document.getElementById('loadingStatusAction');
+          if (box) box.className = 'status-card status-card-error';
+          if (title) title.innerText = currentLang === 'en' ? 'Connection Error' : 'Ошибка соединения';
           if (txt) txt.innerText = '${t.toast_error}';
+          if (action) action.style.display = 'block';
         });
     }
 
