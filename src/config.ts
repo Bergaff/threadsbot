@@ -8,6 +8,7 @@ export interface Env {
   ADMIN_IDS?: string;
   STATS_EXCLUDE_IDS?: string;
   BASE_URL?: string;
+  VERSION?: string;
 }
 
 export const LIMITS = {

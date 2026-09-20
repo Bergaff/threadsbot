@@ -1,6 +1,18 @@
 import { launch, type BrowserContext, type Page } from "@cloudflare/playwright";
-import { LIMITS, KEY_COOKIES, type Env } from "./config";
+import { LIMITS, type Env } from "./config";
+import { playwrightCookies, snapshotHasSession } from "./cookies";
+import { isLoginUrl, isUserNotFoundPage } from "./profile";
 import { cleanPostText } from "./i18n";
+
+export {
+  diagnoseAccountCookies,
+  earliestCookieExpiry,
+  hasKeyCookies,
+  normalizeCookiesJson,
+  parseThreadsUsername,
+  validateCookiesJson,
+} from "./cookies";
+export type { AccountDiagnosis } from "./cookies";
 
 export interface Post { text: string; has_image: boolean; has_video: boolean; image?: Uint8Array }
 export interface Comment { author: string; text: string; top?: number }
@@ -16,93 +28,29 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 class BrowserBusyError extends Error {}
 
 // ============================
-// ВАЛИДАЦИЯ И ДИАГНОСТИКА COOKIES
-// ============================
-
-/** Проверяет JSON-строку cookies. Возвращает (ok, result/err). */
-export function validateCookiesJson(raw: string): { ok: true; cookies: Record<string, unknown>[] } | { ok: false; error: string } {
-  let parsed: unknown;
-  try { parsed = JSON.parse(raw); }
-  catch (e) { return { ok: false, error: `JSON повреждён: ${e}` }; }
-  if (!Array.isArray(parsed) || parsed.length === 0) return { ok: false, error: "Нужен массив cookies (Cookie-Editor или Playwright)" };
-  for (const c of parsed) {
-    if (!c || typeof c !== "object" || !(c as Record<string, unknown>).name || (c as Record<string, unknown>).value === undefined)
-      return { ok: false, error: "Не все элементы имеют поля name/value" };
-  }
-  return { ok: true, cookies: parsed as Record<string, unknown>[] };
-}
-
-/** Самая ранняя дата истечения среди cookies (epoch ms) или null */
-export function earliestCookieExpiry(cookies: Record<string, unknown>[]): number | null {
-  const exps: number[] = [];
-  for (const c of cookies) {
-    const v = (c.expirationDate ?? c.expires) as number | undefined;
-    if (typeof v === "number" && v > 0) exps.push(v * 1000); // переводим секунды в ms
-  }
-  return exps.length ? Math.min(...exps) : null;
-}
-
-/** Есть ли ключевые cookies сессии */
-export function hasKeyCookies(cookies: Record<string, unknown>[]): boolean {
-  const names = new Set(cookies.map(c => String(c.name)));
-  return [...KEY_COOKIES].some(k => names.has(k));
-}
-
-export interface AccountDiagnosis {
-  name: string;
-  isAlive: boolean;
-  issues: string[];
-}
-
-/** Диагностика одного аккаунта по его cookies-строке из БД */
-export function diagnoseAccountCookies(name: string, isAlive: boolean, cookiesJson: string): AccountDiagnosis {
-  const issues: string[] = [];
-  const validation = validateCookiesJson(cookiesJson);
-  if (!validation.ok) {
-    issues.push(validation.error);
-  } else {
-    if (!hasKeyCookies(validation.cookies)) issues.push("нет ключевых cookies (sessionid/ig_did)");
-    const exp = earliestCookieExpiry(validation.cookies);
-    const now = Date.now();
-    if (exp !== null) {
-      if (exp < now) issues.push("cookies истекли — нужен новый экспорт");
-      else if (exp < now + LIMITS.cookieWarnDays * 86_400_000) {
-        const d = new Date(exp);
-        issues.push(`истекают ${String(d.getUTCDate()).padStart(2,'0')}.${String(d.getUTCMonth()+1).padStart(2,'0')}.${d.getUTCFullYear()}`);
-      }
-    }
-  }
-  return { name, isAlive, issues };
-}
-
-// ============================
 // BROWSER
 // ============================
 
-const COLLECT_POSTS = `() => {
- const posts=[],seen=new Set();
- const containers=document.querySelectorAll('div[data-pressable-container="true"],article,div[role="article"]');
- for(const container of containers){let bestText='',has_image=false,has_video=false;
-  for(const img of container.querySelectorAll('img[src*="cdninstagram.com"],img[src*="fbcdn.net"]')){if((img.naturalWidth||img.width||0)>200){has_image=true;break}}
-  has_video=container.querySelectorAll('video,div[role="button"] svg[aria-label*="video"],div[role="button"] svg[aria-label="Play"]').length>0;
-  for(const el of container.querySelectorAll('span[dir="auto"],div[dir="auto"],span[class*="x1lliihq"]')){const text=(el.innerText||'').trim();if(text.length<20||/^(Follow|Подписаться|Translate|Перевести|See translation|See more|Like|Reply|Repost|Share|Verified|Автор|Ещё|Нравится|Поделиться)/i.test(text)||/^\d+$/.test(text)||/^\d{1,2}\s*[hчдms]$/i.test(text))continue;if(text.length>bestText.length)bestText=text}
-  if(bestText.length>25||has_image||has_video){const key=bestText.substring(0,100)+(has_image?'_img':'')+(has_video?'_vid':'');if(!seen.has(key)){seen.add(key);posts.push({text:bestText,has_image,has_video})}}
- } return posts;
-}`;
-
 function cookieList(raw: string): any[] {
-  const parsed = JSON.parse(raw) as Record<string, unknown>[];
-  if (!Array.isArray(parsed)) throw new Error("Invalid cookies JSON");
-  return parsed.map(c => {
-    let sameSite = String(c.sameSite || "Lax");
-    if (["unspecified", "null", ""].includes(sameSite)) sameSite = "Lax";
-    else if (["no_restriction", "none"].includes(sameSite.toLowerCase())) sameSite = "None";
-    else sameSite = sameSite[0].toUpperCase() + sameSite.slice(1).toLowerCase();
-    const out: any = { name: c.name, value: c.value, domain: c.domain, path: c.path || "/", httpOnly: Boolean(c.httpOnly), secure: c.secure !== false, sameSite };
-    const expires = c.expirationDate ?? c.expires;
-    if (typeof expires === "number" && expires > 0) out.expires = expires;
-    return out;
-  });
+  return playwrightCookies(raw);
+}
+
+async function addAccountCookies(context: BrowserContext, raw: string) {
+  const cookies = cookieList(raw) as Parameters<BrowserContext["addCookies"]>[0];
+  try {
+    await context.addCookies(cookies);
+    return;
+  } catch (first) {
+    let added = 0;
+    for (const cookie of cookies) {
+      try { await context.addCookies([cookie]); added++; } catch { /* skip one bad cookie */ }
+    }
+    if (!added) throw first;
+  }
+}
+
+function keepSessionCookies(raw: string): string | null {
+  return snapshotHasSession(raw) ? raw : null;
 }
 
 async function logBrowser(env: Env, type: string, data = "") {
@@ -133,8 +81,14 @@ async function openBrowser(env: Env, account: Account): Promise<Opened> {
         userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         viewport: { width: 680, height: 900 },
       });
-      await context.addCookies(cookieList(account.cookies));
       const page = await context.newPage();
+      // Как в рабочей Python-версии: сначала открываем домен, потом ставим cookies, потом reload.
+      // Иначе cookies с .threads.net / .instagram.com не прилипают к www.threads.com.
+      await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await sleep(2000);
+      await addAccountCookies(context, account.cookies);
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+      await sleep(3000);
       return { browser, context, page, startedAt: Date.now() };
     } catch (error) {
       await browser?.close().catch(() => {});
@@ -161,7 +115,33 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
   const all: Post[] = [], seen = new Set<string>();
   let stall = 0;
   for (let i = 0; i < 35; i++) {
-    const evaluated = await page.evaluate(COLLECT_POSTS) as unknown;
+    const evaluated = await page.evaluate(() => {
+      const posts: { text: string; has_image: boolean; has_video: boolean }[] = [];
+      const seen = new Set<string>();
+      const containers = document.querySelectorAll('div[data-pressable-container="true"],article,div[role="article"]');
+      for (const container of containers) {
+        let bestText = "";
+        let has_image = false;
+        let has_video = false;
+        for (const img of container.querySelectorAll('img[src*="cdninstagram.com"],img[src*="fbcdn.net"]')) {
+          const node = img as HTMLImageElement;
+          if ((node.naturalWidth || node.width || 0) > 200) { has_image = true; break; }
+        }
+        has_video = container.querySelectorAll('video,div[role="button"] svg[aria-label*="video"],div[role="button"] svg[aria-label="Play"]').length > 0;
+        for (const el of container.querySelectorAll('span[dir="auto"],div[dir="auto"],span[class*="x1lliihq"]')) {
+          const text = ((el as HTMLElement).innerText || "").trim();
+          if (text.length < 20) continue;
+          if (/^(Follow|Подписаться|Translate|Перевести|See translation|See more|Like|Reply|Repost|Share|Verified|Автор|Ещё|Нравится|Поделиться)/i.test(text)) continue;
+          if (/^\d+$/.test(text) || /^\d{1,2}\s*[hчдms]$/i.test(text)) continue;
+          if (text.length > bestText.length) bestText = text;
+        }
+        if (bestText.length > 25 || has_image || has_video) {
+          const key = bestText.substring(0, 100) + (has_image ? "_img" : "") + (has_video ? "_vid" : "");
+          if (!seen.has(key)) { seen.add(key); posts.push({ text: bestText, has_image, has_video }); }
+        }
+      }
+      return posts;
+    }) as unknown;
     if (!Array.isArray(evaluated)) throw new Error("Threads returned an invalid posts collection");
     const current = evaluated as Post[];
     let added = 0;
@@ -182,11 +162,20 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
 }
 
 async function checkProfile(page: Page, env: Env, username: string): Promise<ThreadsStatus | null> {
+  // После openBrowser мы на главной. Если уже /login — сессия реально мертва.
+  if (isLoginUrl(page.url())) return "session_expired";
   await page.goto(`${BASE(env)}/@${username}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await sleep(4000);
   const body = await page.locator("body").innerText().catch(() => "");
-  if (["Page not found", "Страница не найдена", "isn't available", "недоступна"].some(x => body.includes(x))) return "user_not_found";
-  if (page.url().includes("login")) return "session_expired";
+  if (isUserNotFoundPage(body)) return "user_not_found";
+  if (isLoginUrl(page.url())) {
+    // Как в Python: несуществующий @username часто редиректит на /login.
+    // Проверяем главную — если там залогинены, профиль просто не существует.
+    await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await sleep(2000);
+    if (isLoginUrl(page.url())) return "session_expired";
+    return "user_not_found";
+  }
   await page.waitForSelector("span[dir='auto'],div[dir='auto']", { timeout: 15_000 }).catch(() => {});
   return null;
 }
@@ -236,7 +225,7 @@ async function capturePosts(page: Page, posts: Post[]): Promise<Post[]> {
   return result;
 }
 
-export async function fetchPosts(env: Env, username: string, mode: "text" | "img", amount = 20): Promise<{ data: Post[] | null; status: ThreadsStatus; account?: string }> {
+export async function fetchPosts(env: Env, username: string, mode: "text" | "img", amount = 20): Promise<{ data: Post[] | null; status: ThreadsStatus; account?: string; error?: string }> {
   const tried: string[] = [];
   while (true) {
     const account = await chooseAccount(env, tried);
@@ -251,13 +240,13 @@ export async function fetchPosts(env: Env, username: string, mode: "text" | "img
       let data = await collectPosts(opened.page, amount);
       if (!data.length) return { data: null, status: "no_posts", account: account.name };
       if (mode === "img") data = await capturePosts(opened.page, data);
-      const updated = JSON.stringify(await opened.context.cookies());
-      await markSuccess(env, account.name, data.length, updated);
+      const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+      await markSuccess(env, account.name, data.length, updated || undefined);
       return { data, status: "ok", account: account.name };
     } catch (error) {
       await markTransientError(env, account.name, error);
       if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name };
-      return { data: null, status: "service_error", account: account.name };
+      return { data: null, status: "service_error", account: account.name, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) };
     } finally {
       await closeBrowser(env, opened);
     }
@@ -305,7 +294,7 @@ async function collectComments(page: Page, target = 20): Promise<Comment[]> {
   return result.slice(0, target);
 }
 
-export async function fetchComments(env: Env, username: string, index: number, amount = 20): Promise<{ data: Comment[] | null; status: ThreadsStatus; account?: string }> {
+export async function fetchComments(env: Env, username: string, index: number, amount = 20): Promise<{ data: Comment[] | null; status: ThreadsStatus; account?: string; error?: string }> {
   const tried: string[] = [];
   while (true) {
     const account = await chooseAccount(env, tried);
@@ -334,13 +323,13 @@ export async function fetchComments(env: Env, username: string, index: number, a
       await sleep(4000);
       await opened.page.evaluate(() => window.scrollBy(0, 800));
       const data = await collectComments(opened.page, amount);
-      const updated = JSON.stringify(await opened.context.cookies());
-      await markSuccess(env, account.name, data.length, updated);
+      const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+      await markSuccess(env, account.name, data.length, updated || undefined);
       return { data, status: "ok", account: account.name };
     } catch (error) {
       await markTransientError(env, account.name, error);
       if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name };
-      return { data: null, status: "service_error", account: account.name };
+      return { data: null, status: "service_error", account: account.name, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) };
     } finally {
       await closeBrowser(env, opened);
     }
@@ -361,12 +350,16 @@ export async function probeAccount(env: Env, name: string): Promise<{ name: stri
     opened = await openBrowser(env, account);
     await opened.page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await sleep(3000);
-    if (opened.page.url().includes("login")) {
+    if (isLoginUrl(opened.page.url())) {
       await markSessionExpired(env, name);
       return { name, ok: false, message: "Session expired" };
     }
-    const updated = JSON.stringify(await opened.context.cookies());
-    await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,cookies=?,updated_at=? WHERE name=?").bind(updated, iso(), name).run();
+    const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+    if (updated) {
+      await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,cookies=?,updated_at=? WHERE name=?").bind(updated, iso(), name).run();
+    } else {
+      await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,updated_at=? WHERE name=?").bind(iso(), name).run();
+    }
     return { name, ok: true, message: "Session is valid" };
   } catch (error) {
     await markTransientError(env, name, error);

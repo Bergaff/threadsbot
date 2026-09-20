@@ -2,7 +2,9 @@
 export const TRANSLATIONS = {
   "ru": {
     "welcome": "👋 <b>Добро пожаловать в Threads Reader Bot!</b>\n\nЯ помогаю читать посты и комментарии из Threads.\n\n📌 <b>Как пользоваться:</b>\n1. Напиши username\n2. Выбери формат — текст или скриншоты\n3. Ответь на пост, чтобы загрузить комментарии\n\nПример: <code>zuck</code>\n\n{status}\n\nИспользуй /help, чтобы посмотреть доступные команды.",
-    "help": "ℹ️ <b>Как пользоваться:</b>\n\n1. Напиши username\n2. Выбери формат\n3. Листай кнопкой «Ещё»\n4. Ответь на пост — комментарии\n\n/subscribe — подписка\n/status — статус\n/support — поддержка",
+    "help": "ℹ️ <b>Как пользоваться:</b>\n\n1. Напиши username (например <code>zuck</code>)\n2. Текст или скрины\n3. Подожди 30–60 сек — читаем Threads\n4. «Ещё» — следующие посты\n5. Ответь на конкретный пост — комментарии к нему\n\n/subscribe — подписка\n/status — статус\n/support — поддержка\n/terms — правила\n\nНеофициальный reader, не связан с Meta. Возможны задержки.",
+    "terms": "📄 <b>Правила сервиса</b>\n\nНеофициальный бот для чтения публичных постов и комментариев Threads. Не является продуктом Meta.\n\n• Ответ может занимать до минуты.\n• Бесплатные лимиты: /status. Подписка — без лимита запросов бота на 30 дней.\n• Неуспешный поиск не тратит дневной бесплатный лимит.\n• Оплата Stars/крипто: возврат Stars — по правилам Telegram.\n• Запрещены спам, взлом, перепродажа доступа.\n• Сервис «как есть», без гарантии 100% доступности.\n• /support — вопросы.\n\nПродолжая пользоваться ботом, вы принимаете эти правила.",
+    "please_wait": "⏳ Уже загружаю. Подожди, пока закончится предыдущий запрос.",
     "select_language": "🌍 Выберите язык:",
     "language_set": "✅ Язык установлен: Русский",
     "subscription_active": "✅ Подписка активна ({days} дн.)",
@@ -57,7 +59,9 @@ export const TRANSLATIONS = {
   },
   "en": {
     "welcome": "👋 <b>Welcome to Threads Reader Bot!</b>\n\nI help you read posts and comments from Threads.\n\n📌 <b>How to use:</b>\n1. Send username\n2. Choose format — text or screenshots\n3. Reply to a post to load comments\n\nExample: <code>zuck</code>\n\n{status}\n\nUse /help to see available commands.",
-    "help": "ℹ️ <b>How to use:</b>\n\n1. Send username\n2. Choose format\n3. Use «More» button\n4. Reply to a post for comments\n\n/subscribe — subscription\n/status — status\n/support — support",
+    "help": "ℹ️ <b>How to use:</b>\n\n1. Send a username (e.g. <code>zuck</code>)\n2. Text or screenshots\n3. Wait 30–60 seconds while we read Threads\n4. «More» — next posts\n5. Reply to a specific post for its comments\n\n/subscribe — subscription\n/status — status\n/support — support\n/terms — terms\n\nUnofficial reader, not affiliated with Meta. Delays may happen.",
+    "terms": "📄 <b>Terms of service</b>\n\nUnofficial bot to read public Threads posts and comments. Not a Meta product.\n\n• A request may take up to a minute.\n• Free limits: /status. A subscription removes bot request limits for 30 days.\n• A failed lookup does not spend the daily free quota.\n• Stars/crypto: Star refunds follow Telegram rules.\n• No spam, abuse, or reselling access.\n• Provided as-is, no 100% uptime guarantee.\n• /support for questions.\n\nBy using the bot you accept these terms.",
+    "please_wait": "⏳ Already loading. Please wait for the previous request to finish.",
     "select_language": "🌍 Select language:",
     "language_set": "✅ Language set: English",
     "subscription_active": "✅ Subscription active ({days} days)",
@@ -112,7 +116,9 @@ export const TRANSLATIONS = {
   },
   "de": {
     "welcome": "👋 <b>Willkommen beim Threads Reader Bot!</b>\n\nIch helfe dir, Beiträge und Kommentare aus Threads zu lesen.\n\n📌 <b>Wie benutzen:</b>\n1. Sende einen Benutzernamen\n2. Wähle Format — Text oder Screenshots\n3. Antworte auf einen Beitrag, um Kommentare zu laden\n\nBeispiel: <code>zuck</code>\n\n{status}\n\nVerwende /help, um verfügbare Befehle zu sehen.",
-    "help": "ℹ️ <b>Wie benutzen:</b>\n\n1. Sende einen Benutzernamen\n2. Wähle Format\n3. Verwende «Mehr»\n4. Antworte auf einen Beitrag — Kommentare\n\n/subscribe — Abo\n/status — Status\n/support — Support",
+    "help": "ℹ️ <b>Wie benutzen:</b>\n\n1. Sende einen Benutzernamen (z. B. <code>zuck</code>)\n2. Text oder Screenshots\n3. 30–60 Sek. warten — wir lesen Threads\n4. «Mehr» — weitere Beiträge\n5. Antworte auf einen bestimmten Beitrag für dessen Kommentare\n\n/subscribe — Abo\n/status — Status\n/support — Support\n/terms — Regeln\n\nInoffizieller Reader, nicht mit Meta verbunden. Verzögerungen möglich.",
+    "terms": "📄 <b>Nutzungsbedingungen</b>\n\nInoffizieller Bot zum Lesen öffentlicher Threads-Beiträge und Kommentare. Kein Meta-Produkt.\n\n• Eine Anfrage kann bis zu einer Minute dauern.\n• Gratis-Limits: /status. Abo = 30 Tage ohne Bot-Limits.\n• Fehlgeschlagene Suche verbraucht das Tageslimit nicht.\n• Stars/Krypto: Star-Erstattungen nach Telegram-Regeln.\n• Kein Spam, Missbrauch oder Weiterverkauf.\n• Ohne Garantie auf 100 % Verfügbarkeit.\n• /support bei Fragen.\n\nMit der Nutzung akzeptierst du diese Regeln.",
+    "please_wait": "⏳ Lade bereits. Bitte warte, bis die vorherige Anfrage fertig ist.",
     "select_language": "🌍 Sprache wählen:",
     "language_set": "✅ Sprache: Deutsch",
     "subscription_active": "✅ Abo aktiv ({days} Tage)",
@@ -167,7 +173,9 @@ export const TRANSLATIONS = {
   },
   "es": {
     "welcome": "👋 <b>¡Bienvenido a Threads Reader Bot!</b>\n\nTe ayudo a leer publicaciones y comentarios de Threads.\n\n📌 <b>Cómo usar:</b>\n1. Envía un username\n2. Elige formato — texto o capturas\n3. Responde a un post para cargar comentarios\n\nEjemplo: <code>zuck</code>\n\n{status}\n\nUsa /help para ver comandos disponibles.",
-    "help": "ℹ️ <b>Cómo usar:</b>\n\n1. Envía un username\n2. Elige formato\n3. Usa el botón «Más»\n4. Responde a un post — comentarios\n\n/subscribe — suscripción\n/status — estado\n/support — soporte",
+    "help": "ℹ️ <b>Cómo usar:</b>\n\n1. Envía un username (p. ej. <code>zuck</code>)\n2. Texto o capturas\n3. Espera 30–60 s — leemos Threads\n4. «Más» — siguientes posts\n5. Responde a un post concreto para sus comentarios\n\n/subscribe — suscripción\n/status — estado\n/support — soporte\n/terms — reglas\n\nReader no oficial, no afiliado a Meta. Puede haber demoras.",
+    "terms": "📄 <b>Términos del servicio</b>\n\nBot no oficial para leer posts y comentarios públicos de Threads. No es un producto de Meta.\n\n• Una petición puede tardar hasta un minuto.\n• Límites gratis: /status. La suscripción quita los límites del bot 30 días.\n• Una búsqueda fallida no gasta el cupo diario.\n• Stars/cripto: reembolsos de Stars según Telegram.\n• Prohibido spam, abuso o reventa.\n• Se ofrece tal cual, sin 100 % de disponibilidad.\n• /support para preguntas.\n\nAl usar el bot aceptas estas reglas.",
+    "please_wait": "⏳ Ya estoy cargando. Espera a que termine la petición anterior.",
     "select_language": "🌍 Selecciona idioma:",
     "language_set": "✅ Idioma: Español",
     "subscription_active": "✅ Suscripción activa ({days} días)",
@@ -222,7 +230,9 @@ export const TRANSLATIONS = {
   },
   "pt": {
     "welcome": "👋 <b>Bem-vindo ao Threads Reader Bot!</b>\n\nAjudo você a ler posts e comentários do Threads.\n\n📌 <b>Como usar:</b>\n1. Envie um username\n2. Escolha formato — texto ou screenshots\n3. Responda a um post para carregar comentários\n\nExemplo: <code>zuck</code>\n\n{status}\n\nUse /help para ver os comandos disponíveis.",
-    "help": "ℹ️ <b>Como usar:</b>\n\n1. Envie um username\n2. Escolha formato\n3. Use o botão «Mais»\n4. Responda a um post — comentários\n\n/subscribe — assinatura\n/status — status\n/support — suporte",
+    "help": "ℹ️ <b>Como usar:</b>\n\n1. Envie um username (ex. <code>zuck</code>)\n2. Texto ou screenshots\n3. Espere 30–60 s — lemos o Threads\n4. «Mais» — próximos posts\n5. Responda a um post específico para os comentários dele\n\n/subscribe — assinatura\n/status — status\n/support — suporte\n/terms — regras\n\nReader não oficial, sem ligação à Meta. Pode haver atrasos.",
+    "terms": "📄 <b>Termos do serviço</b>\n\nBot não oficial para ler posts e comentários públicos do Threads. Não é um produto da Meta.\n\n• Um pedido pode levar até um minuto.\n• Limites grátis: /status. A assinatura remove os limites do bot por 30 dias.\n• Busca falhada não gasta o limite diário.\n• Stars/crypto: reembolsos de Stars segundo o Telegram.\n• Proibido spam, abuso ou revenda.\n• Fornecido como está, sem 100 % de disponibilidade.\n• /support para dúvidas.\n\nAo usar o bot, você aceita estas regras.",
+    "please_wait": "⏳ Já estou a carregar. Espera o pedido anterior terminar.",
     "select_language": "🌍 Selecione o idioma:",
     "language_set": "✅ Idioma: Português",
     "subscription_active": "✅ Assinatura ativa ({days} dias)",
