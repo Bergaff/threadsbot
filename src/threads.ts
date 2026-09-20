@@ -1,6 +1,6 @@
-import { launch, type BrowserContext, type Page } from "@cloudflare/playwright";
+import type { BrowserContext, Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
-import { playwrightCookies, snapshotHasSession } from "./cookies";
+import { diagnoseAccountCookies, playwrightCookies, snapshotHasSession } from "./cookies";
 import { isLoginUrl, isUserNotFoundPage } from "./profile";
 import { cleanPostText } from "./i18n";
 
@@ -104,6 +104,7 @@ async function openBrowser(env: Env, account: Account): Promise<Opened> {
     await logBrowser(env, "browser_launch");
     let browser: any;
     try {
+      const { launch } = await import("@cloudflare/playwright");
       browser = await launch(env.BROWSER);
       const context = await browser.newContext({
         userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
@@ -533,6 +534,61 @@ export async function probeAccount(env: Env, name: string): Promise<{ name: stri
   } catch (error) {
     await markTransientError(env, name, error);
     return { name, ok: false, message: error instanceof BrowserBusyError ? "Browser Run is busy; retry later" : (error instanceof Error ? error.message : String(error)).slice(0, 200) };
+  } finally {
+    await closeBrowser(env, opened);
+  }
+}
+
+/** Автообновление cookies: открывает Threads, триггерит продление сессии в Meta и сохраняет свежие cookies в D1 */
+export async function refreshAccountCookies(
+  env: Env,
+  name: string
+): Promise<{ name: string; ok: boolean; message: string; expiry?: string; cookieCount?: number }> {
+  const account = await env.DB.prepare(
+    "SELECT name,cookies,hourly_requests,hourly_reset FROM threads_accounts WHERE name=? AND enabled=1"
+  ).bind(name).first<Account>();
+  if (!account) return { name, ok: false, message: "Аккаунт не найден или отключен" };
+
+  let opened: Opened | undefined;
+  try {
+    opened = await openBrowser(env, account);
+    await opened.page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await sleep(3000);
+
+    if (isLoginUrl(opened.page.url())) {
+      await markSessionExpired(env, name);
+      return { name, ok: false, message: "Сессия уже истекла в Threads, требуется свежий логин" };
+    }
+
+    await opened.page.evaluate(() => window.scrollBy(0, 600));
+    await sleep(2500);
+
+    const rawCookies = await opened.context.cookies();
+    const updated = keepSessionCookies(JSON.stringify(rawCookies));
+    if (!updated) {
+      await markSessionExpired(env, name);
+      return { name, ok: false, message: "Не удалось сохранить сессионные cookies" };
+    }
+
+    await env.DB.prepare(
+      "UPDATE threads_accounts SET is_alive=1,last_error=NULL,cookies=?,updated_at=? WHERE name=?"
+    ).bind(updated, iso(), name).run();
+
+    const diagnosis = diagnoseAccountCookies(name, true, updated);
+    return {
+      name,
+      ok: true,
+      message: "Cookies успешно продлены и сохранены в D1",
+      expiry: diagnosis.expiresAt ? new Date(diagnosis.expiresAt).toISOString() : undefined,
+      cookieCount: diagnosis.cookieCount,
+    };
+  } catch (error) {
+    await markTransientError(env, name, error);
+    return {
+      name,
+      ok: false,
+      message: (error instanceof Error ? error.message : String(error)).slice(0, 200),
+    };
   } finally {
     await closeBrowser(env, opened);
   }

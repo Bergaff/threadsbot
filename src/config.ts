@@ -9,6 +9,7 @@ export interface Env {
   STATS_EXCLUDE_IDS?: string;
   BASE_URL?: string;
   VERSION?: string;
+  ADMIN_PASSWORD?: string;
 }
 
 export const LIMITS = {
@@ -36,3 +37,4 @@ export const adminIds = (env: Env): number[] =>
 export const excludedIds = (env: Env): number[] =>
   (env.STATS_EXCLUDE_IDS || env.ADMIN_IDS || "").split(",").map(Number).filter(Number.isFinite);
 export const isAdmin = (env: Env, uid: number): boolean => adminIds(env).includes(uid);
+export const adminPassword = (env: Env): string => env.ADMIN_PASSWORD || "admin";

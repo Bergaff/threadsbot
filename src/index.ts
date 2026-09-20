@@ -1,3 +1,4 @@
+import { handleAdminRoute } from "./admin";
 import { Bot } from "./bot";
 import { adminIds, type Env } from "./config";
 import { Database } from "./db";
@@ -51,6 +52,13 @@ async function notifyError(env: Env, error: unknown) {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // ==========================================
+    // ВЕБ-АДМИНКА (СТАТУС БОТОВ, АККАУНТЫ, ПАРОЛЬ)
+    // ==========================================
+    if (url.pathname.startsWith("/admin")) {
+      return handleAdminRoute(request, env);
+    }
 
     // ==========================================
     // ВЕБ-САЙТ И ЗЕРКАЛО ДЛЯ БРАУЗЕРА (БЕЗ VPN)
