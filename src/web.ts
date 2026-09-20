@@ -1,6 +1,31 @@
 import type { Env } from "./config";
 import type { Comment, Post, ProfileData } from "./threads";
 
+export type Lang = "ru" | "en";
+
+export function detectLanguage(request: Request): Lang {
+  const url = new URL(request.url);
+  const q = url.searchParams.get("lang")?.toLowerCase();
+  if (q === "en" || q === "ru") return q;
+
+  const cookieHeader = request.headers.get("cookie") || "";
+  const match = cookieHeader.match(/(?:^|;\s*)lang=(ru|en)/i);
+  if (match) return match[1].toLowerCase() as Lang;
+
+  const accept = (request.headers.get("accept-language") || "").toLowerCase();
+  if (accept.startsWith("ru") || accept.includes(",ru") || accept.includes("be") || accept.includes("uk")) {
+    return "ru";
+  }
+
+  const country = (request.headers.get("cf-ipcountry") || (request as any).cf?.country || "").toUpperCase();
+  const cisCountries = ["RU", "BY", "KZ", "UA", "KG", "UZ", "TJ", "AM", "AZ", "MD"];
+  if (cisCountries.includes(country)) {
+    return "ru";
+  }
+
+  return "en";
+}
+
 function esc(value: unknown): string {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -75,7 +100,7 @@ const COMMON_STYLES = `
   }
   .navbar-search {
     flex: 1;
-    max-width: 380px;
+    max-width: 360px;
     margin: 0 14px;
   }
   .navbar-search input {
@@ -95,7 +120,7 @@ const COMMON_STYLES = `
   .navbar-actions {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
   }
   .btn-nav-tg {
     background: #2a2a2a;
@@ -106,6 +131,19 @@ const COMMON_STYLES = `
     font-size: 0.82rem;
     font-weight: 600;
     box-shadow: none;
+  }
+  .btn-lang-toggle {
+    background: #1c1c1c;
+    border: 1px solid #333333;
+    color: #aaaaaa;
+    padding: 5px 9px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .btn-lang-toggle:hover {
+    color: #ffffff;
+    border-color: #555555;
   }
 
   /* Notice Bar */
@@ -171,7 +209,7 @@ const COMMON_STYLES = `
   .hero-search-form {
     display: flex;
     gap: 8px;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
   }
   .hero-search-form input {
     flex: 1;
@@ -202,25 +240,16 @@ const COMMON_STYLES = `
     background: #363636;
   }
 
-  .chips-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 10px;
+  .example-hint {
+    font-size: 0.82rem;
+    color: #888888;
+    margin-top: 8px;
   }
-  .chip-btn {
-    background: #1b1b1b;
-    border: 1px solid #2d2d2d;
-    border-radius: 0;
-    padding: 4px 10px;
-    font-size: 0.8rem;
-    color: #999999;
-    box-shadow: none;
-  }
-  .chip-btn:hover {
-    color: #ffffff;
-    border-color: #555555;
-    background: #242424;
+  .blue-example-link {
+    color: #3b82f6;
+    text-decoration: underline;
+    font-weight: 600;
+    cursor: pointer;
   }
 
   /* Profile Header */
@@ -561,111 +590,218 @@ const COMMON_STYLES = `
   }
 `;
 
-function renderNavbar(env: Env, searchDefault = ""): string {
+const I18N = {
+  ru: {
+    home_title: "Threads Viewer - Читайте Threads без VPN онлайн",
+    home_desc: "Веб-зеркало для чтения постов, просмотра медиа и комментариев Threads без VPN и регистрации.",
+    search_placeholder: "Поиск @username...",
+    hero_search_placeholder: "Введите @username или threads.com/@...",
+    hero_tag: "Анонимное веб-зеркало",
+    hero_title: "Читайте Threads без VPN",
+    hero_subtitle: "Введите никнейм автора или ссылку на тред, чтобы открыть посты, фото и комментарии прямо в браузере.",
+    open_btn: "Открыть",
+    example_hint: 'Например, <span id="exampleZuck" class="blue-example-link" onclick="fillSearch(\'zuck\')">zuck</span>',
+    notice_text: "Чтение Threads без VPN и аккаунта. Уведомления о новых постах доступны в Telegram-боте.",
+    open_bot_btn: "Открыть бота",
+    bot_link_text: "Telegram Бот",
+    sponsor_tag: "Партнерский блок",
+    sponsor_ad_label: "Реклама",
+    sponsor_title: "Доступ к Threads и Instagram без ограничений",
+    sponsor_desc: "Быстрый доступ к приложениям Meta на ПК и телефоне без зависаний.",
+    sponsor_btn: "Подробнее",
+    followers_label: "Подписчики",
+    no_vpn_label: "Без VPN",
+    anon_label: "Анонимный просмотр",
+    sub_tg: "Подписаться в Telegram",
+    share_profile: "Поделиться профилем",
+    share_post: "Поделиться",
+    in_bot: "В бот",
+    comments: "Комментарии",
+    like: "Нравится",
+    video: "Видеозапись",
+    load_more: "Загрузить еще посты",
+    loading_posts: "Загрузка постов из Threads...",
+    loading_comments: "Загрузка комментариев...",
+    no_comments: "Комментариев нет.",
+    no_posts: "Посты не найдены.",
+    toast_profile_copied: "Ссылка скопирована",
+    toast_post_copied: "Ссылка на пост скопирована",
+    toast_invalid_username: "Введите корректный @username",
+    toast_loading: "Загрузка постов...",
+    toast_updated: "Посты обновлены",
+    toast_all_loaded: "Все посты загружены",
+    toast_error: "Не удалось загрузить",
+    tos: "TOS",
+    privacy: "Privacy Policy",
+    footer_text: "Threads Viewer. Независимый сервис. Не аффилирован с Meta Platforms Inc.",
+    other_lang: "EN",
+    other_lang_code: "en",
+  },
+  en: {
+    home_title: "Threads Viewer - Read Threads without login and VPN online",
+    home_desc: "Web mirror to read posts, view media and comments on Threads without login or app.",
+    search_placeholder: "Search @username...",
+    hero_search_placeholder: "Enter @username or threads.com/@...",
+    hero_tag: "Anonymous web mirror",
+    hero_title: "Read Threads without VPN",
+    hero_subtitle: "Enter an author's handle or thread link to view posts, photos, and comments directly in your browser.",
+    open_btn: "Open",
+    example_hint: 'For example, <span id="exampleZuck" class="blue-example-link" onclick="fillSearch(\'zuck\')">zuck</span>',
+    notice_text: "Read Threads without VPN or account. Real-time updates available via our Telegram bot.",
+    open_bot_btn: "Open bot",
+    bot_link_text: "Telegram Bot",
+    sponsor_tag: "Sponsored",
+    sponsor_ad_label: "Ad",
+    sponsor_title: "Unrestricted access to Threads and Instagram",
+    sponsor_desc: "Fast, reliable connection to Meta services on desktop and mobile without lags.",
+    sponsor_btn: "Learn more",
+    followers_label: "Followers",
+    no_vpn_label: "No VPN",
+    anon_label: "Anonymous viewing",
+    sub_tg: "Subscribe in Telegram",
+    share_profile: "Share profile",
+    share_post: "Share",
+    in_bot: "In bot",
+    comments: "Comments",
+    like: "Like",
+    video: "Video",
+    load_more: "Load more posts",
+    loading_posts: "Loading posts from Threads...",
+    loading_comments: "Loading comments...",
+    no_comments: "No comments yet.",
+    no_posts: "No posts found.",
+    toast_profile_copied: "Profile link copied",
+    toast_post_copied: "Post link copied",
+    toast_invalid_username: "Enter a valid @username",
+    toast_loading: "Loading posts...",
+    toast_updated: "Posts updated",
+    toast_all_loaded: "All posts loaded",
+    toast_error: "Failed to load",
+    tos: "TOS",
+    privacy: "Privacy Policy",
+    footer_text: "Threads Viewer. Independent service. Not affiliated with Meta Platforms Inc.",
+    other_lang: "RU",
+    other_lang_code: "ru",
+  },
+};
+
+function renderNavbar(env: Env, lang: Lang, searchDefault = ""): string {
+  const t = I18N[lang];
   const tgUser = getBotUsername(env);
   return `
     <header class="navbar">
-      <a href="/" class="navbar-brand">
+      <a href="/?lang=${lang}" class="navbar-brand">
         <span>Threads Viewer</span>
       </a>
       <div class="navbar-search">
         <form onsubmit="handleNavSearch(event)">
-          <input type="text" id="navSearchInput" placeholder="Поиск @username..." value="${esc(searchDefault)}" />
+          <input type="text" id="navSearchInput" placeholder="${t.search_placeholder}" value="${esc(searchDefault)}" />
         </form>
       </div>
       <div class="navbar-actions">
+        <a href="?lang=${t.other_lang_code}" onclick="setLangCookie('${t.other_lang_code}')" class="btn-lang-toggle" title="Switch language">
+          ${t.other_lang}
+        </a>
         <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener" class="btn-nav-tg">
-          Telegram Бот
+          ${t.bot_link_text}
         </a>
       </div>
     </header>
   `;
 }
 
-function renderNoticeBar(username?: string): string {
+function renderNoticeBar(lang: Lang, username?: string): string {
+  const t = I18N[lang];
   const tgLink = username ? `https://t.me/threads_reader_bot?start=sub_${username}` : "https://t.me/threads_reader_bot";
   return `
     <div class="notice-bar">
-      <span>Чтение Threads без VPN и аккаунта. Уведомления о новых постах доступны в Telegram-боте.</span>
-      <a href="${esc(tgLink)}" target="_blank" rel="noopener">Открыть бота</a>
+      <span>${t.notice_text}</span>
+      <a href="${esc(tgLink)}" target="_blank" rel="noopener">${t.open_bot_btn}</a>
     </div>
   `;
 }
 
-function renderSponsorSlot(): string {
+function renderSponsorSlot(lang: Lang): string {
+  const t = I18N[lang];
   return `
     <div class="sponsor-card">
       <div class="sponsor-card-top">
-        <span>Партнерский блок</span>
-        <a href="https://t.me/threads_reader_bot" target="_blank" rel="noopener" style="color: #777; text-decoration: underline;">Реклама</a>
+        <span>${t.sponsor_tag}</span>
+        <a href="https://t.me/threads_reader_bot" target="_blank" rel="noopener" style="color: #777; text-decoration: underline;">${t.sponsor_ad_label}</a>
       </div>
       <div class="sponsor-card-inner">
         <div class="sponsor-text">
-          <h4>Доступ к Threads и Instagram без ограничений</h4>
-          <p>Быстрый доступ к приложениям Meta на ПК и телефоне без зависаний.</p>
+          <h4>${t.sponsor_title}</h4>
+          <p>${t.sponsor_desc}</p>
         </div>
         <a href="https://t.me/threads_reader_bot" target="_blank" rel="noopener" class="sponsor-btn">
-          Подробнее
+          ${t.sponsor_btn}
         </a>
       </div>
     </div>
   `;
 }
 
-export function renderHomePage(env: Env): Response {
+export function renderHomePage(env: Env, lang: Lang = "ru"): Response {
+  const t = I18N[lang];
   const tgUser = getBotUsername(env);
-  const popular = ["durov", "mosseri", "zuck", "mrbeast", "openai", "techcrunch"];
-  const chipsHtml = popular
-    .map(name => `<a href="/@${name}" class="chip-btn">@${name}</a>`)
-    .join("");
 
   const html = `<!DOCTYPE html>
-<html lang="ru">
+<html lang="${lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Threads Viewer - Читайте Threads без VPN онлайн</title>
-  <meta name="description" content="Веб-зеркало для чтения постов, просмотра медиа и комментариев Threads без VPN и регистрации.">
+  <title>${t.home_title}</title>
+  <meta name="description" content="${t.home_desc}">
   <style>${COMMON_STYLES}</style>
 </head>
 <body>
-  ${renderNavbar(env)}
-  ${renderNoticeBar()}
+  ${renderNavbar(env, lang)}
+  ${renderNoticeBar(lang)}
 
   <main class="container">
     <div class="hero-card">
-      <div class="hero-tag">Анонимное веб-зеркало</div>
-      <h1 class="hero-title">Читайте Threads без VPN</h1>
-      <p class="hero-subtitle">
-        Введите никнейм автора или ссылку на тред, чтобы открыть посты, фото и комментарии прямо в браузере.
-      </p>
+      <div class="hero-tag">${t.hero_tag}</div>
+      <h1 class="hero-title">${t.hero_title}</h1>
+      <p class="hero-subtitle">${t.hero_subtitle}</p>
 
       <form class="hero-search-form" onsubmit="handleHeroSearch(event)">
-        <input type="text" id="heroSearchInput" placeholder="Введите @username или threads.com/@..." autofocus />
-        <button type="submit">Открыть</button>
+        <input type="text" id="heroSearchInput" placeholder="${t.hero_search_placeholder}" autofocus />
+        <button type="submit">${t.open_btn}</button>
       </form>
 
-      <div class="chips-row">
-        ${chipsHtml}
+      <div class="example-hint">
+        ${t.example_hint}
       </div>
     </div>
 
-    ${renderSponsorSlot()}
+    ${renderSponsorSlot(lang)}
   </main>
 
   <footer class="footer-block">
     <div class="footer-links-row">
-      <a href="/">Главная</a>
-      <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener">Telegram Бот</a>
-      <a href="/terms">TOS</a>
-      <a href="/privacy">Privacy Policy</a>
+      <a href="/?lang=${lang}">Главная</a>
+      <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener">${t.bot_link_text}</a>
+      <a href="/terms?lang=${lang}">${t.tos}</a>
+      <a href="/privacy?lang=${lang}">${t.privacy}</a>
     </div>
-    <p>Threads Viewer. Независимый сервис. Не аффилирован с Meta Platforms Inc.</p>
+    <p>${t.footer_text}</p>
   </footer>
 
   <div id="toast" class="toast-box"></div>
 
   <script>
+    var currentLang = "${lang}";
+    function setLangCookie(code) {
+      document.cookie = "lang=" + code + ";path=/;max-age=31536000";
+    }
+    function fillSearch(val) {
+      var input = document.getElementById('heroSearchInput');
+      if (input) {
+        input.value = val;
+        input.focus();
+      }
+    }
     function showToast(msg) {
       var t = document.getElementById('toast');
       t.innerText = msg;
@@ -682,9 +818,9 @@ export function renderHomePage(env: Env): Response {
       var input = document.getElementById('heroSearchInput');
       var name = cleanUsername(input.value);
       if (name) {
-        window.location.href = '/@' + name;
+        window.location.href = '/@' + name + (currentLang === 'en' ? '?lang=en' : '');
       } else {
-        showToast('Введите корректный @username');
+        showToast('${t.toast_invalid_username}');
       }
     }
     function handleNavSearch(e) {
@@ -692,7 +828,7 @@ export function renderHomePage(env: Env): Response {
       var input = document.getElementById('navSearchInput');
       var name = cleanUsername(input.value);
       if (name) {
-        window.location.href = '/@' + name;
+        window.location.href = '/@' + name + (currentLang === 'en' ? '?lang=en' : '');
       }
     }
   </script>
@@ -711,8 +847,10 @@ export function renderProfilePage(
   env: Env,
   username: string,
   initialData?: ProfileData | null,
-  errorMessage?: string | null
+  errorMessage?: string | null,
+  lang: Lang = "ru"
 ): Response {
+  const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const cleanUser = username.replace(/^@/, "").toLowerCase();
   const profile = initialData?.profile || {
@@ -738,7 +876,7 @@ export function renderProfilePage(
       : "";
 
     const videoMarker = post.has_video
-      ? `<span class="video-indicator">Видеозапись</span>`
+      ? `<span class="video-indicator">${t.video}</span>`
       : "";
 
     return `
@@ -747,12 +885,12 @@ export function renderProfilePage(
           <div class="post-author-block">
             ${authorAvatar ? `<img src="${esc(authorAvatar)}" class="post-author-avatar" alt="${esc(authorName)}" />` : `<div class="post-author-avatar" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:11px;">@</div>`}
             <div>
-              <a href="/@${esc(cleanUser)}" class="post-author-handle">${esc(authorName)}</a>
+              <a href="/@${esc(cleanUser)}${lang === 'en' ? '?lang=en' : ''}" class="post-author-handle">${esc(authorName)}</a>
               ${postDate ? `<div class="post-timestamp">${esc(postDate)}</div>` : ""}
             </div>
           </div>
-          <button class="toolbar-btn" title="Ссылка на пост" onclick="copyPostLink('${esc(cleanUser)}', ${idx})">
-            Поделиться
+          <button class="toolbar-btn" title="${t.share_post}" onclick="copyPostLink('${esc(cleanUser)}', ${idx})">
+            ${t.share_post}
           </button>
         </div>
 
@@ -765,18 +903,18 @@ export function renderProfilePage(
 
         <div class="post-toolbar">
           <button class="toolbar-btn" onclick="toggleLike(this)">
-            <span class="like-label">Нравится</span>
+            <span class="like-label">${t.like}</span>
           </button>
           <button class="toolbar-btn" onclick="toggleComments('${esc(cleanUser)}', ${idx})">
-            Комментарии
+            ${t.comments}
           </button>
           <a href="https://t.me/${esc(tgUser)}?start=sub_${esc(cleanUser)}" target="_blank" rel="noopener" class="toolbar-btn" style="margin-left:auto;">
-            В бот
+            ${t.in_bot}
           </a>
         </div>
 
         <div class="comments-box" id="comments-${idx}">
-          <div style="font-size:0.8rem;color:#777;padding:6px 0;">Загрузка комментариев...</div>
+          <div style="font-size:0.8rem;color:#777;padding:6px 0;">${t.loading_comments}</div>
         </div>
       </article>
     `;
@@ -785,7 +923,7 @@ export function renderProfilePage(
   const pageTitle = `@${esc(cleanUser)} в Threads - читать без VPN | Threads Viewer`;
 
   const html = `<!DOCTYPE html>
-<html lang="ru">
+<html lang="${lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -794,8 +932,8 @@ export function renderProfilePage(
   <style>${COMMON_STYLES}</style>
 </head>
 <body>
-  ${renderNavbar(env, "@" + cleanUser)}
-  ${renderNoticeBar(cleanUser)}
+  ${renderNavbar(env, lang, "@" + cleanUser)}
+  ${renderNoticeBar(lang, cleanUser)}
 
   <main class="container">
     <div class="profile-card">
@@ -814,34 +952,34 @@ export function renderProfilePage(
       ${profile.bio ? `<div class="profile-bio">${formatPostText(profile.bio)}</div>` : ""}
 
       <div class="profile-stats-row">
-        ${profile.followers ? `<span>Подписчики: ${esc(profile.followers)}</span>` : ""}
-        <span>Без VPN</span>
-        <span>Анонимный просмотр</span>
+        ${profile.followers ? `<span>${t.followers_label}: ${esc(profile.followers)}</span>` : ""}
+        <span>${t.no_vpn_label}</span>
+        <span>${t.anon_label}</span>
       </div>
 
       <div class="profile-actions">
         <a href="https://t.me/${esc(tgUser)}?start=sub_${esc(cleanUser)}" target="_blank" rel="noopener" class="btn-sharp">
-          Подписаться в Telegram
+          ${t.sub_tg}
         </a>
         <button class="btn-sharp" onclick="shareProfile()">
-          Поделиться профилем
+          ${t.share_profile}
         </button>
       </div>
     </div>
 
-    ${renderSponsorSlot()}
+    ${renderSponsorSlot(lang)}
 
     <section class="feed" id="postsFeed">
       ${postsHtml}
     </section>
 
     <div id="loadingBox" class="status-message" style="${hasData ? "display:none;" : ""}">
-      <p id="loadingStatusText">${errorMessage ? esc(errorMessage) : "Загрузка постов из Threads..."}</p>
+      <p id="loadingStatusText">${errorMessage ? esc(errorMessage) : t.loading_posts}</p>
     </div>
 
     <div style="text-align: center; margin: 20px 0;" id="loadMoreSection" style="${hasData ? "" : "display:none;"}">
       <button class="btn-sharp" style="width: 100%; max-width: 260px; justify-content: center;" onclick="loadMorePosts('${esc(cleanUser)}')">
-        Загрузить еще посты
+        ${t.load_more}
       </button>
     </div>
   </main>
@@ -855,17 +993,22 @@ export function renderProfilePage(
 
   <footer class="footer-block">
     <div class="footer-links-row">
-      <a href="/">Главная</a>
-      <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener">Telegram Бот</a>
-      <a href="/terms">TOS</a>
-      <a href="/privacy">Privacy Policy</a>
+      <a href="/?lang=${lang}">Главная</a>
+      <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener">${t.bot_link_text}</a>
+      <a href="/terms?lang=${lang}">${t.tos}</a>
+      <a href="/privacy?lang=${lang}">${t.privacy}</a>
     </div>
-    <p>Threads Viewer. Независимый сервис. Не аффилирован с Meta Platforms Inc.</p>
+    <p>${t.footer_text}</p>
   </footer>
 
   <script>
     var currentUsername = "${esc(cleanUser)}";
+    var currentLang = "${lang}";
     var isLoaded = ${hasData ? "true" : "false"};
+
+    function setLangCookie(code) {
+      document.cookie = "lang=" + code + ";path=/;max-age=31536000";
+    }
 
     function showToast(msg) {
       var t = document.getElementById('toast');
@@ -877,7 +1020,7 @@ export function renderProfilePage(
     function shareProfile() {
       if (navigator.clipboard) {
         navigator.clipboard.writeText(window.location.href);
-        showToast('Ссылка скопирована');
+        showToast('${t.toast_profile_copied}');
       } else {
         showToast(window.location.href);
       }
@@ -887,7 +1030,7 @@ export function renderProfilePage(
       var url = window.location.origin + '/@' + username + '#post-' + idx;
       if (navigator.clipboard) {
         navigator.clipboard.writeText(url);
-        showToast('Ссылка на пост скопирована');
+        showToast('${t.toast_post_copied}');
       }
     }
 
@@ -905,7 +1048,8 @@ export function renderProfilePage(
     function toggleLike(btn) {
       btn.classList.toggle('active');
       var label = btn.querySelector('.like-label');
-      label.innerText = btn.classList.contains('active') ? 'Нравится (1)' : 'Нравится';
+      var base = '${t.like}';
+      label.innerText = btn.classList.contains('active') ? base + ' (1)' : base;
     }
 
     function toggleComments(username, idx) {
@@ -923,7 +1067,7 @@ export function renderProfilePage(
         .then(function(data) {
           box.dataset.loaded = 'true';
           if (!data.ok || !data.comments || !data.comments.length) {
-            box.innerHTML = '<div style="color:#777;font-size:0.8rem;padding:4px 0;">Комментариев нет.</div>';
+            box.innerHTML = '<div style="color:#777;font-size:0.8rem;padding:4px 0;">${t.no_comments}</div>';
             return;
           }
           var html = '';
@@ -936,7 +1080,7 @@ export function renderProfilePage(
           box.innerHTML = html;
         })
         .catch(function() {
-          box.innerHTML = '<div style="color:#aa4444;font-size:0.8rem;padding:4px 0;">Не удалось загрузить комментарии.</div>';
+          box.innerHTML = '<div style="color:#aa4444;font-size:0.8rem;padding:4px 0;">${t.toast_error}</div>';
         });
     }
 
@@ -944,7 +1088,7 @@ export function renderProfilePage(
       e.preventDefault();
       var input = document.getElementById('navSearchInput');
       var val = (input.value || '').trim().replace(/^@/, '');
-      if (val) window.location.href = '/@' + val;
+      if (val) window.location.href = '/@' + val + (currentLang === 'en' ? '?lang=en' : '');
     }
 
     if (!isLoaded) {
@@ -955,28 +1099,28 @@ export function renderProfilePage(
             window.location.reload();
           } else {
             var txt = document.getElementById('loadingStatusText');
-            if (txt) txt.innerText = res.error || 'Посты не найдены.';
+            if (txt) txt.innerText = res.error || '${t.no_posts}';
           }
         })
         .catch(function() {
           var txt = document.getElementById('loadingStatusText');
-          if (txt) txt.innerText = 'Ошибка соединения.';
+          if (txt) txt.innerText = '${t.toast_error}';
         });
     }
 
     function loadMorePosts(username) {
-      showToast('Загрузка постов...');
+      showToast('${t.toast_loading}');
       fetch('/api/profile/' + encodeURIComponent(username) + '?page=1')
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data.ok && data.posts && data.posts.length) {
-            showToast('Посты обновлены');
+            showToast('${t.toast_updated}');
           } else {
-            showToast('Все посты загружены');
+            showToast('${t.toast_all_loaded}');
           }
         })
         .catch(function() {
-          showToast('Не удалось загрузить');
+          showToast('${t.toast_error}');
         });
     }
 
@@ -1001,31 +1145,48 @@ export function renderProfilePage(
   });
 }
 
-export function renderTermsPage(): Response {
+export function renderTermsPage(lang: Lang = "ru"): Response {
+  const isEn = lang === "en";
+  const title = isEn ? "Terms of Service" : "Terms of Service (Пользовательское соглашение)";
+  const date = isEn ? "Last updated: 2026-09-20" : "Дата обновления: 2026-09-20";
+  const h1 = isEn ? "1. General Provisions" : "1. Общие положения";
+  const p1 = isEn
+    ? "Threads Viewer is an independent web viewer for publicly available data from the Threads platform, designed for educational and informational purposes."
+    : "Threads Viewer - независимый веб-просмотрщик общедоступных данных платформы Threads, предназначенный для чтения открытых публикаций в ознакомительных целях.";
+  const h2 = isEn ? "2. Disclaimer" : "2. Отказ от ответственности";
+  const p2 = isEn
+    ? "This service is not affiliated with, endorsed by, or sponsored by Meta Platforms Inc., Instagram, or Threads. All trademarks belong to their respective owners."
+    : "Сервис не связан с Meta Platforms Inc., Instagram или Threads. Все товарные знаки принадлежат их правообладателям.";
+  const h3 = isEn ? "3. Service Use" : "3. Использование сервиса";
+  const p3 = isEn
+    ? "The service is provided on an 'as is' basis. We assume no liability for third-party content published on the external Threads platform."
+    : "Сервис предоставляется по принципу 'как есть' (as is). Администрация не несет ответственности за материалы третьих лиц.";
+  const backBtn = isEn ? "Back to Home" : "Вернуться на главную";
+
   const html = `<!DOCTYPE html>
-<html lang="ru">
+<html lang="${lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Terms of Service - Threads Viewer</title>
+  <title>${title} - Threads Viewer</title>
   <style>${COMMON_STYLES} .terms-card { background: #131313; border: 1px solid #2d2d2d; border-radius: 0; padding: 24px; margin: 30px auto; max-width: 680px; } .terms-card h1 { margin-bottom: 12px; font-size: 1.4rem; color: #fff; } .terms-card h2 { margin: 18px 0 6px; font-size: 1.05rem; color: #eee; } .terms-card p { color: #888888; margin-bottom: 10px; font-size: 0.88rem; }</style>
 </head>
 <body>
   <div class="terms-card">
-    <h1>Terms of Service (Пользовательское соглашение)</h1>
-    <p>Дата обновления: 2026-09-20</p>
+    <h1>${title}</h1>
+    <p>${date}</p>
 
-    <h2>1. Общие положения</h2>
-    <p>Threads Viewer - независимый веб-просмотрщик общедоступных данных платформы Threads, предназначенный для чтения открытых публикаций в ознакомительных целях.</p>
+    <h2>${h1}</h2>
+    <p>${p1}</p>
 
-    <h2>2. Отказ от ответственности</h2>
-    <p>Сервис не связан с Meta Platforms Inc., Instagram или Threads. Все товарные знаки принадлежат их правообладателям.</p>
+    <h2>${h2}</h2>
+    <p>${p2}</p>
 
-    <h2>3. Использование сервиса</h2>
-    <p>Сервис предоставляется по принципу "как есть" (as is). Администрация не несет ответственности за материалы третьих лиц.</p>
+    <h2>${h3}</h2>
+    <p>${p3}</p>
 
     <div style="margin-top: 20px;">
-      <a href="/" class="btn-sharp">Вернуться на главную</a>
+      <a href="/?lang=${lang}" class="btn-sharp">${backBtn}</a>
     </div>
   </div>
 </body>
@@ -1033,31 +1194,48 @@ export function renderTermsPage(): Response {
   return new Response(html, { headers: { "content-type": "text/html; charset=UTF-8" } });
 }
 
-export function renderPrivacyPage(): Response {
+export function renderPrivacyPage(lang: Lang = "ru"): Response {
+  const isEn = lang === "en";
+  const title = isEn ? "Privacy Policy" : "Privacy Policy (Политика конфиденциальности)";
+  const date = isEn ? "Last updated: 2026-09-20" : "Дата обновления: 2026-09-20";
+  const h1 = isEn ? "1. Information Collection" : "1. Сбор информации";
+  const p1 = isEn
+    ? "Threads Viewer does not require registration, login, passwords, or personal data. We do not collect personal identifying information from visitors."
+    : "Threads Viewer не требует регистрации, авторизации, ввода паролей или личных данных. Мы не собираем персональную информацию посетителей сайта.";
+  const h2 = isEn ? "2. Cookies" : "2. Файлы Cookie";
+  const p2 = isEn
+    ? "The service does not use persistent tracking cookies. Language preferences are stored locally on your device."
+    : "Сервис не использует постоянные отслеживающие cookie. Все запросы обрабатываются анонимно.";
+  const h3 = isEn ? "3. Security" : "3. Безопасность";
+  const p3 = isEn
+    ? "All network connections are secured with modern HTTPS and TLS encryption standards."
+    : "Все сетевые соединения защищены современными стандартами HTTPS и TLS.";
+  const backBtn = isEn ? "Back to Home" : "Вернуться на главную";
+
   const html = `<!DOCTYPE html>
-<html lang="ru">
+<html lang="${lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Privacy Policy - Threads Viewer</title>
+  <title>${title} - Threads Viewer</title>
   <style>${COMMON_STYLES} .terms-card { background: #131313; border: 1px solid #2d2d2d; border-radius: 0; padding: 24px; margin: 30px auto; max-width: 680px; } .terms-card h1 { margin-bottom: 12px; font-size: 1.4rem; color: #fff; } .terms-card h2 { margin: 18px 0 6px; font-size: 1.05rem; color: #eee; } .terms-card p { color: #888888; margin-bottom: 10px; font-size: 0.88rem; }</style>
 </head>
 <body>
   <div class="terms-card">
-    <h1>Privacy Policy (Политика конфиденциальности)</h1>
-    <p>Дата обновления: 2026-09-20</p>
+    <h1>${title}</h1>
+    <p>${date}</p>
 
-    <h2>1. Сбор информации</h2>
-    <p>Threads Viewer не требует регистрации, авторизации, ввода паролей или личных данных. Мы не собираем персональную информацию посетителей сайта.</p>
+    <h2>${h1}</h2>
+    <p>${p1}</p>
 
-    <h2>2. Файлы Cookie</h2>
-    <p>Сервис не использует постоянные отслеживающие cookie. Все запросы обрабатываются анонимно.</p>
+    <h2>${h2}</h2>
+    <p>${p2}</p>
 
-    <h2>3. Безопасность</h2>
-    <p>Все сетевые соединения защищены современными стандартами HTTPS и TLS.</p>
+    <h2>${h3}</h2>
+    <p>${p3}</p>
 
     <div style="margin-top: 20px;">
-      <a href="/" class="btn-sharp">Вернуться на главную</a>
+      <a href="/?lang=${lang}" class="btn-sharp">${backBtn}</a>
     </div>
   </div>
 </body>
@@ -1083,6 +1261,7 @@ Sitemap: ${origin}/sitemap.xml
 export function renderSitemap(origin: string, popularProfiles: string[]): Response {
   const urls = [
     `${origin}/`,
+    `${origin}/?lang=en`,
     `${origin}/terms`,
     `${origin}/privacy`,
     ...popularProfiles.map(u => `${origin}/@${u}`),

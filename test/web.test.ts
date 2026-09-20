@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  detectLanguage,
   handleImageProxy,
   renderHomePage,
   renderPrivacyPage,
@@ -21,16 +22,62 @@ const mockEnv: Env = {
   BASE_URL: "https://www.threads.com",
 };
 
+describe("Language Detection", () => {
+  it("detects language from query param", () => {
+    expect(detectLanguage(new Request("https://site.com/?lang=en"))).toBe("en");
+    expect(detectLanguage(new Request("https://site.com/?lang=ru"))).toBe("ru");
+  });
+
+  it("detects language from cookie", () => {
+    const req = new Request("https://site.com/", {
+      headers: { cookie: "lang=en; other=123" },
+    });
+    expect(detectLanguage(req)).toBe("en");
+  });
+
+  it("detects Russian from accept-language or CIS country", () => {
+    const reqRu = new Request("https://site.com/", {
+      headers: { "accept-language": "ru-RU,ru;q=0.9" },
+    });
+    expect(detectLanguage(reqRu)).toBe("ru");
+
+    const reqBy = new Request("https://site.com/", {
+      headers: { "cf-ipcountry": "BY" },
+    });
+    expect(detectLanguage(reqBy)).toBe("ru");
+  });
+
+  it("defaults to English for other locales", () => {
+    const reqUs = new Request("https://site.com/", {
+      headers: { "accept-language": "en-US,en;q=0.9", "cf-ipcountry": "US" },
+    });
+    expect(detectLanguage(reqUs)).toBe("en");
+  });
+});
+
 describe("Web Viewer SSR & Routing", () => {
-  it("renders homepage with Russian copy and search elements", async () => {
-    const res = renderHomePage(mockEnv);
+  it("renders Russian homepage with blue zuck example and search fill", async () => {
+    const res = renderHomePage(mockEnv, "ru");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     const html = await res.text();
     expect(html).toContain("Threads Viewer");
     expect(html).toContain("Читайте Threads без VPN");
     expect(html).toContain("heroSearchInput");
-    expect(html).toContain("@durov");
+    expect(html).toContain("exampleZuck");
+    expect(html).toContain("fillSearch('zuck')");
+    expect(html).toContain("blue-example-link");
+    expect(html).toContain("zuck</span>");
+  });
+
+  it("renders English homepage when requested", async () => {
+    const res = renderHomePage(mockEnv, "en");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Read Threads without VPN");
+    expect(html).toContain("For example");
+    expect(html).toContain("fillSearch('zuck')");
+    expect(html).toContain("exampleZuck");
   });
 
   it("renders profile page with SSR data and escapes XSS", async () => {
@@ -55,7 +102,7 @@ describe("Web Viewer SSR & Routing", () => {
       ],
     };
 
-    const res = renderProfilePage(mockEnv, "testuser", initialData);
+    const res = renderProfilePage(mockEnv, "testuser", initialData, null, "ru");
     expect(res.status).toBe(200);
     const html = await res.text();
 
@@ -69,13 +116,17 @@ describe("Web Viewer SSR & Routing", () => {
   });
 
   it("renders terms and privacy policy pages", async () => {
-    const termsRes = renderTermsPage();
+    const termsRes = renderTermsPage("ru");
     expect(termsRes.status).toBe(200);
     expect(await termsRes.text()).toContain("Пользовательское соглашение");
 
-    const privRes = renderPrivacyPage();
+    const privRes = renderPrivacyPage("ru");
     expect(privRes.status).toBe(200);
     expect(await privRes.text()).toContain("Политика конфиденциальности");
+
+    const termsEn = renderTermsPage("en");
+    expect(termsEn.status).toBe(200);
+    expect(await termsEn.text()).toContain("Terms of Service");
   });
 
   it("renders robots.txt and sitemap.xml for SEO", async () => {
@@ -106,10 +157,8 @@ describe("Web Viewer SSR & Routing", () => {
     });
 
     it("accepts valid Instagram CDN hostnames", async () => {
-      // It will attempt fetch; we test host validation
       const req = new Request("https://worker.dev/api/img?url=https://scontent.cdninstagram.com/notfound.jpg");
       const res = await handleImageProxy(req);
-      // It is allowed host, so status won't be 403 or 400 (it may be upstream error or 502 in test)
       expect(res.status).not.toBe(403);
       expect(res.status).not.toBe(400);
     });

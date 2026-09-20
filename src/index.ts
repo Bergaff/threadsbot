@@ -5,6 +5,7 @@ import { diagnoseAccountCookies } from "./cookies";
 import { Telegram, type TelegramUpdate } from "./telegram";
 import { fetchComments, fetchProfileWithPosts, type ProfileData, type Comment } from "./threads";
 import {
+  detectLanguage,
   handleImageProxy,
   renderHomePage,
   renderPrivacyPage,
@@ -55,14 +56,16 @@ export default {
     // ВЕБ-САЙТ И ЗЕРКАЛО ДЛЯ БРАУЗЕРА (БЕЗ VPN)
     // ==========================================
 
+    const lang = detectLanguage(request);
+
     // Главная страница
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      return renderHomePage(env);
+      return renderHomePage(env, lang);
     }
 
     // Служебные страницы и SEO
-    if (url.pathname === "/terms") return renderTermsPage();
-    if (url.pathname === "/privacy") return renderPrivacyPage();
+    if (url.pathname === "/terms") return renderTermsPage(lang);
+    if (url.pathname === "/privacy") return renderPrivacyPage(lang);
     if (url.pathname === "/robots.txt") return renderRobotsTxt(url.origin);
     if (url.pathname === "/sitemap.xml") {
       return renderSitemap(url.origin, ["durov", "mosseri", "zuck", "mrbeast", "openai", "techcrunch"]);
@@ -79,7 +82,7 @@ export default {
       const username = profileMatch[1].toLowerCase();
       const db = new Database(env);
       const cached = await db.cache<ProfileData>(username, "web_profile");
-      return renderProfilePage(env, username, cached);
+      return renderProfilePage(env, username, cached, null, lang);
     }
 
     // API для получения данных профиля и постов (для "крутить как обычный тредс")
