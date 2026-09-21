@@ -150,7 +150,7 @@ describe("Web Viewer SSR & Routing", () => {
           has_video: true,
           videoUrl: "https://scontent.cdninstagram.com/v/video.mp4",
           imageUrl: "https://scontent.cdninstagram.com/v/poster.jpg",
-          date: "1h",
+          date: "2026-09-15T23:01:39.000Z",
           author: "testuser",
           likes: "142",
           replies: "35",
@@ -165,6 +165,8 @@ describe("Web Viewer SSR & Routing", () => {
     expect(html).toContain("/api/media?url=");
     expect(html).toContain("142");
     expect(html).toContain("(35)");
+    expect(html).toContain("2026-09-15 23:01");
+    expect(html).not.toContain("2026-09-15T23:01:39.000Z");
   });
 
   it("renders prominent error status card when profile is not found or error occurred", async () => {

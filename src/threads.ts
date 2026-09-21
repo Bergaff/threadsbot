@@ -286,85 +286,94 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
 
         let date = "";
         try {
-          const timeEl = root.querySelector("time");
+          const timeEl = root.querySelector("time") || container.querySelector("time");
           if (timeEl) {
-            date = (timeEl.getAttribute("datetime") || timeEl.innerText || "").trim();
+            const rawDt = (timeEl.getAttribute("datetime") || timeEl.innerText || "").trim();
+            // Убираем букву T и секунды/Z: 2026-09-15T23:01:39.000Z -> 2026-09-15 23:01
+            date = rawDt.replace(/T/g, " ").replace(/:\d{2}(?:\.\d+)?Z$/i, "").replace(/Z$/i, "").trim();
           }
         } catch (e) {}
 
         let likes = "";
         let replies = "";
-        const rootText = ((root as HTMLElement).innerText || root.textContent || "").replace(/\u00a0/g, " ");
 
-        // 1. Text pattern match in card
-        const rMatch = rootText.match(/(\d[\d.,KMkмk\s]*)\s*(?:replies|reply|ответов|ответа|ответ\b)/i);
-        if (rMatch) replies = rMatch[1].trim();
-
-        const lMatch = rootText.match(/(\d[\d.,KMkмk\s]*)\s*(?:likes|like|отметок|отметки|отметка|нравится)\b/i);
-        if (lMatch) likes = lMatch[1].trim();
-
-        // 2. Safe SVG / button scan for likes
-        if (!likes) {
-          try {
-            const svgs = root.querySelectorAll("svg");
-            for (let s = 0; s < svgs.length; s++) {
-              const svg = svgs[s];
-              const label = (svg.getAttribute("aria-label") || "").toLowerCase();
-              if (label.includes("like") || label.includes("нравится") || label.includes("отмет")) {
-                const m = label.match(/(\d[\d.,kmkмk\s]*)/);
-                if (m && m[1].trim() && !/^[0-9]$/.test(m[1].trim())) { likes = m[1].trim(); break; }
-                const btn = svg.closest('div[role="button"], button') || svg.parentElement;
-                if (btn) {
-                  const spans = btn.querySelectorAll("span");
-                  for (let sp = 0; sp < spans.length; sp++) {
-                    const txt = (spans[sp].textContent || "").trim();
-                    if (/^[\d.,kmkмk]+$/i.test(txt)) { likes = txt; break; }
-                  }
-                  if (likes) break;
-                  const next = btn.nextElementSibling;
-                  if (next) {
-                    const nextTxt = (next.textContent || "").trim();
-                    if (/^[\d.,kmkмk]+$/i.test(nextTxt)) { likes = nextTxt; break; }
-                  }
-                }
-              }
+        // Хелпер извлечения числовых показателей из элементов и спанов
+        function extractCount(el: Element | null): string {
+          if (!el) return "";
+          const list: Element[] = [el, ...Array.from(el.querySelectorAll("span.x1o0tod, span, div"))];
+          for (let idx = 0; idx < list.length; idx++) {
+            const val = (list[idx].textContent || "").replace(/[\u00a0\s]/g, " ").trim();
+            if (/^\d[\d.,\s]*(?:[kkmм]|тыс\.?|млн\.?)?$/i.test(val)) {
+              return val;
             }
-          } catch (e) {}
+          }
+          return "";
         }
 
-        // 3. Post link replies & reply buttons
+        function findNear(svg: Element): string {
+          const btn = svg.closest('div[role="button"], button') || svg.parentElement;
+          if (btn) {
+            const c = extractCount(btn);
+            if (c) return c;
+            if (btn.nextElementSibling) {
+              const nc = extractCount(btn.nextElementSibling);
+              if (nc) return nc;
+            }
+          }
+          let sib = svg.nextElementSibling;
+          for (let d = 0; d < 3 && sib; d++) {
+            const sc = extractCount(sib);
+            if (sc) return sc;
+            sib = sib.nextElementSibling;
+          }
+          return "";
+        }
+
+        // Сканирование всех SVG карточки на предмет лайков и ответов (по title, <title>, aria-label и path)
+        try {
+          const allSvgs = root.querySelectorAll("svg");
+          for (let s = 0; s < allSvgs.length; s++) {
+            const svg = allSvgs[s];
+            const title = (svg.getAttribute("title") || svg.querySelector("title")?.textContent || "").toLowerCase();
+            const aria = (svg.getAttribute("aria-label") || "").toLowerCase();
+            const pathD = svg.querySelector("path")?.getAttribute("d") || "";
+
+            // Лайки: "Поставить "Нравится"", "Like", или путь сердечка Meta
+            const isLike = title.includes("нравится") || title.includes("like") || aria.includes("нравится") || aria.includes("like") || pathD.includes("M16.5 2") || pathD.includes("10.811 13.272") || pathD.includes("12 20.876");
+            if (isLike && !likes) {
+              const found = findNear(svg);
+              if (found) likes = found;
+            }
+
+            // Ответы/Комментарии: "Ответ", "Reply", "коммент", или путь реплики Meta
+            const isReply = title.includes("ответ") || title.includes("reply") || aria.includes("ответ") || aria.includes("reply") || title.includes("коммент") || aria.includes("коммент") || pathD.includes("M12 3a9 9") || pathD.includes("4.206.752") || pathD.includes("5.312-.95");
+            if (isReply && !replies) {
+              const found = findNear(svg);
+              if (found) replies = found;
+            }
+          }
+        } catch (e) {}
+
+        // 2. Строка активности под постом (например, "15 ответов · 342 отметки «Нравится»")
+        const rootText = ((root as HTMLElement).innerText || root.textContent || "").replace(/[\u00a0\s]+/g, " ");
+
         if (!replies) {
-          try {
-            const rSvgs = root.querySelectorAll('svg[aria-label*="Reply" i], svg[aria-label*="Ответить" i], svg[aria-label*="коммент" i]');
-            for (let s = 0; s < rSvgs.length; s++) {
-              const svg = rSvgs[s];
-              const label = (svg.getAttribute("aria-label") || "").toLowerCase();
-              const m = label.match(/(\d[\d.,kmkмk\s]*)/);
-              if (m && m[1].trim() && !/^[0-9]$/.test(m[1].trim())) { replies = m[1].trim(); break; }
-              const btn = svg.closest('div[role="button"], button') || svg.parentElement;
-              if (btn) {
-                const spans = btn.querySelectorAll("span");
-                for (let sp = 0; sp < spans.length; sp++) {
-                  const txt = (spans[sp].textContent || "").trim();
-                  if (/^[\d.,kmkмk]+$/i.test(txt)) { replies = txt; break; }
-                }
-                if (replies) break;
-                const next = btn.nextElementSibling;
-                if (next) {
-                  const nextTxt = (next.textContent || "").trim();
-                  if (/^[\d.,kmkмk]+$/i.test(nextTxt)) { replies = nextTxt; break; }
-                }
-              }
-            }
-          } catch (e) {}
+          const rMatch = rootText.match(/(\d[\d.,\s]*(?:[kkmм]|тыс\.?|млн\.?)?)\s*(?:replies|reply|ответов|ответа|ответ\b)/i);
+          if (rMatch) replies = rMatch[1].trim();
         }
 
+        if (!likes) {
+          const lMatch = rootText.match(/(\d[\d.,\s]*(?:[kkmм]|тыс\.?|млн\.?)?)\s*(?:likes|like|отметок|отметки|отметка|нравится)\b/i);
+          if (lMatch) likes = lMatch[1].trim();
+        }
+
+        // 3. Ссылки на ветку поста
         if (!replies) {
           try {
             const links = root.querySelectorAll('a[href*="/post/"]');
             for (let l = 0; l < links.length; l++) {
-              const txt = (links[l].textContent || "").trim();
-              const m = txt.match(/(\d[\d.,kmkмk\s]*)\s*(?:replies|reply|ответов|ответа)/i);
+              const txt = (links[l].textContent || "").replace(/[\u00a0\s]+/g, " ").trim();
+              const m = txt.match(/(\d[\d.,\s]*(?:[kkmм]|тыс\.?|млн\.?)?)\s*(?:replies|reply|ответов|ответа)/i);
               if (m) { replies = m[1].trim(); break; }
             }
           } catch (e) {}

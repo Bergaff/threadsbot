@@ -48,6 +48,11 @@ function safeMediaUrl(raw: string): string {
   return raw.replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/&quot;/g, '"');
 }
 
+export function formatDisplayDate(raw: string): string {
+  if (!raw) return "";
+  return raw.replace(/T/g, " ").replace(/:\d{2}(?:\.\d+)?Z$/i, "").replace(/Z$/i, "").trim();
+}
+
 function getBotUsername(env?: Env): string {
   return env?.BOT_USERNAME || "threadsreaderbot";
 }
@@ -1303,7 +1308,7 @@ export function renderProfilePage(
 
   const postsHtml = posts.length > 0
     ? posts.map((post, idx) => {
-    const postDate = post.date || "";
+    const postDate = formatDisplayDate(post.date || "");
     const authorName = post.author || profile.displayName || cleanUser;
     const authorAvatar = post.authorAvatar || profile.avatar || "";
 
@@ -1525,6 +1530,11 @@ export function renderProfilePage(
       document.getElementById('lightbox').style.display = 'none';
     }
 
+    function formatDisplayDate(raw) {
+      if (!raw) return '';
+      return String(raw).replace(/T/g, ' ').replace(/:\d{2}(?:\.\d+)?Z$/i, '').replace(/Z$/i, '').trim();
+    }
+
     function escHtml(str) {
       return String(str || '')
         .replace(/&/g, '&amp;')
@@ -1662,7 +1672,7 @@ export function renderProfilePage(
       var html = '';
       for (var idx = 0; idx < posts.length; idx++) {
         var post = posts[idx];
-        var postDate = post.date || '';
+        var postDate = formatDisplayDate(post.date || '');
         var authorName = post.author || (profile ? profile.displayName : '') || currentUsername;
         var authorAvatar = post.authorAvatar || (profile ? profile.avatar : '') || '';
 
