@@ -645,6 +645,7 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         <button type="submit" class="btn-admin btn-admin-primary" id="saveAccBtn">
           Сохранить в базу D1
         </button>
+        <div id="accFormMsg" style="display:none;margin-top:12px;padding:10px 14px;border:1px solid transparent;font-size:0.85rem;line-height:1.4;"></div>
       </form>
     </section>
   </main>
@@ -718,13 +719,36 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
     function submitAccount(e) {
       e.preventDefault();
       var btn = document.getElementById('saveAccBtn');
+      var msg = document.getElementById('accFormMsg');
+      var nameVal = (document.getElementById('accName').value || '').trim();
+      var jsonVal = (document.getElementById('accJson').value || '').trim();
+      var file = document.getElementById('accFile').files[0];
+
+      if (!jsonVal && !file) {
+        if (msg) {
+          msg.style.display = 'block';
+          msg.style.borderColor = '#ef4444';
+          msg.style.background = 'rgba(239, 68, 68, 0.12)';
+          msg.style.color = '#ef4444';
+          msg.innerText = 'Пожалуйста, выберите файл .json с cookies или вставьте текст cookies JSON в поле.';
+        }
+        showToast('Выберите файл или вставьте JSON');
+        return;
+      }
+
       btn.disabled = true;
-      btn.innerText = 'Сохранение...';
+      btn.innerText = 'Сохранение в D1...';
+      if (msg) {
+        msg.style.display = 'block';
+        msg.style.borderColor = '#0084ff';
+        msg.style.background = 'rgba(0, 132, 255, 0.1)';
+        msg.style.color = '#0084ff';
+        msg.innerText = 'Проверка cookies и сохранение в базу данных Cloudflare D1...';
+      }
 
       var form = new FormData();
-      form.append('name', document.getElementById('accName').value);
-      form.append('json', document.getElementById('accJson').value);
-      var file = document.getElementById('accFile').files[0];
+      form.append('name', nameVal);
+      form.append('json', jsonVal);
       if (file) form.append('file', file);
 
       fetch('/admin/api/account/add', { method: 'POST', body: form })
@@ -733,15 +757,36 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
           btn.disabled = false;
           btn.innerText = 'Сохранить в базу D1';
           if (data.ok) {
+            if (msg) {
+              msg.style.display = 'block';
+              msg.style.borderColor = '#10b981';
+              msg.style.background = 'rgba(16, 185, 129, 0.12)';
+              msg.style.color = '#10b981';
+              msg.innerText = 'Аккаунт ' + data.name + ' успешно сохранен в D1 (' + (data.cookieCount || 0) + ' cookies). Обновление таблицы...';
+            }
             showToast('Аккаунт ' + data.name + ' успешно добавлен в D1');
-            setTimeout(function() { window.location.reload(); }, 1000);
+            setTimeout(function() { window.location.reload(); }, 1200);
           } else {
+            if (msg) {
+              msg.style.display = 'block';
+              msg.style.borderColor = '#ef4444';
+              msg.style.background = 'rgba(239, 68, 68, 0.12)';
+              msg.style.color = '#ef4444';
+              msg.innerText = 'Ошибка сохранения: ' + (data.error || 'Неверный формат JSON');
+            }
             showToast('Ошибка: ' + (data.error || 'Неверный формат'));
           }
         })
         .catch(function(err) {
           btn.disabled = false;
           btn.innerText = 'Сохранить в базу D1';
+          if (msg) {
+            msg.style.display = 'block';
+            msg.style.borderColor = '#ef4444';
+            msg.style.background = 'rgba(239, 68, 68, 0.12)';
+            msg.style.color = '#ef4444';
+            msg.innerText = 'Сетевая ошибка при запросе к серверу: ' + err;
+          }
           showToast('Ошибка запроса: ' + err);
         });
     }

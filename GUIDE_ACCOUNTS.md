@@ -148,7 +148,7 @@ npm run accounts:import -- accounts --remote
 ## 6. Как менять код на GitHub, но НЕ мержить в `main`
 
 Arena (и этот бот) работает в ветке сессии, например
-`arena/01a020b8-threadsbot`. Каждый коммит уходит **только в эту ветку**.
+`arena/01a0bf6e-threadsbot`. Каждый коммит уходит **только в эту ветку**.
 Pull Request в `main` — это предложение, а не применение.
 
 ### Что происходит
@@ -162,13 +162,13 @@ Pull Request в `main` — это предложение, а не примене
 - Локально, не трогая `main`:
   ```bash
   git fetch origin
-  git checkout arena/01a020b8-threadsbot
+  git checkout arena/01a0bf6e-threadsbot
   # смотришь файлы, тестируешь
   git checkout main   # вернуться. main как был, так и остался
   ```
 - Deploy с ветки (без мержа в main), если хочешь проверить на Worker:
   ```bash
-  git checkout arena/01a020b8-threadsbot
+  git checkout arena/01a0bf6e-threadsbot
   npx wrangler deploy
   ```
   Это выкатывает **содержимое текущей ветки**. `main` в репозитории при этом
@@ -219,15 +219,15 @@ Python-файлы (`bot.py`, `threads_check.py`) не трогались.
 2. Смена **Production branch** в Cloudflare **сама ничего не выкатывает**. Билд стартует от нового коммита или кнопки Retry build.
 3. Git Builds: Build command = `npm run build`, Deploy command = `npx wrangler deploy`.
 4. **Queues и Browser Rendering есть только на Workers Paid ($5).** На Free кнопки «Текст/Скрины» физически не могут открыть Threads: апдейт уходит в очередь, которой нет, и молча пропадает. Команды `/start` и загрузка JSON при этом могут работать.
-5. Проверка, какой код живой: в боте `/diag` (админ) или `GET /health`. Должно быть `"version": "pr5-2026-08-20-deploy"`. Если `unknown` — задеплоен старый worker.
+5. Проверка, какой код живой: в боте `/diag` (админ) или `GET /health`. Должно быть `"version": "pr6-2026-09-21-ux"`. Если `unknown` — задеплоен старый worker.
 
 ### Colab: выкатить Arena-ветку, не мержа `main`
 
 Ноутбук [`notebooks/deploy_branch_no_merge.ipynb`](notebooks/deploy_branch_no_merge.ipynb) поячеечно:
-клон `arena/01a020b8-threadsbot` → `wrangler deploy` на Worker `threadsbot`. GitHub `main` не трогается.
+клон `arena/01a0bf6e-threadsbot` → `wrangler deploy` на Worker `threadsbot`. GitHub `main` не трогается.
 
 Открыть:
-https://colab.research.google.com/github/Bergaff/threadsbot/blob/arena/01a020b8-threadsbot/notebooks/deploy_branch_no_merge.ipynb
+https://colab.research.google.com/github/Bergaff/threadsbot/blob/arena/01a0bf6e-threadsbot/notebooks/deploy_branch_no_merge.ipynb
 
 ---
 
