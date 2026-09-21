@@ -333,17 +333,27 @@ const ADMIN_STYLES = `
 
   .toast-box {
     position: fixed;
-    bottom: 20px;
+    top: 24px;
     left: 50%;
     transform: translateX(-50%);
-    background: #242424;
-    border: 1px solid #444444;
+    background: #1c1c1c;
+    border: 1px solid #3d3d3d;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
     border-radius: 0;
     color: #ffffff;
-    font-size: 0.85rem;
-    padding: 8px 16px;
-    z-index: 1001;
+    font-size: 0.9rem;
+    font-weight: 500;
+    padding: 12px 22px;
+    z-index: 10001;
     display: none;
+    max-width: 90vw;
+    text-align: center;
+  }
+  html[data-theme="light"] .toast-box {
+    background: #e2dacd;
+    border-color: #a89f91;
+    color: #1a1a1a;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   }
 
   /* Light Theme (Warm Matte Beige) */
@@ -490,8 +500,8 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         <td>${esc(expiryStr)}${issuesStr}</td>
         <td>
           <div style="display:flex;gap:4px;flex-wrap:wrap;">
-            <button class="btn-admin" onclick="refreshAccount('${esc(a.name)}')">Продлить куки</button>
-            <button class="btn-admin" onclick="probeAccount('${esc(a.name)}')">Тест</button>
+            <button class="btn-admin" onclick="refreshAccount(this, '${esc(a.name)}')">Продлить куки</button>
+            <button class="btn-admin" onclick="probeAccount(this, '${esc(a.name)}')">Тест</button>
             <a href="/admin/api/account/export?name=${encodeURIComponent(a.name)}" class="btn-admin">JSON</a>
             <button class="btn-admin btn-admin-danger" onclick="deleteAccount('${esc(a.name)}')">Удалить</button>
           </div>
@@ -499,6 +509,12 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
       </tr>
     `;
   }).join("");
+
+  const deadAlert = (counts.total > 0 && !counts.alive)
+    ? `<div style="background:rgba(239,68,68,0.12);border:1px solid #ef4444;color:#ef4444;padding:12px 16px;margin-bottom:14px;font-size:0.88rem;">
+        <b>Внимание:</b> Все технические аккаунты Threads находятся в статусе ошибки. Нажмите кнопку <b>«Сбросить статусы в Alive»</b> выше, чтобы вернуть их в строй и разблокировать загрузку страниц.
+      </div>`
+    : "";
 
   const html = `<!DOCTYPE html>
 <html lang="ru">
@@ -598,10 +614,12 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
           Технические аккаунты Threads (${stats.length})
         </div>
         <div style="display:flex;gap:6px;">
-          <button class="btn-admin btn-admin-primary" onclick="refreshAllAccounts()">Автообновление всех куки</button>
-          <button class="btn-admin" onclick="resetStatuses()">Сбросить статусы в Alive</button>
+          <button class="btn-admin btn-admin-primary" onclick="refreshAllAccounts(this)">Автообновление всех куки</button>
+          <button class="btn-admin" onclick="resetStatuses(this)">Сбросить статусы в Alive</button>
         </div>
       </div>
+
+      ${deadAlert}
 
       <div style="overflow-x:auto;">
         <table class="accounts-table">
@@ -653,58 +671,94 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
   <div id="toast" class="toast-box"></div>
 
   <script>
-    function showToast(msg) {
+    var toastTimer = null;
+    function showToast(msg, duration) {
+      if (duration === undefined) duration = 4000;
       var t = document.getElementById('toast');
+      if (!t) return;
       t.innerText = msg;
       t.style.display = 'block';
-      setTimeout(function() { t.style.display = 'none'; }, 3000);
+      if (toastTimer) clearTimeout(toastTimer);
+      if (duration > 0) {
+        toastTimer = setTimeout(function() { t.style.display = 'none'; }, duration);
+      }
     }
 
-    function refreshAccount(name) {
-      showToast('Открываем Threads и обновляем сессию для ' + name + '...');
+    function refreshAccount(btn, name) {
+      var orig = btn ? btn.innerText : '';
+      if (btn) { btn.disabled = true; btn.innerText = 'Продление...'; }
+      showToast('Открываем Threads и обновляем сессию для ' + name + '...', 0);
       fetch('/admin/api/account/refresh?name=' + encodeURIComponent(name), { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
           if (data.ok) {
-            showToast('Успешно: ' + data.message);
+            showToast('Успешно: ' + data.message, 4000);
             setTimeout(function() { window.location.reload(); }, 1200);
           } else {
-            showToast('Ошибка: ' + (data.message || data.error));
+            showToast('Ошибка: ' + (data.message || data.error), 6000);
           }
         })
-        .catch(function() { showToast('Сетевая ошибка'); });
+        .catch(function(err) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          showToast('Сетевая ошибка: ' + err, 5000);
+        });
     }
 
-    function probeAccount(name) {
-      showToast('Тестируем сессию ' + name + '...');
+    function probeAccount(btn, name) {
+      var orig = btn ? btn.innerText : '';
+      if (btn) { btn.disabled = true; btn.innerText = 'Тест...'; }
+      showToast('Тестируем сессию ' + name + ' (запуск браузера Threads)...', 0);
       fetch('/admin/api/account/probe?name=' + encodeURIComponent(name), { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-          showToast(data.name + ': ' + data.message);
-          setTimeout(function() { window.location.reload(); }, 1200);
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          if (data.ok) {
+            showToast(data.name + ': ' + data.message, 4000);
+            setTimeout(function() { window.location.reload(); }, 1200);
+          } else {
+            showToast('Ошибка ' + data.name + ': ' + (data.message || 'Сессия недействительна'), 6000);
+            setTimeout(function() { window.location.reload(); }, 1800);
+          }
         })
-        .catch(function() { showToast('Сетевая ошибка'); });
+        .catch(function(err) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          showToast('Сетевая ошибка при запуске теста: ' + err, 5000);
+        });
     }
 
-    function refreshAllAccounts() {
-      showToast('Запущен процесс продления cookies для всех аккаунтов...');
+    function refreshAllAccounts(btn) {
+      var orig = btn ? btn.innerText : '';
+      if (btn) { btn.disabled = true; btn.innerText = 'Обновление...'; }
+      showToast('Запущен процесс продления cookies для всех аккаунтов...', 0);
       fetch('/admin/api/account/refresh-all', { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-          showToast('Готово. Обработано аккаунтов: ' + (data.results ? data.results.length : 0));
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          showToast('Готово. Обработано аккаунтов: ' + (data.results ? data.results.length : 0), 4000);
           setTimeout(function() { window.location.reload(); }, 1500);
         })
-        .catch(function() { showToast('Ошибка при обновлении'); });
+        .catch(function(err) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          showToast('Ошибка при обновлении: ' + err, 5000);
+        });
     }
 
-    function resetStatuses() {
+    function resetStatuses(btn) {
+      var orig = btn ? btn.innerText : '';
+      if (btn) { btn.disabled = true; btn.innerText = 'Сброс...'; }
+      showToast('Сбрасываем статусы всех аккаунтов в Alive...', 0);
       fetch('/admin/api/reset-statuses', { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-          showToast('Сброшено статусов: ' + data.resetCount);
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          showToast('Сброшено статусов: ' + data.resetCount + '. Страница перезагружается...', 3000);
           setTimeout(function() { window.location.reload(); }, 1000);
         })
-        .catch(function() { showToast('Ошибка сброса'); });
+        .catch(function(err) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          showToast('Ошибка сброса: ' + err, 5000);
+        });
     }
 
     function deleteAccount(name) {

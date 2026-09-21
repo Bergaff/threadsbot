@@ -110,8 +110,13 @@ async function openBrowser(env: Env, account: Account): Promise<Opened> {
         userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         viewport: { width: 680, height: 900 },
       });
-      await addAccountCookies(context, account.cookies);
       const page = await context.newPage();
+      // Открываем домен, прикрепляем куки, перезагружаем для синхронизации сессии в Meta
+      await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 20_000 });
+      await sleep(1000);
+      await addAccountCookies(context, account.cookies);
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 20_000 });
+      await sleep(1200);
       return { browser, context, page, startedAt: Date.now() };
     } catch (error) {
       await browser?.close().catch(() => {});
@@ -620,15 +625,13 @@ export async function resetAccountStatuses(env: Env) {
 /** Проверка одного аккаунта */
 export async function probeAccount(env: Env, name: string): Promise<{ name: string; ok: boolean; message: string }> {
   const account = await env.DB.prepare("SELECT name,cookies,hourly_requests,hourly_reset FROM threads_accounts WHERE name=? AND enabled=1").bind(name).first<Account>();
-  if (!account) return { name, ok: false, message: "Account is disabled or missing" };
+  if (!account) return { name, ok: false, message: "Аккаунт отключен или отсутствует в базе" };
   let opened: Opened | undefined;
   try {
     opened = await openBrowser(env, account);
-    await opened.page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await sleep(3000);
     if (isLoginUrl(opened.page.url())) {
       await markSessionExpired(env, name);
-      return { name, ok: false, message: "Session expired" };
+      return { name, ok: false, message: "Сессия истекла в Threads (редирект на /login)" };
     }
     const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
     if (updated) {
@@ -636,10 +639,10 @@ export async function probeAccount(env: Env, name: string): Promise<{ name: stri
     } else {
       await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,updated_at=? WHERE name=?").bind(iso(), name).run();
     }
-    return { name, ok: true, message: "Session is valid" };
+    return { name, ok: true, message: "Сессия валидна и активна" };
   } catch (error) {
     await markTransientError(env, name, error);
-    return { name, ok: false, message: error instanceof BrowserBusyError ? "Browser Run is busy; retry later" : (error instanceof Error ? error.message : String(error)).slice(0, 200) };
+    return { name, ok: false, message: error instanceof BrowserBusyError ? "Browser Run занят, повторите позже" : (error instanceof Error ? error.message : String(error)).slice(0, 200) };
   } finally {
     await closeBrowser(env, opened);
   }
@@ -658,16 +661,13 @@ export async function refreshAccountCookies(
   let opened: Opened | undefined;
   try {
     opened = await openBrowser(env, account);
-    await opened.page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await sleep(3000);
-
     if (isLoginUrl(opened.page.url())) {
       await markSessionExpired(env, name);
       return { name, ok: false, message: "Сессия уже истекла в Threads, требуется свежий логин" };
     }
 
-    await opened.page.evaluate(() => window.scrollBy(0, 600));
-    await sleep(2500);
+    await opened.page.evaluate(() => window.scrollBy(0, 600)).catch(() => {});
+    await sleep(1000);
 
     const rawCookies = await opened.context.cookies();
     const updated = keepSessionCookies(JSON.stringify(rawCookies));
@@ -684,16 +684,16 @@ export async function refreshAccountCookies(
     return {
       name,
       ok: true,
-      message: "Cookies успешно продлены и сохранены в D1",
-      expiry: diagnosis.expiresAt ? new Date(diagnosis.expiresAt).toISOString() : undefined,
+      message: "Cookies успешно продлены в Meta и обновлены в D1",
       cookieCount: diagnosis.cookieCount,
+      expiry: diagnosis.expiresAt ? new Date(diagnosis.expiresAt).toLocaleDateString("ru-RU") : undefined,
     };
   } catch (error) {
     await markTransientError(env, name, error);
     return {
       name,
       ok: false,
-      message: (error instanceof Error ? error.message : String(error)).slice(0, 200),
+      message: error instanceof BrowserBusyError ? "Browser Run занят, повторите позже" : (error instanceof Error ? error.message : String(error)).slice(0, 200),
     };
   } finally {
     await closeBrowser(env, opened);
