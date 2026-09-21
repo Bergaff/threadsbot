@@ -1317,8 +1317,9 @@ const COMMON_STYLES = `
 
 const I18N = {
   ru: {
-    home_title: "Threads Viewer - Читайте Threads без VPN онлайн",
-    home_desc: "Веб-зеркало для чтения постов, просмотра медиа и комментариев Threads без VPN и регистрации.",
+    home_title: "Threads Viewer - Смотреть и читать Threads без VPN онлайн",
+    home_desc: "Анонимный просмотр профилей, постов, фото и комментариев в Threads без VPN и регистрации. Удобный веб-ридер с поиском по авторам.",
+    keywords: "threads без впн, смотреть тредс онлайн, читать threads анонимно, threads viewer, threads reader, threads без регистрации, профили threads, зеркало threads, тредс инстаграм, threads online",
     search_placeholder: "Поиск @username...",
     hero_search_placeholder: "Введите @username или threads.com/@...",
     hero_tag: "Анонимное веб-зеркало",
@@ -1380,8 +1381,9 @@ const I18N = {
     other_lang_code: "en",
   },
   en: {
-    home_title: "Threads Viewer - Read Threads without login and VPN online",
-    home_desc: "Web mirror to read posts, view media and comments on Threads without login or app.",
+    home_title: "Threads Viewer - View & Read Threads Online Without VPN",
+    home_desc: "Browse Threads profiles, posts, replies, and photos anonymously without VPN or account. Fast, ad-free web reader for Threads.",
+    keywords: "threads viewer, read threads without account, view threads without login, threads reader online, threads anonymous viewer, threads web, browse threads",
     search_placeholder: "Search @username...",
     hero_search_placeholder: "Enter @username or threads.com/@...",
     hero_tag: "Anonymous web mirror",
@@ -1452,7 +1454,8 @@ function renderNavbar(env: Env, lang: Lang, searchDefault = "", isPremium = fals
     : "";
   return `
     <header class="navbar">
-      <a href="/?lang=${lang}" class="navbar-brand">
+      <a href="/?lang=${lang}" class="navbar-brand" style="display:inline-flex;align-items:center;gap:8px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="flex-shrink:0;"><path d="M12.186 24h-.007c-3.581-.024-6.334-1.205-8.184-3.509C2.26 18.3 1.5 15.155 1.5 11.397c0-4.08 1.09-7.275 3.242-9.497C6.828.326 9.878 0 13.805 0c3.96 0 7.027.348 9.117 2.457 2.052 2.072 3.078 5.093 3.078 8.98 0 4.398-1.42 7.778-4.223 10.046-2.614 2.116-6.19 3.197-10.63 3.214-1.393-.005-2.65-.122-3.738-.349-.893-.186-1.574-.436-2.024-.746l1.248-2.22c.33.22.842.41 1.52.56.883.196 1.948.3 3.167.309 3.639-.014 6.516-.867 8.55-2.535 2.158-1.77 3.252-4.444 3.252-7.948 0-3.32-.824-5.836-2.45-7.48-1.639-1.657-4.148-2.5-7.458-2.5-3.238 0-5.717.842-7.37 2.502C6.914 4.82 6.07 7.508 6.07 11.192c0 3.275.64 5.96 1.902 7.98 1.347 2.157 3.398 3.257 6.096 3.272 2.378-.013 4.295-.65 5.698-1.892 1.378-1.22 2.176-2.977 2.372-5.221-1.306-.528-2.825-.87-4.516-1.018-2.738-.24-4.847-.84-6.27-1.782-1.49-.988-2.247-2.433-2.247-4.296 0-1.87.727-3.344 2.16-4.382 1.458-1.056 3.483-1.591 6.018-1.591 2.213 0 4.14.425 5.727 1.264 1.536.812 2.65 1.986 3.313 3.488.42-.047.83-.07 1.227-.07 1.05 0 2.054.195 2.984.58.118-.84.178-1.764.178-2.748 0-3.22-.81-5.65-2.408-7.225-1.57-1.547-3.955-2.332-7.09-2.332-3.13 0-5.508.795-7.07 2.363C7.59 4.965 6.786 7.42 6.786 10.93c0 3.21.72 5.86 2.14 7.876 1.472 2.094 3.666 3.16 6.52 3.17h.007c2.31-.013 4.214-.668 5.657-1.947 1.488-1.319 2.34-3.21 2.532-5.62-1.332-.57-2.898-.938-4.654-1.09-2.67-.234-4.697-.803-6.026-1.69-1.368-.912-2.062-2.203-2.062-3.837 0-1.666.643-2.97 1.91-3.876 1.302-.93 3.093-1.402 5.323-1.402 1.97 0 3.67.37 5.053 1.1 1.344.71 2.316 1.745 2.89 3.076.307-.03.606-.046.89-.046.85 0 1.663.155 2.417.46-.02-.85-.02-1.7-.02-2.55 0-3.565-.968-6.3-2.877-8.13-1.93-1.85-4.832-2.788-8.625-2.788-3.79 0-6.723.94-8.718 2.793C2.868 4.417 1.83 7.15 1.83 10.93c0 3.693.998 6.64 2.966 8.76C6.73 21.78 9.39 22.84 12.67 22.86h.007c2.19-.012 4.02-.57 5.437-1.66 1.458-1.12 2.38-2.67 2.74-4.606-1.28-.51-2.79-.84-4.48-.99-2.45-.215-4.34-.73-5.61-1.53-1.3-.82-1.96-1.98-1.96-3.45 0-1.49.57-2.65 1.7-3.46 1.15-.83 2.73-1.25 4.7-1.25 1.75 0 3.25.33 4.47.98 1.19.63 2.05 1.55 2.56 2.73.28-.02.56-.03.82-.03.77 0 1.5.14 2.18.42-.04-.77-.04-1.54-.04-2.31 0-3.23-.88-5.71-2.61-7.37C19.04 1.76 16.51.92 13.08.92c-3.43 0-5.96.84-7.52 2.5C3.96 5.08 3.15 7.6 3.15 10.93c0 3.33.81 5.85 2.41 7.49 1.64 1.68 3.99 2.54 6.99 2.56h.007z"/></svg>
         <span>Threads Viewer</span>
       </a>
       <div class="navbar-search">
@@ -1584,18 +1587,40 @@ export function renderHomePage(
   <meta name="referrer" content="no-referrer">
   <title>${t.home_title}</title>
   <meta name="description" content="${t.home_desc}">
+  <meta name="keywords" content="${esc(t.keywords)}">
   <meta name="yandex-verification" content="f2e3a97ba3ea12b6">
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <link rel="canonical" href="${homeCanonical}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="alternate icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="website">
   <meta property="og:title" content="${esc(t.home_title)}">
   <meta property="og:description" content="${esc(t.home_desc)}">
   <meta property="og:url" content="${homeCanonical}">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:image" content="${origin}/og-image.svg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${esc(t.home_title)}">
   <meta name="twitter:description" content="${esc(t.home_desc)}">
+  <meta name="twitter:image" content="${origin}/og-image.svg">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Threads Viewer",
+    "url": "${origin}/",
+    "description": "${esc(t.home_desc)}",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "${origin}/@{search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -1998,10 +2023,14 @@ export function renderProfilePage(
   <meta name="referrer" content="no-referrer">
   <title>${pageTitle}</title>
   <meta name="description" content="${ogDesc}">
+  <meta name="keywords" content="${esc(cleanUser)}, @${esc(cleanUser)}, threads, тредс, читать threads без впн, смотреть профиль ${esc(cleanUser)}">
   <meta name="yandex-verification" content="f2e3a97ba3ea12b6">
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <link rel="canonical" href="${canonicalUrl}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="alternate icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">

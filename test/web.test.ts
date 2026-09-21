@@ -245,6 +245,39 @@ describe("Web Viewer SSR & Routing", () => {
     expect(htmlHome).toContain('<meta name="google-site-verification" content="google3ae2b24cd673c270">');
   });
 
+  it("serves Threads favicon, OpenGraph banner, and SEO rich snippet markup", async () => {
+    const worker = (await import("../src/index")).default;
+    const fakeCtx = { waitUntil: () => {}, passThroughOnException: () => {} } as any;
+
+    // Favicon SVG
+    const favReq = new Request("https://threadsviewer.online/favicon.svg");
+    const favRes = await worker.fetch(favReq, mockEnv, fakeCtx);
+    expect(favRes.status).toBe(200);
+    expect(favRes.headers.get("content-type")).toBe("image/svg+xml");
+    const favSvg = await favRes.text();
+    expect(favSvg).toContain("<svg");
+    expect(favSvg).toContain("12.186 24h-.007");
+
+    // OpenGraph banner SVG
+    const ogReq = new Request("https://threadsviewer.online/og-image.svg");
+    const ogRes = await worker.fetch(ogReq, mockEnv, fakeCtx);
+    expect(ogRes.status).toBe(200);
+    expect(ogRes.headers.get("content-type")).toBe("image/svg+xml");
+    const ogSvg = await ogRes.text();
+    expect(ogSvg).toContain("Threads Viewer");
+    expect(ogSvg).toContain("threadsviewer.online");
+
+    // Home page meta tags, favicon links, and JSON-LD structured data
+    const homeRes = renderHomePage(mockEnv, "ru");
+    const homeHtml = await homeRes.text();
+    expect(homeHtml).toContain('<link rel="icon" type="image/svg+xml" href="/favicon.svg">');
+    expect(homeHtml).toContain('<meta name="keywords"');
+    expect(homeHtml).toContain("threads без впн");
+    expect(homeHtml).toContain('<meta property="og:image" content="https://threadsviewer.online/og-image.svg">');
+    expect(homeHtml).toContain('"@type": "WebSite"');
+    expect(homeHtml).toContain('"@type": "SearchAction"');
+  });
+
   it("renders ad-free premium state when isPremium is true", async () => {
     const resHome = renderHomePage(mockEnv, "ru", true);
     const htmlHome = await resHome.text();
