@@ -11,6 +11,8 @@ export interface Env {
   VERSION?: string;
   ADMIN_PASSWORD?: string;
   BOT_USERNAME?: string;
+  SITE_URL?: string;
+  SITE_DOMAIN?: string;
   SPONSOR_RU_URL?: string;
   SPONSOR_RU_TITLE?: string;
   SPONSOR_RU_DESC?: string;
@@ -46,3 +48,5 @@ export const excludedIds = (env: Env): number[] =>
 export const isAdmin = (env: Env, uid: number): boolean => adminIds(env).includes(uid);
 export const adminPassword = (env: Env): string => env.ADMIN_PASSWORD || "admin";
 export const botUsername = (env: Env): string => env.BOT_USERNAME || "threadsreaderbot";
+export const siteUrl = (env: Env): string => env.SITE_URL || "https://threadsviewer.online";
+export const siteDomain = (env: Env): string => env.SITE_DOMAIN || "threadsviewer.online";

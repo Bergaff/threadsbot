@@ -94,7 +94,7 @@ export default {
     // Главная страница
     if (url.pathname === "/" || url.pathname === "/index.html") {
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
-      let res = renderHomePage(env, lang, isPremium, country);
+      let res = renderHomePage(env, lang, isPremium, country, url.origin);
       if (newAuthCookie) {
         res = new Response(res.body, res);
         res.headers.append("Set-Cookie", newAuthCookie);
@@ -460,7 +460,7 @@ export default {
                 const newPostId = String(newest.id || newest.date || newest.text.slice(0, 32));
                 if (item.last_post_id && item.last_post_id !== newPostId) {
                   const subs = await db.getSubscribersForAuthor(item.username);
-                  const webOrigin = env.BASE_URL ? "https://" + env.BASE_URL.replace(/https?:\/\//, "") : "";
+                  const webOrigin = env.SITE_URL || "https://threadsviewer.online";
                   const notifyMsg = `<b>[НОВЫЙ ПОСТ] @${item.username}</b>\n\n${esc(newest.text.slice(0, 3800))}\n\n<a href="${webOrigin}/@${item.username}">Открыть в веб-зеркале</a>`;
                   for (const sid of subs) {
                     await tg.sendMessage(sid, notifyMsg).catch(() => {});

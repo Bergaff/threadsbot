@@ -20,6 +20,8 @@ const mockEnv: Env = {
   WEBHOOK_SECRET: "secret123",
   ADMIN_IDS: "123",
   BASE_URL: "https://www.threads.com",
+  SITE_URL: "https://threadsviewer.online",
+  SITE_DOMAIN: "threadsviewer.online",
 };
 
 describe("Language Detection", () => {
@@ -74,6 +76,18 @@ describe("Web Viewer SSR & Routing", () => {
     expect(html).toContain("themeToggleBtn");
     expect(html).toContain('content="no-referrer"');
     expect(html).toContain("https://t.me/threadsreaderbot");
+  });
+
+  it("uses threadsviewer.online domain in canonical and og tags", async () => {
+    const resHome = renderHomePage(mockEnv, "ru");
+    const htmlHome = await resHome.text();
+    expect(htmlHome).toContain('href="https://threadsviewer.online/"');
+    expect(htmlHome).toContain('content="https://threadsviewer.online/"');
+
+    const resProf = renderProfilePage(mockEnv, "zuck", null, null, "ru");
+    const htmlProf = await resProf.text();
+    expect(htmlProf).toContain('href="https://threadsviewer.online/@zuck"');
+    expect(htmlProf).toContain('content="https://threadsviewer.online/@zuck"');
   });
 
   it("renders English homepage when requested", async () => {

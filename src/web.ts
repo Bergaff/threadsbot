@@ -1565,9 +1565,16 @@ export function renderSupportCard(lang: Lang): string {
   `;
 }
 
-export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false, country = ""): Response {
+export function renderHomePage(
+  env: Env,
+  lang: Lang = "ru",
+  isPremium = false,
+  country = "",
+  origin = env.SITE_URL || "https://threadsviewer.online"
+): Response {
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
+  const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1577,6 +1584,15 @@ export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false, c
   <meta name="referrer" content="no-referrer">
   <title>${t.home_title}</title>
   <meta name="description" content="${t.home_desc}">
+  <link rel="canonical" href="${homeCanonical}">
+  <meta property="og:site_name" content="Threads Viewer">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${esc(t.home_title)}">
+  <meta property="og:description" content="${esc(t.home_desc)}">
+  <meta property="og:url" content="${homeCanonical}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="${esc(t.home_title)}">
+  <meta name="twitter:description" content="${esc(t.home_desc)}">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -1872,7 +1888,7 @@ export function renderProfilePage(
   isPremium = false,
   country = "",
   targetPostId?: string,
-  origin = "https://www.threads.com"
+  origin = env.SITE_URL || "https://threadsviewer.online"
 ): Response {
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
