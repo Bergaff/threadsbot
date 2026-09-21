@@ -15,6 +15,7 @@ export {
 export type { AccountDiagnosis } from "./cookies";
 
 export interface Post {
+  id?: string;
   text: string;
   has_image: boolean;
   has_video: boolean;

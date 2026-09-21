@@ -115,6 +115,27 @@ export default {
       return handleImageProxy(request);
     }
 
+    // Просмотр конкретного поста: /@username/post/:postId или /profile/username/post/:postId
+    const postMatch = url.pathname.match(/^\/(?:@|profile\/)([A-Za-z0-9._]+)\/post\/([A-Za-z0-9._-]+)$/);
+    if (postMatch) {
+      const username = postMatch[1].toLowerCase();
+      const targetPostId = postMatch[2];
+      const db = new Database(env);
+      const isAdmin = verifyAdmin(request, env);
+      if (!isAdmin) {
+        ctx.waitUntil(db.logEvent(0, "web_post_view", `${username}:${targetPostId}`).catch(() => {}));
+      }
+      const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
+      ctx.waitUntil(logSystem(env, "info", "web", `[WEB_POST_VIEW] Переход на @${username}/post/${targetPostId} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
+      const cached = await db.cache<ProfileData>(username, "web_profile");
+      let res = renderProfilePage(env, username, cached, null, lang, isPremium, country, targetPostId, url.origin);
+      if (newAuthCookie) {
+        res = new Response(res.body, res);
+        res.headers.append("Set-Cookie", newAuthCookie);
+      }
+      return res;
+    }
+
     // Просмотр профиля: /@username или /profile/username
     const profileMatch = url.pathname.match(/^\/(?:@|profile\/)([A-Za-z0-9._]+)$/);
     if (profileMatch) {
@@ -127,7 +148,7 @@ export default {
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
       ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
       const cached = await db.cache<ProfileData>(username, "web_profile");
-      let res = renderProfilePage(env, username, cached, null, lang, isPremium, country);
+      let res = renderProfilePage(env, username, cached, null, lang, isPremium, country, undefined, url.origin);
       if (newAuthCookie) {
         res = new Response(res.body, res);
         res.headers.append("Set-Cookie", newAuthCookie);
@@ -425,6 +446,32 @@ export default {
           await Promise.all(
             adminIds(env).map(id => tg.sendMessage(id, value).catch(() => {})),
           );
+        }
+
+        // Анонимный мониторинг авторов (проверка новых постов)
+        try {
+          const authorsToPoll = await db.getTrackedAuthorsToPoll(4);
+          if (authorsToPoll.length && env.BROWSER) {
+            const tg = new Telegram(env.TELEGRAM_TOKEN);
+            for (const item of authorsToPoll) {
+              const fetched = await fetchProfileWithPosts(env, item.username, 3);
+              if (fetched.status === "ok" && fetched.data?.posts?.length) {
+                const newest = fetched.data.posts[0];
+                const newPostId = String(newest.id || newest.date || newest.text.slice(0, 32));
+                if (item.last_post_id && item.last_post_id !== newPostId) {
+                  const subs = await db.getSubscribersForAuthor(item.username);
+                  const webOrigin = env.BASE_URL ? "https://" + env.BASE_URL.replace(/https?:\/\//, "") : "";
+                  const notifyMsg = `<b>[НОВЫЙ ПОСТ] @${item.username}</b>\n\n${esc(newest.text.slice(0, 3800))}\n\n<a href="${webOrigin}/@${item.username}">Открыть в веб-зеркале</a>`;
+                  for (const sid of subs) {
+                    await tg.sendMessage(sid, notifyMsg).catch(() => {});
+                  }
+                }
+                await db.updateTrackedAuthor(item.username, newPostId, newest.text.slice(0, 100));
+              }
+            }
+          }
+        } catch (pollErr) {
+          console.error("Tracking poll error:", pollErr);
         }
       })(),
     );

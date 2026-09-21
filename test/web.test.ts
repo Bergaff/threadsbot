@@ -288,6 +288,51 @@ describe("Web Viewer SSR & Routing", () => {
     expect(resEmpty.status).toBe(400);
   });
 
+  it("renders popular creators and favorites on home page", async () => {
+    const res = renderHomePage(mockEnv, "ru");
+    const html = await res.text();
+    expect(html).toContain("Популярные авторы");
+    expect(html).toContain("/@durov");
+    expect(html).toContain("/@zuck");
+    expect(html).toContain("/@mrbeast");
+    expect(html).toContain('id="favoritesSection"');
+    expect(html).toContain("Закладки");
+  });
+
+  it("renders single thread view with rich OpenGraph tags and post highlighting", async () => {
+    const data = {
+      profile: {
+        username: "zuck",
+        displayName: "Mark Zuckerberg",
+        bio: "Building Meta",
+        avatar: "https://scontent.cdninstagram.com/avatar.jpg",
+        followers: "15M",
+        verified: true,
+      },
+      posts: [
+        {
+          id: "post_101",
+          text: "Excited to launch our newest AI model today across all platforms!",
+          has_image: true,
+          has_video: false,
+          imageUrl: "https://scontent.cdninstagram.com/post_101.jpg",
+          date: "1h",
+          author: "zuck",
+        },
+      ],
+    };
+
+    const res = renderProfilePage(mockEnv, "zuck", data, null, "ru", false, "RU", "post_101", "https://threads-viewer.com");
+    const html = await res.text();
+    expect(html).toContain('<meta property="og:title" content="@zuck: &quot;Excited to launch our newest AI model today across all platforms!&quot;">');
+    expect(html).toContain('<meta property="og:description" content="Excited to launch our newest AI model today across all platforms!">');
+    expect(html).toContain('content="https://threads-viewer.com/api/img?url=https%3A%2F%2Fscontent.cdninstagram.com%2Fpost_101.jpg"');
+    expect(html).toContain('post-highlighted');
+    expect(html).toContain('id="post-post_101"');
+    expect(html).toContain('id="favToggleBtn"');
+    expect(html).toContain('start=track_zuck');
+  });
+
   it("contains syntactically valid JavaScript scripts on profile and home pages", async () => {
     const pages = [
       renderProfilePage(mockEnv, "zuck", null, null, "ru"),
@@ -305,6 +350,30 @@ describe("Web Viewer SSR & Routing", () => {
         expect(() => new Function(code)).not.toThrow();
       }
     }
+  });
+
+  describe("Anonymous Creator Tracking", () => {
+    it("enforces free vs premium limits for tracking", async () => {
+      const { Database } = await import("../src/db");
+      const fakeDb = {
+        prepare: (q: string) => ({
+          bind: (..._args: any[]) => ({
+            first: async () => {
+              if (q.includes("FROM subscriptions")) return null; // free user
+              if (q.includes("COUNT(*) c FROM user_tracks")) return { c: 0 };
+              return null;
+            },
+            all: async () => ({ results: [] }),
+            run: async () => ({ meta: { changes: 1 } }),
+          }),
+        }),
+        batch: async () => [],
+      };
+      const db = new Database({ DB: fakeDb as any } as any);
+      const freeRes = await db.addTrack(12345, "zuck");
+      expect(freeRes.ok).toBe(false);
+      expect(freeRes.error).toBe("free_limit");
+    });
   });
 
   describe("Image Proxy Security", () => {

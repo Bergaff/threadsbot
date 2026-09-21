@@ -53,6 +53,93 @@ export class Database {
   }
   async subscribers() { return (await this.db.prepare("SELECT * FROM subscriptions WHERE expires_at>?").bind(now()).all()).results; }
 
+  async initTrackingTables(): Promise<void> {
+    try {
+      await this.db.batch([
+        this.db.prepare(`CREATE TABLE IF NOT EXISTS tracked_authors (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT UNIQUE NOT NULL,
+          last_post_id TEXT,
+          last_post_text TEXT,
+          last_checked_at TEXT
+        )`),
+        this.db.prepare(`CREATE TABLE IF NOT EXISTS user_tracks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          author_username TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          UNIQUE(user_id, author_username)
+        )`),
+        this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_user_tracks_user ON user_tracks(user_id)`),
+        this.db.prepare(`CREATE INDEX IF NOT EXISTS idx_user_tracks_author ON user_tracks(author_username)`)
+      ]);
+    } catch (_) {}
+  }
+
+  async addTrack(userId: number, authorUsername: string): Promise<{ ok: boolean; count: number; max: number; error?: string }> {
+    await this.initTrackingTables();
+    const cleanUser = authorUsername.replace(/^@/, "").toLowerCase();
+    const sub = await this.subscription(userId);
+    const max = sub?.active ? 5 : 0;
+
+    const countRow = await this.db.prepare("SELECT COUNT(*) c FROM user_tracks WHERE user_id=?").bind(userId).first<{ c: number }>();
+    const count = Number(countRow?.c || 0);
+
+    if (count >= max) {
+      return { ok: false, count, max, error: max === 0 ? "free_limit" : "limit_reached" };
+    }
+
+    await this.db.batch([
+      this.db.prepare("INSERT OR IGNORE INTO tracked_authors(username, last_checked_at) VALUES(?,?)").bind(cleanUser, now()),
+      this.db.prepare("INSERT OR REPLACE INTO user_tracks(user_id, author_username, created_at) VALUES(?,?,?)").bind(userId, cleanUser, now())
+    ]);
+
+    return { ok: true, count: count + 1, max };
+  }
+
+  async removeTrack(userId: number, authorUsername: string): Promise<boolean> {
+    await this.initTrackingTables();
+    const cleanUser = authorUsername.replace(/^@/, "").toLowerCase();
+    const res = await this.db.prepare("DELETE FROM user_tracks WHERE user_id=? AND author_username=?").bind(userId, cleanUser).run();
+    return Boolean(res.meta?.changes);
+  }
+
+  async getUserTracks(userId: number): Promise<string[]> {
+    await this.initTrackingTables();
+    const res = await this.db.prepare("SELECT author_username FROM user_tracks WHERE user_id=? ORDER BY created_at DESC").bind(userId).all<{ author_username: string }>();
+    return (res.results || []).map(r => r.author_username);
+  }
+
+  async getTrackedAuthorsToPoll(limit = 6): Promise<{ username: string; last_post_id: string | null }[]> {
+    await this.initTrackingTables();
+    const res = await this.db.prepare(`
+      SELECT a.username, a.last_post_id 
+      FROM tracked_authors a
+      INNER JOIN user_tracks u ON u.author_username = a.username
+      GROUP BY a.username
+      ORDER BY a.last_checked_at ASC
+      LIMIT ?
+    `).bind(limit).all<{ username: string; last_post_id: string | null }>();
+    return res.results || [];
+  }
+
+  async updateTrackedAuthor(username: string, lastPostId: string, lastPostText = ""): Promise<void> {
+    await this.initTrackingTables();
+    const cleanUser = username.replace(/^@/, "").toLowerCase();
+    await this.db.prepare(
+      "UPDATE tracked_authors SET last_post_id=?, last_post_text=?, last_checked_at=? WHERE username=?"
+    ).bind(lastPostId, lastPostText, now(), cleanUser).run();
+  }
+
+  async getSubscribersForAuthor(username: string): Promise<number[]> {
+    await this.initTrackingTables();
+    const cleanUser = username.replace(/^@/, "").toLowerCase();
+    const res = await this.db.prepare(
+      "SELECT user_id FROM user_tracks WHERE author_username=?"
+    ).bind(cleanUser).all<{ user_id: number }>();
+    return (res.results || []).map(r => Number(r.user_id));
+  }
+
   async cache<T>(username:string, mode:string, page=0): Promise<T|null> {
     const row = await this.db.prepare("SELECT data,cached_at FROM cache WHERE username=? AND mode=? AND page=?").bind(username,mode,page).first<{data:string;cached_at:string}>();
     if (!row || Date.now()-new Date(row.cached_at).getTime() >= LIMITS.cacheMinutes*60_000) return null;

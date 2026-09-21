@@ -3,6 +3,17 @@ import type { Comment, Post, ProfileData } from "./threads";
 
 export type Lang = "ru" | "en";
 
+export const POPULAR_CREATORS = [
+  { username: "durov", label_ru: "Павел Дуров", label_en: "Pavel Durov" },
+  { username: "zuck", label_ru: "Марк Цукерберг", label_en: "Mark Zuckerberg" },
+  { username: "mosseri", label_ru: "Адам Моссери", label_en: "Adam Mosseri" },
+  { username: "mrbeast", label_ru: "MrBeast", label_en: "MrBeast" },
+  { username: "openai", label_ru: "OpenAI", label_en: "OpenAI" },
+  { username: "techcrunch", label_ru: "TechCrunch", label_en: "TechCrunch" },
+  { username: "verge", label_ru: "The Verge", label_en: "The Verge" },
+  { username: "mkbhd", label_ru: "Marques Brownlee", label_en: "MKBHD" },
+];
+
 export function detectLanguage(request: Request): Lang {
   const url = new URL(request.url);
   const q = url.searchParams.get("lang")?.toLowerCase();
@@ -532,6 +543,91 @@ const COMMON_STYLES = `
   }
   html[data-theme="light"] .history-chip-avatar {
     color: #1a56a6;
+  }
+
+  /* Popular section */
+  .popular-section {
+    margin-top: 20px;
+    text-align: left;
+    width: 100%;
+    max-width: 620px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .popular-header {
+    margin-bottom: 8px;
+    border-bottom: 1px solid #282828;
+    padding-bottom: 4px;
+  }
+  .popular-title {
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #888888;
+    font-weight: 600;
+  }
+  .popular-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .creator-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: #141414;
+    border: 1px solid #282828;
+    color: #cccccc;
+    text-decoration: none;
+    font-size: 0.82rem;
+  }
+  .creator-chip:hover {
+    background: #1f1f1f;
+    border-color: #444444;
+    color: #ffffff;
+  }
+  .creator-chip-at {
+    color: #0084ff;
+    font-weight: bold;
+    font-size: 0.8rem;
+  }
+  .creator-chip-name {
+    font-weight: 600;
+  }
+  .creator-chip-desc {
+    font-size: 0.74rem;
+    color: #777777;
+    margin-left: 2px;
+  }
+  html[data-theme="light"] .popular-header {
+    border-bottom: 1px solid #c0b6a4;
+  }
+  html[data-theme="light"] .popular-title {
+    color: #635b4f;
+  }
+  html[data-theme="light"] .creator-chip {
+    background: #ded5c6;
+    border: 1px solid #b8ad9b;
+    color: #2e2820;
+  }
+  html[data-theme="light"] .creator-chip:hover {
+    background: #e6ddce;
+    border-color: #8f8473;
+    color: #000000;
+  }
+  html[data-theme="light"] .creator-chip-at {
+    color: #1a56a6;
+  }
+  html[data-theme="light"] .creator-chip-desc {
+    color: #736b5d;
+  }
+
+  .post-card.post-highlighted {
+    border: 2px solid #0084ff;
+  }
+  html[data-theme="light"] .post-card.post-highlighted {
+    border: 2px solid #1a56a6;
   }
 
   .post-toolbar {
@@ -1262,6 +1358,11 @@ const I18N = {
     toast_error: "Не удалось загрузить",
     recent_profiles_title: "История просмотров",
     clear_history: "Очистить",
+    popular_creators_title: "Популярные авторы",
+    favorites_title: "Закладки",
+    favorite_add: "В закладки",
+    favorite_remove: "В закладках",
+    track_in_bot: "Отслеживать в Telegram",
     support_title: "Остались вопросы? Напишите нам",
     support_desc: "Есть вопрос, идея или заметили ошибку? Отправьте сообщение, и оно поступит администратору в Telegram.",
     support_contact_label: "Куда ответить (необязательно)",
@@ -1320,6 +1421,11 @@ const I18N = {
     toast_error: "Failed to load",
     recent_profiles_title: "Recent profiles",
     clear_history: "Clear",
+    popular_creators_title: "Popular creators",
+    favorites_title: "Favorites",
+    favorite_add: "Bookmark",
+    favorite_remove: "Bookmarked",
+    track_in_bot: "Track in Telegram",
     support_title: "Have questions? Contact us",
     support_desc: "Have a question, feedback, or found a bug? Send a message and it will be delivered directly to the admin in Telegram.",
     support_contact_label: "Contact info for reply (optional)",
@@ -1500,6 +1606,28 @@ export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false, c
         ${t.example_hint}
       </div>
 
+      <div class="popular-section">
+        <div class="popular-header">
+          <span class="popular-title">${t.popular_creators_title}</span>
+        </div>
+        <div class="popular-list">
+          ${POPULAR_CREATORS.map(c => `
+            <a href="/@${c.username}${lang === 'en' ? '?lang=en' : ''}" class="creator-chip">
+              <span class="creator-chip-at">@</span>
+              <span class="creator-chip-name">${c.username}</span>
+              <span class="creator-chip-desc">${lang === 'en' ? c.label_en : c.label_ru}</span>
+            </a>
+          `).join('')}
+        </div>
+      </div>
+
+      <div id="favoritesSection" class="history-section" style="display:none;margin-top:18px;">
+        <div class="history-header">
+          <span class="history-title">${t.favorites_title}</span>
+        </div>
+        <div id="favoritesList" class="history-list"></div>
+      </div>
+
       <div id="recentHistorySection" class="history-section" style="display:none;">
         <div class="history-header">
           <span class="history-title">${t.recent_profiles_title}</span>
@@ -1544,17 +1672,31 @@ export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false, c
       t.style.display = 'block';
       setTimeout(function() { t.style.display = 'none'; }, 2200);
     }
-    function cleanUsername(raw) {
+    function parseInput(raw) {
       var clean = (raw || '').trim();
-      var match = clean.match(/(?:threads\\.(?:com|net)\\/)?@?([A-Za-z0-9._]+)/);
-      return match ? match[1] : '';
+      var postRegex = new RegExp('(?:threads\\\\.(?:com|net)/)?@?([A-Za-z0-9._]+)/post/([A-Za-z0-9._-]+)', 'i');
+      var postMatch = clean.match(postRegex);
+      if (postMatch) {
+        return { username: postMatch[1], postId: postMatch[2] };
+      }
+      var userRegex = new RegExp('(?:threads\\\\.(?:com|net)/)?@?([A-Za-z0-9._]+)', 'i');
+      var userMatch = clean.match(userRegex);
+      return userMatch ? { username: userMatch[1], postId: null } : null;
+    }
+    function cleanUsername(raw) {
+      var p = parseInput(raw);
+      return p ? p.username : '';
     }
     function handleHeroSearch(e) {
       e.preventDefault();
       var input = document.getElementById('heroSearchInput');
-      var name = cleanUsername(input.value);
-      if (name) {
-        window.location.href = '/@' + name + (currentLang === 'en' ? '?lang=en' : '');
+      var parsed = parseInput(input.value);
+      if (parsed) {
+        if (parsed.postId) {
+          window.location.href = '/@' + encodeURIComponent(parsed.username) + '/post/' + encodeURIComponent(parsed.postId) + (currentLang === 'en' ? '?lang=en' : '');
+        } else {
+          window.location.href = '/@' + encodeURIComponent(parsed.username) + (currentLang === 'en' ? '?lang=en' : '');
+        }
       } else {
         showToast('${t.toast_invalid_username}');
       }
@@ -1562,9 +1704,13 @@ export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false, c
     function handleNavSearch(e) {
       e.preventDefault();
       var input = document.getElementById('navSearchInput');
-      var name = cleanUsername(input.value);
-      if (name) {
-        window.location.href = '/@' + name + (currentLang === 'en' ? '?lang=en' : '');
+      var parsed = parseInput(input.value);
+      if (parsed) {
+        if (parsed.postId) {
+          window.location.href = '/@' + encodeURIComponent(parsed.username) + '/post/' + encodeURIComponent(parsed.postId) + (currentLang === 'en' ? '?lang=en' : '');
+        } else {
+          window.location.href = '/@' + encodeURIComponent(parsed.username) + (currentLang === 'en' ? '?lang=en' : '');
+        }
       }
     }
     function toggleTheme() {
@@ -1588,6 +1734,25 @@ export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false, c
       } else {
         el.innerText = isLight ? 'Темная' : 'Светлая';
       }
+    }
+    function loadFavorites() {
+      try {
+        var raw = localStorage.getItem('threads_favorites');
+        if (!raw) return;
+        var list = JSON.parse(raw);
+        if (!Array.isArray(list) || !list.length) return;
+        var sec = document.getElementById('favoritesSection');
+        var container = document.getElementById('favoritesList');
+        if (!sec || !container) return;
+        container.innerHTML = list.map(function(item) {
+          var u = (typeof item === 'string' ? item : (item.username || '')).replace(/^@/, '');
+          return '<a href="/@' + encodeURIComponent(u) + (currentLang === 'en' ? '?lang=en' : '') + '" class="history-chip">' +
+            '<span class="history-chip-avatar">[@]</span>' +
+            '<span class="history-chip-name">@' + escHtml(u) + '</span>' +
+          '</a>';
+        }).join('');
+        sec.style.display = 'block';
+      } catch (e) {}
     }
     function loadBrowsingHistory() {
       try {
@@ -1680,9 +1845,11 @@ export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false, c
 
     document.addEventListener('DOMContentLoaded', function() {
       updateThemeBtnText();
+      loadFavorites();
       loadBrowsingHistory();
     });
     updateThemeBtnText();
+    loadFavorites();
     loadBrowsingHistory();
   </script>
 </body>
@@ -1703,7 +1870,9 @@ export function renderProfilePage(
   errorMessage?: string | null,
   lang: Lang = "ru",
   isPremium = false,
-  country = ""
+  country = "",
+  targetPostId?: string,
+  origin = "https://www.threads.com"
 ): Response {
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
@@ -1719,11 +1888,17 @@ export function renderProfilePage(
   const posts = initialData?.posts || [];
   const hasData = Boolean(initialData && (initialData.profile || posts.length > 0));
 
+  const targetPost = targetPostId
+    ? (posts.find((p, i) => (p.id && String(p.id) === targetPostId) || String(i) === targetPostId) || null)
+    : null;
+
   const postsHtml = posts.length > 0
     ? posts.map((post, idx) => {
     const postDate = formatDisplayDate(post.date || "");
     const authorName = post.author || profile.displayName || cleanUser;
     const authorAvatar = post.authorAvatar || profile.avatar || "";
+    const isHighlighted = targetPost && (post === targetPost || String(idx) === targetPostId || (post.id && String(post.id) === targetPostId));
+    const postIdentifier = post.id || idx;
 
     const videoHtml = post.videoUrl
       ? `<div class="post-media-box">
@@ -1744,7 +1919,7 @@ export function renderProfilePage(
       : "";
 
     return `
-      <article class="post-card" id="post-${idx}">
+      <article class="post-card ${isHighlighted ? 'post-highlighted' : ''}" id="post-${postIdentifier}">
         <div class="post-card-top">
           <div class="post-author-block">
             ${authorAvatar ? `<img src="${esc(safeMediaUrl(authorAvatar))}" data-orig="${esc(safeMediaUrl(authorAvatar))}" class="post-author-avatar" alt="${esc(authorName)}" referrerpolicy="no-referrer" onerror="handleImgError(this)" />` : `<div class="post-author-avatar" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:11px;">@</div>`}
@@ -1753,7 +1928,7 @@ export function renderProfilePage(
               ${postDate ? `<div class="post-timestamp">${esc(postDate)}</div>` : ""}
             </div>
           </div>
-          <button class="toolbar-btn" title="${t.share_post}" onclick="copyPostLink(${idx})">
+          <button class="toolbar-btn" title="${t.share_post}" onclick="copyPostLink(${idx}, '${esc(postIdentifier)}')">
             ${t.share_post}
           </button>
         </div>
@@ -1786,7 +1961,15 @@ export function renderProfilePage(
   }).join("")
     : (hasData ? `<div class="status-card" style="text-align:center;padding:24px 16px;"><p style="color:#777;">${lang === 'en' ? 'No posts in this profile yet.' : 'В этом профиле пока нет постов.'}</p></div>` : "");
 
-  const pageTitle = `@${esc(cleanUser)} в Threads - читать без VPN | Threads Viewer`;
+  const snippet = targetPost ? (targetPost.text ? targetPost.text.slice(0, 140).trim() : (lang === "en" ? "Post with media" : "Пост с медиа")) : "";
+  const pageTitle = targetPost
+    ? `@${esc(cleanUser)} в Threads: "${esc(snippet)}" | Threads Viewer`
+    : `@${esc(cleanUser)} в Threads - читать без VPN | Threads Viewer`;
+  const ogTitle = targetPost ? `@${esc(cleanUser)}: "${esc(snippet)}"` : `@${esc(cleanUser)} в Threads без VPN`;
+  const ogDesc = esc(targetPost ? (targetPost.text ? targetPost.text.slice(0, 240) : `Пост @${cleanUser} в Threads`) : (profile.bio ? profile.bio.slice(0, 220) : `Посты, фото и комментарии @${cleanUser} в Threads без регистрации и VPN.`));
+  const rawMedia = targetPost ? (targetPost.imageUrl || profile.avatar) : profile.avatar;
+  const ogImage = rawMedia ? `${origin}/api/img?url=${encodeURIComponent(rawMedia)}` : "";
+  const canonicalUrl = targetPostId ? `${origin}/@${esc(cleanUser)}/post/${esc(targetPostId)}` : `${origin}/@${esc(cleanUser)}`;
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1795,7 +1978,18 @@ export function renderProfilePage(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
   <title>${pageTitle}</title>
-  <meta name="description" content="Посты, фото и комментарии @${esc(cleanUser)} в Threads без регистрации и VPN.">
+  <meta name="description" content="${ogDesc}">
+  <link rel="canonical" href="${canonicalUrl}">
+  <meta property="og:site_name" content="Threads Viewer">
+  <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
+  <meta property="og:title" content="${esc(ogTitle)}">
+  <meta property="og:description" content="${ogDesc}">
+  <meta property="og:url" content="${canonicalUrl}">
+  ${ogImage ? `<meta property="og:image" content="${esc(ogImage)}">` : ''}
+  <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
+  <meta name="twitter:title" content="${esc(ogTitle)}">
+  <meta name="twitter:description" content="${ogDesc}">
+  ${ogImage ? `<meta name="twitter:image" content="${esc(ogImage)}">` : ''}
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -1849,6 +2043,12 @@ export function renderProfilePage(
       <div class="profile-actions">
         <a href="https://t.me/${esc(tgUser)}?start=sub_${esc(cleanUser)}" target="_blank" rel="noopener" class="btn-sharp">
           ${t.sub_tg}
+        </a>
+        <button class="btn-sharp" id="favToggleBtn" onclick="toggleFavorite('${esc(cleanUser)}')">
+          <span id="favBtnLabel">[+] ${t.favorite_add}</span>
+        </button>
+        <a href="https://t.me/${esc(tgUser)}?start=track_${esc(cleanUser)}" target="_blank" rel="noopener" class="btn-sharp">
+          ${t.track_in_bot}
         </a>
         <button class="btn-sharp" onclick="shareProfile()">
           ${t.share_profile}
@@ -2001,14 +2201,53 @@ export function renderProfilePage(
       }
     }
 
-    function copyPostLink(a, b) {
-      var idx = (b !== undefined) ? b : a;
-      var username = (b !== undefined) ? a : currentUsername;
-      var url = window.location.origin + '/@' + username + '#post-' + idx;
+    function copyPostLink(idx, identifier) {
+      var id = identifier !== undefined ? identifier : idx;
+      var url = window.location.origin + '/@' + currentUsername + '/post/' + id;
       if (navigator.clipboard) {
         navigator.clipboard.writeText(url);
         showToast('${t.toast_post_copied}');
+      } else {
+        showToast(url);
       }
+    }
+
+    function checkFavoriteStatus() {
+      try {
+        var raw = localStorage.getItem('threads_favorites');
+        var list = raw ? JSON.parse(raw) : [];
+        var isFav = Array.isArray(list) && list.some(function(item) {
+          var u = typeof item === 'string' ? item : (item.username || '');
+          return u.toLowerCase() === currentUsername.toLowerCase();
+        });
+        var lbl = document.getElementById('favBtnLabel');
+        if (lbl) {
+          lbl.innerText = isFav ? ('[-] ' + (currentLang === 'en' ? 'Bookmarked' : 'В закладках')) : ('[+] ' + (currentLang === 'en' ? 'Bookmark' : 'В закладки'));
+        }
+      } catch (e) {}
+    }
+
+    function toggleFavorite(username) {
+      try {
+        var raw = localStorage.getItem('threads_favorites');
+        var list = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(list)) list = [];
+        var clean = (username || currentUsername).toLowerCase();
+        var idx = -1;
+        for (var i = 0; i < list.length; i++) {
+          var u = typeof list[i] === 'string' ? list[i] : (list[i].username || '');
+          if (u.toLowerCase() === clean) { idx = i; break; }
+        }
+        if (idx >= 0) {
+          list.splice(idx, 1);
+          showToast(currentLang === 'en' ? 'Removed from bookmarks' : 'Удалено из закладок');
+        } else {
+          list.unshift({ username: clean, time: Date.now() });
+          showToast(currentLang === 'en' ? 'Added to bookmarks' : 'Добавлено в закладки');
+        }
+        localStorage.setItem('threads_favorites', JSON.stringify(list));
+        checkFavoriteStatus();
+      } catch (e) {}
     }
 
     function openLightbox(src) {
@@ -2144,14 +2383,39 @@ export function renderProfilePage(
         el.innerText = isLight ? 'Темная' : 'Светлая';
       }
     }
-    document.addEventListener('DOMContentLoaded', updateThemeBtnText);
-    updateThemeBtnText();
+    var targetPostId = "${esc(targetPostId || "")}";
+    function initProfilePage() {
+      updateThemeBtnText();
+      checkFavoriteStatus();
+      if (targetPostId) {
+        setTimeout(function() {
+          var el = document.getElementById('post-' + targetPostId);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            var btn = el.querySelector('.comment-btn');
+            if (btn) btn.click();
+          }
+        }, 350);
+      }
+    }
+    document.addEventListener('DOMContentLoaded', initProfilePage);
+    initProfilePage();
 
     function handleNavSearch(e) {
       e.preventDefault();
       var input = document.getElementById('navSearchInput');
-      var val = (input.value || '').trim().replace(/^@/, '');
-      if (val) window.location.href = '/@' + val + (currentLang === 'en' ? '?lang=en' : '');
+      var clean = (input.value || '').trim();
+      var postRegex = new RegExp('(?:threads\\\\.(?:com|net)/)?@?([A-Za-z0-9._]+)/post/([A-Za-z0-9._-]+)', 'i');
+      var postMatch = clean.match(postRegex);
+      if (postMatch) {
+        window.location.href = '/@' + encodeURIComponent(postMatch[1]) + '/post/' + encodeURIComponent(postMatch[2]) + (currentLang === 'en' ? '?lang=en' : '');
+        return;
+      }
+      var userRegex = new RegExp('(?:threads\\\\.(?:com|net)/)?@?([A-Za-z0-9._]+)', 'i');
+      var userMatch = clean.match(userRegex);
+      if (userMatch) {
+        window.location.href = '/@' + encodeURIComponent(userMatch[1]) + (currentLang === 'en' ? '?lang=en' : '');
+      }
     }
 
     function renderPostsClient(posts, profile) {
