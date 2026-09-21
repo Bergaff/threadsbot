@@ -273,6 +273,7 @@ describe("Web Viewer SSR & Routing", () => {
     expect(ogSvg).toContain("threadsviewer.online");
     expect(ogSvg).toContain('text-anchor="middle"');
     expect(ogSvg).toContain('dominant-baseline="central"');
+    expect(ogSvg).toContain('<image href="data:image/png;base64');
 
     // Home page meta tags, favicon links, and JSON-LD structured data
     const homeRes = renderHomePage(mockEnv, "ru");
