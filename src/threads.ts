@@ -81,6 +81,17 @@ function keepSessionCookies(raw: string): string | null {
   return snapshotHasSession(raw) ? raw : null;
 }
 
+export async function logSystem(env: Env, level: "info" | "warn" | "error", category: string, message: string) {
+  try {
+    const data = `[${level.toUpperCase()}][${category}] ${message}`;
+    await env.DB.prepare(
+      "INSERT INTO user_events(user_id, event_type, event_data, timestamp) VALUES(0, 'system_log', ?, ?)"
+    ).bind(data, iso()).run();
+  } catch (e) {
+    console.error("Failed to write system log:", e);
+  }
+}
+
 async function logBrowser(env: Env, type: string, data = "") {
   await env.DB.prepare("INSERT INTO user_events(user_id,event_type,event_data,timestamp) VALUES(0,?,?,?)").bind(type, data, iso()).run().catch(() => {});
 }
@@ -264,14 +275,14 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
           const spans = container.querySelectorAll('span[dir="auto"],div[dir="auto"],span[class*="x1lliihq"]');
           for (let sIdx = 0; sIdx < spans.length; sIdx++) {
             const text = ((spans[sIdx] as HTMLElement).innerText || "").trim();
-            if (text.length < 20) continue;
+            if (text.length < 5) continue;
             if (/^(Follow|Подписаться|Translate|Перевести|See translation|See more|Like|Reply|Repost|Share|Verified|Автор|Ещё|Нравится|Поделиться)/i.test(text)) continue;
             if (/^\d+$/.test(text) || /^\d{1,2}\s*[hчдms]$/i.test(text)) continue;
             if (text.length > bestText.length) bestText = text;
           }
         } catch (e) {}
 
-        if (bestText.length > 20 || has_image || has_video) {
+        if (bestText.length > 3 || has_image || has_video) {
           const key = bestText.substring(0, 100) + (has_image ? "_img" : "") + (has_video ? "_vid" : "");
           if (!seen.has(key)) {
             seen.add(key);
@@ -299,7 +310,7 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
     for (const post of current) {
       if (!post || typeof post.text !== "string") continue;
       const value = { ...post, text: cleanPostText(post.text) };
-      if (value.text.length < 15 && !value.has_image && !value.has_video) continue;
+      if (value.text.length < 3 && !value.has_image && !value.has_video) continue;
       const key = value.text.slice(0, 120) + (value.has_image ? "_img" : "") + (value.has_video ? "_vid" : "");
       if (!seen.has(key)) { seen.add(key); all.push(value); added++; }
     }
@@ -314,17 +325,29 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
 }
 
 async function checkProfile(page: Page, env: Env, username: string): Promise<ThreadsStatus | null> {
-  await page.goto(`${BASE(env)}/@${username}`, { waitUntil: "domcontentloaded", timeout: 20_000 });
-  await sleep(1500);
-  const body = await page.locator("body").innerText().catch(() => "");
-  if (isUserNotFoundPage(body)) return "user_not_found";
-  if (isLoginUrl(page.url())) {
+  const targetUrl = `${BASE(env)}/@${username}`;
+  await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 20_000 }).catch(() => {});
+  await sleep(1800);
+  const currentUrl = page.url();
+  if (isLoginUrl(currentUrl)) {
     // Несуществующий @username часто редиректит на /login.
     // Проверяем главную — если там залогинены, профиль просто не существует.
-    await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 15_000 });
+    await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {});
     await sleep(1000);
     if (isLoginUrl(page.url())) return "session_expired";
     return "user_not_found";
+  }
+
+  const hasContent = await page.evaluate(() => {
+    return Boolean(
+      document.querySelector('div[data-pressable-container="true"],article,div[role="article"]') ||
+      document.querySelector('header')
+    );
+  }).catch(() => false);
+
+  if (!hasContent) {
+    const body = await page.locator("body").innerText().catch(() => "");
+    if (isUserNotFoundPage(body)) return "user_not_found";
   }
   return null;
 }
@@ -457,23 +480,37 @@ export async function fetchProfileWithPosts(
   const tried: string[] = [];
   while (true) {
     const account = await chooseAccount(env, tried);
-    if (!account) return { data: null, status: "all_dead" };
+    if (!account) {
+      await logSystem(env, "error", "scraper", `Все аккаунты недоступны (all_dead) для @${username}. Проверено: ${tried.join(", ") || "нет доступных"}`);
+      return { data: null, status: "all_dead" };
+    }
     tried.push(account.name);
     let opened: Opened | undefined;
     try {
+      await logSystem(env, "info", "scraper", `Запуск сбора @${username} через аккаунт [${account.name}]`);
       opened = await openBrowser(env, account);
       const invalid = await checkProfile(opened.page, env, username);
-      if (invalid === "session_expired") { await markSessionExpired(env, account.name); continue; }
-      if (invalid) return { data: null, status: invalid, account: account.name };
+      if (invalid === "session_expired") {
+        await logSystem(env, "warn", "scraper", `Сессия истекла у аккаунта [${account.name}] при запросе @${username}`);
+        await markSessionExpired(env, account.name);
+        continue;
+      }
+      if (invalid) {
+        await logSystem(env, "warn", "scraper", `Проверка @${username} вернула статус: ${invalid} (аккаунт: ${account.name})`);
+        return { data: null, status: invalid, account: account.name };
+      }
       const profile = await collectProfileHeader(opened.page, username);
       const posts = await collectPosts(opened.page, amount);
       const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
       await markSuccess(env, account.name, posts.length, updated || undefined);
+      await logSystem(env, "info", "scraper", `Успешно загружен профиль @${username}: ${posts.length} постов через [${account.name}]`);
       return { data: { profile, posts }, status: "ok", account: account.name };
     } catch (error) {
+      const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 300);
+      await logSystem(env, "error", "scraper", `Ошибка сбора @${username} (аккаунт: ${account.name}): ${errMsg}`);
       await markTransientError(env, account.name, error);
       if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name };
-      return { data: null, status: "service_error", account: account.name, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) };
+      return { data: null, status: "service_error", account: account.name, error: errMsg };
     } finally {
       await closeBrowser(env, opened);
     }
@@ -619,18 +656,25 @@ export async function fetchComments(env: Env, username: string, index: number, a
 /** Сброс всех аккаунтов в alive=1 */
 export async function resetAccountStatuses(env: Env) {
   const result = await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,updated_at=? WHERE enabled=1").bind(iso()).run();
-  return Number(result.meta.changes || 0);
+  const count = Number(result.meta.changes || 0);
+  await logSystem(env, "info", "admin", `Сброшены статусы всех аккаунтов в Alive. Обновлено аккаунтов: ${count}`);
+  return count;
 }
 
 /** Проверка одного аккаунта */
 export async function probeAccount(env: Env, name: string): Promise<{ name: string; ok: boolean; message: string }> {
   const account = await env.DB.prepare("SELECT name,cookies,hourly_requests,hourly_reset FROM threads_accounts WHERE name=? AND enabled=1").bind(name).first<Account>();
-  if (!account) return { name, ok: false, message: "Аккаунт отключен или отсутствует в базе" };
+  if (!account) {
+    await logSystem(env, "warn", "probe", `Тест [${name}]: аккаунт отключен или отсутствует в базе`);
+    return { name, ok: false, message: "Аккаунт отключен или отсутствует в базе" };
+  }
   let opened: Opened | undefined;
   try {
+    await logSystem(env, "info", "probe", `Запуск теста сессии для [${name}] в браузере Threads...`);
     opened = await openBrowser(env, account);
     if (isLoginUrl(opened.page.url())) {
       await markSessionExpired(env, name);
+      await logSystem(env, "error", "probe", `Тест [${name}] провален: сессия истекла (редирект на /login)`);
       return { name, ok: false, message: "Сессия истекла в Threads (редирект на /login)" };
     }
     const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
@@ -639,10 +683,13 @@ export async function probeAccount(env: Env, name: string): Promise<{ name: stri
     } else {
       await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,updated_at=? WHERE name=?").bind(iso(), name).run();
     }
+    await logSystem(env, "info", "probe", `Тест [${name}] успешен: сессия действительна и активна`);
     return { name, ok: true, message: "Сессия валидна и активна" };
   } catch (error) {
+    const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 200);
+    await logSystem(env, "error", "probe", `Тест [${name}] ошибка: ${errMsg}`);
     await markTransientError(env, name, error);
-    return { name, ok: false, message: error instanceof BrowserBusyError ? "Browser Run занят, повторите позже" : (error instanceof Error ? error.message : String(error)).slice(0, 200) };
+    return { name, ok: false, message: error instanceof BrowserBusyError ? "Browser Run занят, повторите позже" : errMsg };
   } finally {
     await closeBrowser(env, opened);
   }

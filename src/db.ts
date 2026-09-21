@@ -152,5 +152,16 @@ export class Database {
     };
   }
 
+  async getSystemLogs(limit = 40): Promise<{ id: number; data: string; timestamp: string }[]> {
+    const res = await this.db.prepare(
+      "SELECT id, event_data as data, timestamp FROM user_events WHERE event_type='system_log' ORDER BY id DESC LIMIT ?"
+    ).bind(limit).all<{ id: number; data: string; timestamp: string }>();
+    return res.results || [];
+  }
+
+  async clearSystemLogs(): Promise<void> {
+    await this.db.prepare("DELETE FROM user_events WHERE event_type='system_log'").run();
+  }
+
   cleanup() { return this.db.batch([this.db.prepare("DELETE FROM request_log WHERE timestamp<?").bind(since(2*86_400_000)),this.db.prepare("DELETE FROM cache WHERE cached_at<?").bind(since(LIMITS.cacheMinutes*60_000)),this.db.prepare("DELETE FROM bot_state WHERE updated_at<? AND state_key IN ('waiting_support','admin_reply')").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM processed_updates WHERE status='done' AND updated_at<?").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM user_events WHERE user_id=0 AND timestamp<?").bind(since(30*86_400_000))]); }
 }

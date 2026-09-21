@@ -102,7 +102,7 @@ describe("Admin Route & Authentication", () => {
     expect(res.headers.get("Set-Cookie")).toContain("admin_session=");
   });
 
-  it("renders dashboard when authenticated", async () => {
+  it("renders dashboard when authenticated with logs and test indicators", async () => {
     const token = btoa("secret_admin_password");
     const req = new Request("https://site.com/admin", {
       headers: { cookie: `admin_session=${token}` },
@@ -112,7 +112,24 @@ describe("Admin Route & Authentication", () => {
     const html = await res.text();
     expect(html).toContain("Threads Viewer - Админ панель");
     expect(html).toContain("acc_test");
+    expect(html).toContain("test-res-acc_test");
+    expect(html).toContain("Системный журнал событий и ошибок");
     expect(html).toContain("Автообновление всех куки");
     expect(html).toContain("Добавить аккаунт Threads (JSON)");
+  });
+
+  it("verifyAdmin returns true only for authenticated admin cookies", async () => {
+    const { verifyAdmin } = await import("../src/admin");
+    const validToken = btoa("secret_admin_password");
+    const reqAuth = new Request("https://site.com/@zuck", {
+      headers: { cookie: `admin_session=${validToken}` },
+    });
+    const reqUnauth = new Request("https://site.com/@zuck");
+    const reqWrong = new Request("https://site.com/@zuck", {
+      headers: { cookie: `admin_session=invalid` },
+    });
+    expect(verifyAdmin(reqAuth, mockEnv)).toBe(true);
+    expect(verifyAdmin(reqUnauth, mockEnv)).toBe(false);
+    expect(verifyAdmin(reqWrong, mockEnv)).toBe(false);
   });
 });

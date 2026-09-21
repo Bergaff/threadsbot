@@ -1,4 +1,4 @@
-import { handleAdminRoute } from "./admin";
+import { handleAdminRoute, verifyAdmin } from "./admin";
 import { Bot } from "./bot";
 import { adminIds, type Env } from "./config";
 import { Database } from "./db";
@@ -89,7 +89,9 @@ export default {
     if (profileMatch) {
       const username = profileMatch[1].toLowerCase();
       const db = new Database(env);
-      ctx.waitUntil(db.logEvent(0, "web_view", username).catch(() => {}));
+      if (!verifyAdmin(request, env)) {
+        ctx.waitUntil(db.logEvent(0, "web_view", username).catch(() => {}));
+      }
       const cached = await db.cache<ProfileData>(username, "web_profile");
       return renderProfilePage(env, username, cached, null, lang);
     }
@@ -102,7 +104,9 @@ export default {
       }
 
       const db = new Database(env);
-      ctx.waitUntil(db.logEvent(0, "web_api", username).catch(() => {}));
+      if (!verifyAdmin(request, env)) {
+        ctx.waitUntil(db.logEvent(0, "web_api", username).catch(() => {}));
+      }
       // Сначала проверяем D1 кеш
       const cached = await db.cache<ProfileData>(username, "web_profile");
       if (cached) {
@@ -144,7 +148,9 @@ export default {
       const username = commentsMatch[1].toLowerCase();
       const postIndex = Number(commentsMatch[2]);
       const db = new Database(env);
-      ctx.waitUntil(db.logEvent(0, "web_comments", `${username}:${postIndex}`).catch(() => {}));
+      if (!verifyAdmin(request, env)) {
+        ctx.waitUntil(db.logEvent(0, "web_comments", `${username}:${postIndex}`).catch(() => {}));
+      }
       const cacheKey = `${username}_cmt_${postIndex}`;
       const cached = await db.cache<Comment[]>(cacheKey, "comments");
       if (cached) {

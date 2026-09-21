@@ -12,7 +12,7 @@ function esc(value: unknown): string {
     .replaceAll("'", "&#39;");
 }
 
-function verifyAdmin(request: Request, env: Env): boolean {
+export function verifyAdmin(request: Request, env: Env): boolean {
   const pwd = adminPassword(env);
   const cookie = request.headers.get("cookie") || "";
   const match = cookie.match(/(?:^|;\s*)admin_session=([^;]+)/);
@@ -149,6 +149,18 @@ export async function handleAdminRoute(request: Request, env: Env): Promise<Resp
         "content-disposition": `attachment; filename="${name}.json"`,
       },
     });
+  }
+
+  // Admin API Action: Get System Logs
+  if (path === "/admin/api/logs" && request.method === "GET") {
+    const logs = await db.getSystemLogs(40);
+    return Response.json({ ok: true, logs });
+  }
+
+  // Admin API Action: Clear System Logs
+  if (path === "/admin/api/logs/clear" && request.method === "POST") {
+    await db.clearSystemLogs();
+    return Response.json({ ok: true });
   }
 
   // Render Admin Dashboard HTML
@@ -356,6 +368,72 @@ const ADMIN_STYLES = `
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   }
 
+  .test-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 0;
+    min-width: 26px;
+    height: 22px;
+    box-sizing: border-box;
+    vertical-align: middle;
+  }
+  .test-indicator-ok {
+    background: #14532d;
+    color: #4ade80;
+    border: 1px solid #16a34a;
+  }
+  .test-indicator-err {
+    background: #7f1d1d;
+    color: #fca5a5;
+    border: 1px solid #dc2626;
+  }
+  .test-indicator-loading {
+    background: #1e3a5f;
+    color: #93c5fd;
+    border: 1px solid #2563eb;
+  }
+  html[data-theme="light"] .test-indicator-ok {
+    background: #dcfce7;
+    color: #15803d;
+    border-color: #86efac;
+  }
+  html[data-theme="light"] .test-indicator-err {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fca5a5;
+  }
+  html[data-theme="light"] .test-indicator-loading {
+    background: #dbeafe;
+    color: #1d4ed8;
+    border-color: #93c5fd;
+  }
+
+  .log-line {
+    padding: 3px 0;
+    border-bottom: 1px solid #1c1c1c;
+    word-break: break-word;
+  }
+  html[data-theme="light"] .log-line {
+    border-bottom-color: #d8d0c2;
+  }
+  .log-badge {
+    display: inline-block;
+    padding: 1px 5px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    margin-right: 6px;
+  }
+  .log-badge-error { background: #7f1d1d; color: #fca5a5; }
+  .log-badge-warn { background: #78350f; color: #fde68a; }
+  .log-badge-info { background: #1e3a5f; color: #93c5fd; }
+  html[data-theme="light"] .log-badge-error { background: #fee2e2; color: #b91c1c; }
+  html[data-theme="light"] .log-badge-warn { background: #fef3c7; color: #b45309; }
+  html[data-theme="light"] .log-badge-info { background: #dbeafe; color: #1d4ed8; }
+
   /* Light Theme (Warm Matte Beige) */
   html[data-theme="light"] body {
     --s: 180px;
@@ -499,9 +577,10 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         <td>${a.errors_count}${errStr}</td>
         <td>${esc(expiryStr)}${issuesStr}</td>
         <td>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
             <button class="btn-admin" onclick="refreshAccount(this, '${esc(a.name)}')">Продлить куки</button>
             <button class="btn-admin" onclick="probeAccount(this, '${esc(a.name)}')">Тест</button>
+            <span id="test-res-${esc(a.name)}" class="test-indicator" style="display:none;"></span>
             <a href="/admin/api/account/export?name=${encodeURIComponent(a.name)}" class="btn-admin">JSON</a>
             <button class="btn-admin btn-admin-danger" onclick="deleteAccount('${esc(a.name)}')">Удалить</button>
           </div>
@@ -509,6 +588,20 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
       </tr>
     `;
   }).join("");
+
+  const logs = await db.getSystemLogs(40);
+  const logsHtml = logs.length
+    ? logs.map(l => {
+        const rawData = String(l.data || (l as any).event_data || "");
+        const isErr = rawData.includes("[ERROR]");
+        const isWarn = rawData.includes("[WARN]");
+        const badgeClass = isErr ? "log-badge-error" : isWarn ? "log-badge-warn" : "log-badge-info";
+        const badgeText = isErr ? "ERR" : isWarn ? "WARN" : "INFO";
+        const cleanText = esc(rawData.replace(/^\[(ERROR|WARN|INFO)\]/, "").trim() || "Событие");
+        const dateStr = l.timestamp ? new Date(l.timestamp).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+        return `<div class="log-line"><span style="color:#777;margin-right:8px;">${dateStr}</span><span class="log-badge ${badgeClass}">${badgeText}</span>${cleanText}</div>`;
+      }).join("")
+    : `<div style="color:#777;padding:8px 0;">Логов пока нет. События скрапера и тестов будут появляться здесь.</div>`;
 
   const deadAlert = (counts.total > 0 && !counts.alive)
     ? `<div style="background:rgba(239,68,68,0.12);border:1px solid #ef4444;color:#ef4444;padding:12px 16px;margin-bottom:14px;font-size:0.88rem;">
@@ -666,6 +759,21 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         <div id="accFormMsg" style="display:none;margin-top:12px;padding:10px 14px;border:1px solid transparent;font-size:0.85rem;line-height:1.4;"></div>
       </form>
     </section>
+
+    <section class="admin-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #242424;padding-bottom:6px;">
+        <div class="admin-card-title" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">
+          Системный журнал событий и ошибок (${logs.length})
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-admin" onclick="refreshLogs(this)">Обновить логи</button>
+          <button class="btn-admin btn-admin-danger" onclick="clearLogs(this)">Очистить</button>
+        </div>
+      </div>
+      <div id="logsContainer" style="max-height:280px;overflow-y:auto;background:#0d0d0d;border:1px solid #222;padding:10px 14px;font-family:monospace;font-size:0.78rem;line-height:1.5;">
+        ${logsHtml}
+      </div>
+    </section>
   </main>
 
   <div id="toast" class="toast-box"></div>
@@ -682,6 +790,54 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
       if (duration > 0) {
         toastTimer = setTimeout(function() { t.style.display = 'none'; }, duration);
       }
+    }
+
+    function refreshLogs(btn) {
+      var orig = btn ? btn.innerText : '';
+      if (btn) { btn.disabled = true; btn.innerText = 'Загрузка...'; }
+      fetch('/admin/api/logs')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          if (data.ok && data.logs) {
+            var c = document.getElementById('logsContainer');
+            if (!c) return;
+            if (!data.logs.length) {
+              c.innerHTML = '<div style="color:#777;padding:8px 0;">Логов пока нет.</div>';
+              return;
+            }
+            c.innerHTML = data.logs.map(function(l) {
+              var isErr = l.data.indexOf('[ERROR]') !== -1;
+              var isWarn = l.data.indexOf('[WARN]') !== -1;
+              var badgeClass = isErr ? 'log-badge-error' : (isWarn ? 'log-badge-warn' : 'log-badge-info');
+              var badgeText = isErr ? 'ERR' : (isWarn ? 'WARN' : 'INFO');
+              var cleanText = l.data.replace(/^\[(ERROR|WARN|INFO)\]/, '').trim();
+              var d = l.timestamp ? new Date(l.timestamp).toLocaleTimeString() : '';
+              return '<div class="log-line"><span style="color:#777;margin-right:8px;">' + d + '</span><span class="log-badge ' + badgeClass + '">' + badgeText + '</span>' + cleanText + '</div>';
+            }).join('');
+            showToast('Логи обновлены');
+          }
+        })
+        .catch(function(e) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          showToast('Ошибка загрузки логов: ' + e);
+        });
+    }
+
+    function clearLogs(btn) {
+      if (!confirm('Очистить системные логи?')) return;
+      if (btn) { btn.disabled = true; }
+      fetch('/admin/api/logs/clear', { method: 'POST' })
+        .then(function() {
+          if (btn) { btn.disabled = false; }
+          var c = document.getElementById('logsContainer');
+          if (c) c.innerHTML = '<div style="color:#777;padding:8px 0;">Логи очищены.</div>';
+          showToast('Логи очищены');
+        })
+        .catch(function(e) {
+          if (btn) { btn.disabled = false; }
+          showToast('Ошибка очистки: ' + e);
+        });
     }
 
     function refreshAccount(btn, name) {
@@ -708,21 +864,46 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
     function probeAccount(btn, name) {
       var orig = btn ? btn.innerText : '';
       if (btn) { btn.disabled = true; btn.innerText = 'Тест...'; }
+      var ind = document.getElementById('test-res-' + name);
+      if (ind) {
+        ind.style.display = 'inline-flex';
+        ind.className = 'test-indicator test-indicator-loading';
+        ind.innerText = '...';
+        ind.title = 'Тестирование...';
+      }
       showToast('Тестируем сессию ' + name + ' (запуск браузера Threads)...', 0);
       fetch('/admin/api/account/probe?name=' + encodeURIComponent(name), { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }
           if (data.ok) {
+            if (ind) {
+              ind.style.display = 'inline-flex';
+              ind.className = 'test-indicator test-indicator-ok';
+              ind.innerText = 'OK';
+              ind.title = data.name + ': ' + (data.message || 'Сессия активна');
+            }
             showToast(data.name + ': ' + data.message, 4000);
-            setTimeout(function() { window.location.reload(); }, 1200);
+            setTimeout(function() { window.location.reload(); }, 1400);
           } else {
+            if (ind) {
+              ind.style.display = 'inline-flex';
+              ind.className = 'test-indicator test-indicator-err';
+              ind.innerText = '!';
+              ind.title = data.name + ': ' + (data.message || 'Сессия недействительна');
+            }
             showToast('Ошибка ' + data.name + ': ' + (data.message || 'Сессия недействительна'), 6000);
-            setTimeout(function() { window.location.reload(); }, 1800);
+            setTimeout(function() { window.location.reload(); }, 2000);
           }
         })
         .catch(function(err) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }
+          if (ind) {
+            ind.style.display = 'inline-flex';
+            ind.className = 'test-indicator test-indicator-err';
+            ind.innerText = '!';
+            ind.title = 'Ошибка сети: ' + err;
+          }
           showToast('Сетевая ошибка при запуске теста: ' + err, 5000);
         });
     }
