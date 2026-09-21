@@ -1584,6 +1584,9 @@ export function renderHomePage(
   <meta name="referrer" content="no-referrer">
   <title>${t.home_title}</title>
   <meta name="description" content="${t.home_desc}">
+  <meta name="yandex-verification" content="f2e3a97ba3ea12b6">
+  <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
+  <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <link rel="canonical" href="${homeCanonical}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="website">
@@ -1995,6 +1998,9 @@ export function renderProfilePage(
   <meta name="referrer" content="no-referrer">
   <title>${pageTitle}</title>
   <meta name="description" content="${ogDesc}">
+  <meta name="yandex-verification" content="f2e3a97ba3ea12b6">
+  <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
+  <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <link rel="canonical" href="${canonicalUrl}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">

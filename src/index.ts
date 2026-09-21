@@ -110,6 +110,22 @@ export default {
       return renderSitemap(url.origin, ["durov", "mosseri", "zuck", "mrbeast", "openai", "techcrunch"]);
     }
 
+    // Верификация поисковых систем (Яндекс.Вебмастер и Google Search Console)
+    const yandexMatch = url.pathname.match(/^\/yandex_([a-zA-Z0-9]+)\.html$/);
+    if (yandexMatch) {
+      return new Response(
+        `<html>\n    <head>\n        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">\n    </head>\n    <body>Verification: ${yandexMatch[1]}</body>\n</html>`,
+        { headers: { "content-type": "text/html; charset=UTF-8", "cache-control": "public, max-age=86400" } }
+      );
+    }
+
+    const googleMatch = url.pathname.match(/^\/(google([a-zA-Z0-9]+)\.html)$/);
+    if (googleMatch) {
+      return new Response(`google-site-verification: ${googleMatch[1]}`, {
+        headers: { "content-type": "text/html; charset=UTF-8", "cache-control": "public, max-age=86400" }
+      });
+    }
+
     // Прокси для изображений и видео (чтобы грузились без VPN в РФ)
     if (url.pathname === "/api/img" || url.pathname === "/api/media") {
       return handleImageProxy(request);

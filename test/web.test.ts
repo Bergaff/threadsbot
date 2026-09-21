@@ -220,6 +220,31 @@ describe("Web Viewer SSR & Routing", () => {
     expect(xml).toContain("<loc>https://mythreads.workers.dev/@zuck</loc>");
   });
 
+  it("serves Yandex and Google webmaster verification files and meta tags", async () => {
+    const worker = (await import("../src/index")).default;
+    const fakeCtx = { waitUntil: () => {}, passThroughOnException: () => {} } as any;
+
+    // Yandex verification HTML file
+    const reqYandex = new Request("https://threadsviewer.online/yandex_f2e3a97ba3ea12b6.html");
+    const resYandex = await worker.fetch(reqYandex, mockEnv, fakeCtx);
+    expect(resYandex.status).toBe(200);
+    expect(resYandex.headers.get("content-type")).toContain("text/html");
+    expect(await resYandex.text()).toContain("Verification: f2e3a97ba3ea12b6");
+
+    // Google verification HTML file
+    const reqGoogle = new Request("https://threadsviewer.online/google3ae2b24cd673c270.html");
+    const resGoogle = await worker.fetch(reqGoogle, mockEnv, fakeCtx);
+    expect(resGoogle.status).toBe(200);
+    expect(await resGoogle.text()).toContain("google-site-verification: google3ae2b24cd673c270.html");
+
+    // Verification meta tags on home page
+    const resHome = renderHomePage(mockEnv, "ru");
+    const htmlHome = await resHome.text();
+    expect(htmlHome).toContain('<meta name="yandex-verification" content="f2e3a97ba3ea12b6">');
+    expect(htmlHome).toContain('<meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">');
+    expect(htmlHome).toContain('<meta name="google-site-verification" content="google3ae2b24cd673c270">');
+  });
+
   it("renders ad-free premium state when isPremium is true", async () => {
     const resHome = renderHomePage(mockEnv, "ru", true);
     const htmlHome = await resHome.text();
