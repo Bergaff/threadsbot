@@ -69,6 +69,8 @@ describe("Web Viewer SSR & Routing", () => {
     expect(html).toContain("blue-example-link");
     expect(html).toContain("zuck</span>");
     expect(html).toContain('data-theme="light"');
+    expect(html).toContain('--c1: #d3cbbe');
+    expect(html).toContain('background: #dbd3c5');
     expect(html).toContain("themeToggleBtn");
     expect(html).toContain('content="no-referrer"');
     expect(html).toContain("https://t.me/threadsreaderbot");

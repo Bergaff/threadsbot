@@ -723,13 +723,13 @@ const COMMON_STYLES = `
   }
 
   /* ==========================================
-     LIGHT THEME (CALM & MATTE)
+     LIGHT THEME (WARM MATTE BEIGE)
      ========================================== */
   html[data-theme="light"] body {
     --s: 180px;
-    --c1: #dcdfe3;
-    --c2: #d1d5db;
-    --c3: #d7dbe0;
+    --c1: #d3cbbe;
+    --c2: #c6bdad;
+    --c3: #ccc4b5;
     background: repeating-conic-gradient(
           from 30deg,
           #0000 0 120deg,
@@ -743,23 +743,23 @@ const COMMON_STYLES = `
         var(--c3) 0 180deg
       );
     background-size: var(--s) calc(var(--s) * 0.577);
-    background-color: #dcdfe3;
-    color: #1e2022;
+    background-color: #d3cbbe;
+    color: #24201a;
   }
   html[data-theme="light"] .navbar {
-    background: #eceef1;
-    border-bottom: 1px solid #c2c5cc;
+    background: #dbd3c5;
+    border-bottom: 1px solid #b5ab99;
   }
   html[data-theme="light"] .navbar-brand {
-    color: #1a1c1e;
+    color: #201c17;
   }
   html[data-theme="light"] .navbar-search input {
-    background: #f4f5f7;
-    border: 1px solid #c2c5cc;
-    color: #1e2022;
+    background: #e6dfd2;
+    border: 1px solid #b5ab99;
+    color: #201c17;
   }
   html[data-theme="light"] .navbar-search input:focus {
-    border-color: #6b7280;
+    border-color: #635b4d;
   }
   html[data-theme="light"] .btn-nav-tg,
   html[data-theme="light"] .btn-lang-toggle,
@@ -771,209 +771,209 @@ const COMMON_STYLES = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid #b8bcc4;
-    background: #dfe2e6;
-    color: #1e2022;
+    border: 1px solid #aba08d;
+    background: #cec5b5;
+    color: #24201a;
   }
   html[data-theme="light"] .btn-nav-tg {
-    background: #1e2022;
-    border-color: #1e2022;
-    color: #ffffff;
+    background: #24201a;
+    border-color: #24201a;
+    color: #f7f4ee;
     font-weight: 700;
   }
   html[data-theme="light"] .btn-nav-tg:hover {
-    background: #33363a;
+    background: #363128;
   }
   html[data-theme="light"] .btn-lang-toggle:hover,
   html[data-theme="light"] .btn-theme-toggle:hover {
-    background: #d4d7dc;
-    border-color: #8c909a;
-    color: #111111;
+    background: #c3b9a7;
+    border-color: #8c826f;
+    color: #171410;
   }
   html[data-theme="light"] .notice-bar {
-    background: #e6e8ec;
-    border-bottom: 1px solid #c2c5cc;
-    color: #4a5058;
+    background: #d4ccbe;
+    border-bottom: 1px solid #b5ab99;
+    color: #4b453a;
   }
   html[data-theme="light"] .notice-bar a {
-    background: #d8dade;
-    border: 1px solid #b8bcc4;
-    color: #1e2022;
+    background: #c6bdad;
+    border: 1px solid #aba08d;
+    color: #201c17;
   }
   html[data-theme="light"] .hero-card,
   html[data-theme="light"] .profile-card,
   html[data-theme="light"] .post-card,
   html[data-theme="light"] .sponsor-card,
   html[data-theme="light"] .terms-card {
-    background: #eceef1;
-    border: 1px solid #c2c5cc;
-    color: #1e2022;
+    background: #dbd3c5;
+    border: 1px solid #b5ab99;
+    color: #24201a;
   }
   html[data-theme="light"] .hero-tag,
   html[data-theme="light"] .sponsor-card-top span {
-    color: #5a6069;
+    color: #5c5548;
   }
   html[data-theme="light"] .hero-title,
   html[data-theme="light"] .profile-name,
   html[data-theme="light"] .sponsor-title,
   html[data-theme="light"] .terms-card h1,
   html[data-theme="light"] .terms-card h2 {
-    color: #1a1c1e;
+    color: #201c17;
   }
   html[data-theme="light"] .hero-subtitle,
   html[data-theme="light"] .profile-handle,
   html[data-theme="light"] .sponsor-desc,
   html[data-theme="light"] .terms-card p {
-    color: #555a62;
+    color: #574f43;
   }
   html[data-theme="light"] .search-input,
   html[data-theme="light"] .hero-search-form input {
-    background: #f4f5f7;
-    border: 1px solid #c2c5cc;
-    color: #1e2022;
+    background: #e6dfd2;
+    border: 1px solid #b5ab99;
+    color: #201c17;
   }
   html[data-theme="light"] .search-input:focus,
   html[data-theme="light"] .hero-search-form input:focus {
-    border-color: #6b7280;
+    border-color: #635b4d;
   }
   html[data-theme="light"] .search-btn,
   html[data-theme="light"] .hero-search-form button {
-    background: #1e2022;
-    color: #ffffff;
+    background: #24201a;
+    color: #f7f4ee;
   }
   html[data-theme="light"] .search-btn:hover,
   html[data-theme="light"] .hero-search-form button:hover {
-    background: #33363a;
+    background: #363128;
   }
   html[data-theme="light"] .search-hint,
   html[data-theme="light"] .example-hint {
-    color: #6a6f78;
+    color: #6b6354;
   }
   html[data-theme="light"] .blue-example-link {
-    color: #0066cc;
+    color: #1a56a6;
   }
   html[data-theme="light"] .profile-avatar-box,
   html[data-theme="light"] .post-author-avatar {
-    background: #dfe2e6;
-    border: 1px solid #b8bcc4;
+    background: #cdc4b3;
+    border: 1px solid #b5ab99;
   }
   html[data-theme="light"] .profile-bio {
-    color: #2c2e31;
+    color: #2c2720;
   }
   html[data-theme="light"] .profile-stats-row {
-    color: #6a6f78;
+    color: #5c5548;
   }
   html[data-theme="light"] .btn-sharp {
-    background: #dfe2e6;
-    border: 1px solid #b8bcc4;
-    color: #1e2022;
+    background: #cec5b5;
+    border: 1px solid #aba08d;
+    color: #24201a;
   }
   html[data-theme="light"] .btn-sharp:hover {
-    background: #d4d7dc;
-    border-color: #8c909a;
+    background: #c3b9a7;
+    border-color: #8c826f;
   }
   html[data-theme="light"] .post-author-handle {
-    color: #1a1c1e;
+    color: #201c17;
   }
   html[data-theme="light"] .post-timestamp {
-    color: #6a6f78;
+    color: #665e50;
   }
   html[data-theme="light"] .post-body-text {
-    color: #26282b;
+    color: #26211a;
   }
   html[data-theme="light"] .post-mention {
-    color: #111111;
+    color: #14120e;
   }
   html[data-theme="light"] .post-link,
   html[data-theme="light"] .post-hashtag {
-    color: #0066cc;
+    color: #1a56a6;
   }
   html[data-theme="light"] .post-media-box {
-    background: #e2e4e8;
-    border: 1px solid #c2c5cc;
+    background: #d1c8b8;
+    border: 1px solid #b5ab99;
   }
   html[data-theme="light"] .video-indicator {
-    background: #dfe2e6;
-    border: 1px solid #b8bcc4;
-    color: #4a5058;
+    background: #cec5b5;
+    border: 1px solid #aba08d;
+    color: #4b453a;
   }
   html[data-theme="light"] .post-toolbar {
-    border-top: 1px solid #d2d5dc;
-    color: #555a62;
+    border-top: 1px solid #c7bead;
+    color: #574f43;
   }
   html[data-theme="light"] .post-metric {
-    color: #4a4f57;
+    color: #50483c;
   }
   html[data-theme="light"] .post-metric-val {
-    color: #1e2022;
+    color: #201c17;
   }
   html[data-theme="light"] .toolbar-btn {
-    color: #555a62;
+    color: #574f43;
   }
   html[data-theme="light"] .toolbar-btn:hover {
-    color: #1a1c1e;
+    color: #171410;
   }
   html[data-theme="light"] .comments-box {
-    border-top: 1px solid #d2d5dc;
-    background: #e4e6ea;
+    border-top: 1px solid #c7bead;
+    background: #d4ccbe;
   }
   html[data-theme="light"] .comment-row {
-    border-bottom: 1px solid #d4d7dc;
+    border-bottom: 1px solid #c7bead;
   }
   html[data-theme="light"] .comment-author-name,
   html[data-theme="light"] .comment-author-name a {
-    color: #1a1c1e;
+    color: #201c17;
   }
   html[data-theme="light"] .comment-author-avatar {
-    border-color: #b8bcc4;
-    background: #d2d5dc;
+    border-color: #aba08d;
+    background: #c6bdad;
   }
   html[data-theme="light"] .comment-content {
-    color: #2e3034;
+    color: #2e2820;
   }
   html[data-theme="light"] .comments-loading {
-    color: #6a6f78;
+    color: #665e50;
   }
   html[data-theme="light"] .status-card {
-    background: #e6e8ec;
-    border: 1px solid #c2c5cc;
+    background: #dbd3c5;
+    border: 1px solid #b5ab99;
   }
   html[data-theme="light"] .status-card-loading {
-    border-left: 4px solid #0066cc;
+    border-left: 4px solid #1a56a6;
   }
   html[data-theme="light"] .status-card-loading h3 {
-    color: #103060;
+    color: #0d3870;
   }
   html[data-theme="light"] .status-card-loading p {
-    color: #3b4555;
+    color: #354259;
   }
   html[data-theme="light"] .status-card-error {
-    background: #faeaea;
-    border-color: #f1b0b0;
-    border-left: 4px solid #dc2626;
+    background: #e6d3cf;
+    border-color: #cfa8a2;
+    border-left: 4px solid #b91c1c;
   }
   html[data-theme="light"] .status-card-error h3 {
-    color: #991b1b;
+    color: #7f1d1d;
   }
   html[data-theme="light"] .status-card-error p {
-    color: #b91c1c;
+    color: #991b1b;
   }
   html[data-theme="light"] .sponsor-btn {
-    background: #1e2022;
-    color: #ffffff;
+    background: #24201a;
+    color: #f7f4ee;
   }
   html[data-theme="light"] .sponsor-btn:hover {
-    background: #33363a;
+    background: #363128;
   }
   html[data-theme="light"] .footer-block {
-    border-top: 1px solid #c2c5cc;
-    color: #6a6f78;
+    border-top: 1px solid #b5ab99;
+    color: #6b6354;
   }
   html[data-theme="light"] .footer-links-row a {
-    color: #555a62;
+    color: #574f43;
   }
   html[data-theme="light"] .footer-links-row a:hover {
-    color: #1a1c1e;
+    color: #201c17;
   }
 
   @media (max-width: 600px) {

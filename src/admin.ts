@@ -346,12 +346,12 @@ const ADMIN_STYLES = `
     display: none;
   }
 
-  /* Light Theme (Calm & Matte) */
+  /* Light Theme (Warm Matte Beige) */
   html[data-theme="light"] body {
     --s: 180px;
-    --c1: #dcdfe3;
-    --c2: #d1d5db;
-    --c3: #d7dbe0;
+    --c1: #d3cbbe;
+    --c2: #c6bdad;
+    --c3: #ccc4b5;
     background: repeating-conic-gradient(
           from 30deg,
           #0000 0 120deg,
@@ -365,58 +365,58 @@ const ADMIN_STYLES = `
         var(--c3) 0 180deg
       );
     background-size: var(--s) calc(var(--s) * 0.577);
-    background-color: #dcdfe3;
-    color: #1e2022;
+    background-color: #d3cbbe;
+    color: #24201a;
   }
   html[data-theme="light"] .admin-header {
-    background: #eceef1;
-    border-bottom: 1px solid #c2c5cc;
+    background: #dbd3c5;
+    border-bottom: 1px solid #b5ab99;
   }
   html[data-theme="light"] .admin-header-title {
-    color: #1a1c1e;
+    color: #201c17;
   }
   html[data-theme="light"] .admin-card {
-    background: #eceef1;
-    border: 1px solid #c2c5cc;
-    color: #1e2022;
+    background: #dbd3c5;
+    border: 1px solid #b5ab99;
+    color: #24201a;
   }
   html[data-theme="light"] .admin-card-title {
-    color: #1a1c1e;
-    border-bottom: 1px solid #d2d5dc;
+    color: #201c17;
+    border-bottom: 1px solid #c7bead;
   }
   html[data-theme="light"] .stat-item {
-    background: #e2e4e8;
-    border: 1px solid #c2c5cc;
+    background: #d4ccbe;
+    border: 1px solid #b5ab99;
   }
   html[data-theme="light"] .stat-value {
-    color: #1a1c1e;
+    color: #201c17;
   }
   html[data-theme="light"] .accounts-table th {
-    background: #dfe2e6;
-    border-bottom: 1px solid #c2c5cc;
-    color: #3a3f47;
+    background: #cec5b5;
+    border-bottom: 1px solid #b5ab99;
+    color: #3d372c;
   }
   html[data-theme="light"] .accounts-table td {
-    border-bottom: 1px solid #d4d7dc;
-    color: #26282b;
+    border-bottom: 1px solid #c7bead;
+    color: #26211a;
   }
   html[data-theme="light"] .accounts-table tr:hover {
-    background: #e6e8ec;
+    background: #d4ccbe;
   }
   html[data-theme="light"] .btn-admin {
-    background: #dfe2e6;
-    border: 1px solid #b8bcc4;
-    color: #1e2022;
+    background: #cec5b5;
+    border: 1px solid #aba08d;
+    color: #24201a;
   }
   html[data-theme="light"] .btn-admin:hover {
-    background: #d4d7dc;
-    border-color: #8c909a;
+    background: #c3b9a7;
+    border-color: #8c826f;
   }
   html[data-theme="light"] .form-group input,
   html[data-theme="light"] .form-group textarea {
-    background: #f4f5f7;
-    border: 1px solid #c2c5cc;
-    color: #1e2022;
+    background: #e6dfd2;
+    border: 1px solid #b5ab99;
+    color: #24201a;
   }
 `;
 
