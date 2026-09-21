@@ -249,16 +249,21 @@ describe("Web Viewer SSR & Routing", () => {
     const worker = (await import("../src/index")).default;
     const fakeCtx = { waitUntil: () => {}, passThroughOnException: () => {} } as any;
 
-    // Favicon SVG
+    // Favicon SVG (custom user SVG)
     const favReq = new Request("https://threadsviewer.online/favicon.svg");
     const favRes = await worker.fetch(favReq, mockEnv, fakeCtx);
     expect(favRes.status).toBe(200);
     expect(favRes.headers.get("content-type")).toBe("image/svg+xml");
     const favSvg = await favRes.text();
     expect(favSvg).toContain("<svg");
-    expect(favSvg).toContain("12.186 24h-.007");
 
-    // OpenGraph banner SVG
+    // Favicon ICO (binary icon)
+    const icoReq = new Request("https://threadsviewer.online/favicon.ico");
+    const icoRes = await worker.fetch(icoReq, mockEnv, fakeCtx);
+    expect(icoRes.status).toBe(200);
+    expect(icoRes.headers.get("content-type")).toBe("image/x-icon");
+
+    // OpenGraph banner SVG with centered search button
     const ogReq = new Request("https://threadsviewer.online/og-image.svg");
     const ogRes = await worker.fetch(ogReq, mockEnv, fakeCtx);
     expect(ogRes.status).toBe(200);
@@ -266,14 +271,16 @@ describe("Web Viewer SSR & Routing", () => {
     const ogSvg = await ogRes.text();
     expect(ogSvg).toContain("Threads Viewer");
     expect(ogSvg).toContain("threadsviewer.online");
+    expect(ogSvg).toContain('text-anchor="middle"');
+    expect(ogSvg).toContain('dominant-baseline="central"');
 
     // Home page meta tags, favicon links, and JSON-LD structured data
     const homeRes = renderHomePage(mockEnv, "ru");
     const homeHtml = await homeRes.text();
-    expect(homeHtml).toContain('<link rel="icon" type="image/svg+xml" href="/favicon.svg">');
+    expect(homeHtml).toContain('<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=');
     expect(homeHtml).toContain('<meta name="keywords"');
     expect(homeHtml).toContain("threads без впн");
-    expect(homeHtml).toContain('<meta property="og:image" content="https://threadsviewer.online/og-image.svg">');
+    expect(homeHtml).toContain('<meta property="og:image" content="https://threadsviewer.online/og-image.svg?v=');
     expect(homeHtml).toContain('"@type": "WebSite"');
     expect(homeHtml).toContain('"@type": "SearchAction"');
   });

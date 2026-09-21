@@ -1578,6 +1578,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
+  const ver = env.VERSION || "pr20";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1592,21 +1593,21 @@ export function renderHomePage(
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <link rel="canonical" href="${homeCanonical}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="alternate icon" href="/favicon.ico">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(ver)}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(ver)}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(ver)}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="website">
   <meta property="og:title" content="${esc(t.home_title)}">
   <meta property="og:description" content="${esc(t.home_desc)}">
   <meta property="og:url" content="${homeCanonical}">
-  <meta property="og:image" content="${origin}/og-image.svg">
+  <meta property="og:image" content="${origin}/og-image.svg?v=${esc(ver)}">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${esc(t.home_title)}">
   <meta name="twitter:description" content="${esc(t.home_desc)}">
-  <meta name="twitter:image" content="${origin}/og-image.svg">
+  <meta name="twitter:image" content="${origin}/og-image.svg?v=${esc(ver)}">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -2028,9 +2029,9 @@ export function renderProfilePage(
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <link rel="canonical" href="${canonicalUrl}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="alternate icon" href="/favicon.ico">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr20')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr20')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr20')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
