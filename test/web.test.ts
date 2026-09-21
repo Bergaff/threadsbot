@@ -218,6 +218,20 @@ describe("Web Viewer SSR & Routing", () => {
     expect(htmlProfile).toContain("Премиум активен");
   });
 
+  it("renders geo-targeted sponsor ads for RU vs Global visitors", async () => {
+    const resRu = renderHomePage(mockEnv, "ru", false, "RU");
+    const htmlRu = await resRu.text();
+    expect(htmlRu).toContain('<div class="sponsor-card">');
+    expect(htmlRu).toContain("Партнерский блок");
+    expect(htmlRu).toContain("Быстрый VPN и приватный доступ");
+
+    const resUs = renderHomePage(mockEnv, "en", false, "US");
+    const htmlUs = await resUs.text();
+    expect(htmlUs).toContain('<div class="sponsor-card">');
+    expect(htmlUs).toContain("Sponsored");
+    expect(htmlUs).toContain("Anonymous Social Feed Proxy");
+  });
+
   it("creates and verifies web auth tokens", async () => {
     const { createAuthToken, verifyAuthToken } = await import("../src/auth");
     const token = await createAuthToken(777, "secret_key_123");

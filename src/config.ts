@@ -11,14 +11,20 @@ export interface Env {
   VERSION?: string;
   ADMIN_PASSWORD?: string;
   BOT_USERNAME?: string;
+  SPONSOR_RU_URL?: string;
+  SPONSOR_RU_TITLE?: string;
+  SPONSOR_RU_DESC?: string;
+  SPONSOR_EN_URL?: string;
+  SPONSOR_EN_TITLE?: string;
+  SPONSOR_EN_DESC?: string;
 }
 
 export const LIMITS = {
   priceStars: 150,
   priceCryptoUsd: 2.5,
   subscriptionDays: 30,
-  freeMonthly: 10,
-  freeDaily: 3,
+  freeMonthly: 60,
+  freeDaily: 5,
   perMinute: 3,
   perHour: 15,
   perDay: 50,

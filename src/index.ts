@@ -66,6 +66,7 @@ export default {
     // ==========================================
 
     const lang = detectLanguage(request);
+    const country = (request.headers.get("cf-ipcountry") || (request as any).cf?.country || "").toUpperCase();
 
     async function checkPremiumUser(req: Request, e: Env): Promise<{ isPremium: boolean; newAuthCookie?: string }> {
       const u = new URL(req.url);
@@ -92,7 +93,7 @@ export default {
     // Главная страница
     if (url.pathname === "/" || url.pathname === "/index.html") {
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
-      let res = renderHomePage(env, lang, isPremium);
+      let res = renderHomePage(env, lang, isPremium, country);
       if (newAuthCookie) {
         res = new Response(res.body, res);
         res.headers.append("Set-Cookie", newAuthCookie);
@@ -125,7 +126,7 @@ export default {
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
       ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
       const cached = await db.cache<ProfileData>(username, "web_profile");
-      let res = renderProfilePage(env, username, cached, null, lang, isPremium);
+      let res = renderProfilePage(env, username, cached, null, lang, isPremium, country);
       if (newAuthCookie) {
         res = new Response(res.body, res);
         res.headers.append("Set-Cookie", newAuthCookie);

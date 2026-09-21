@@ -1232,30 +1232,55 @@ function renderNoticeBar(env: Env, lang: Lang, username?: string, isPremium = fa
   `;
 }
 
-function renderSponsorSlot(env: Env, lang: Lang, isPremium = false): string {
+function renderSponsorSlot(env: Env, lang: Lang, isPremium = false, country = ""): string {
   if (isPremium) return "";
-  const t = I18N[lang];
+  const cisCountries = ["RU", "BY", "KZ", "UA", "KG", "UZ", "TJ", "AM", "AZ", "MD"];
+  const isCis = cisCountries.includes(country.toUpperCase()) || (!country && lang === "ru");
   const tgUser = getBotUsername(env);
+
+  let sponsorUrl = "";
+  let sponsorTag = "";
+  let sponsorAdLabel = "";
+  let sponsorTitle = "";
+  let sponsorDesc = "";
+  let sponsorBtn = "";
+
+  if (isCis) {
+    sponsorUrl = env.SPONSOR_RU_URL || `https://t.me/${esc(tgUser)}`;
+    sponsorTag = "Партнерский блок";
+    sponsorAdLabel = "Реклама";
+    sponsorTitle = env.SPONSOR_RU_TITLE || "Быстрый VPN и приватный доступ без ограничений";
+    sponsorDesc = env.SPONSOR_RU_DESC || "Выделенные серверы для РФ и Беларуси. Мгновенная работа Threads, Reels и Twitter без лагов.";
+    sponsorBtn = "Подключить";
+  } else {
+    sponsorUrl = env.SPONSOR_EN_URL || `https://t.me/${esc(tgUser)}`;
+    sponsorTag = "Sponsored";
+    sponsorAdLabel = "Ad";
+    sponsorTitle = env.SPONSOR_EN_TITLE || "Anonymous Social Feed Proxy and Fast VPN";
+    sponsorDesc = env.SPONSOR_EN_DESC || "High-speed encrypted connection. Browse Threads and social platforms without tracking.";
+    sponsorBtn = "Learn more";
+  }
+
   return `
     <div class="sponsor-card">
       <div class="sponsor-card-top">
-        <span>${t.sponsor_tag}</span>
-        <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener" style="color: #777; text-decoration: underline;">${t.sponsor_ad_label}</a>
+        <span>${sponsorTag}</span>
+        <a href="${esc(sponsorUrl)}" target="_blank" rel="noopener" style="color: #777; text-decoration: underline;">${sponsorAdLabel}</a>
       </div>
       <div class="sponsor-card-inner">
         <div class="sponsor-text">
-          <h4>${t.sponsor_title}</h4>
-          <p>${t.sponsor_desc}</p>
+          <h4>${esc(sponsorTitle)}</h4>
+          <p>${esc(sponsorDesc)}</p>
         </div>
-        <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener" class="sponsor-btn">
-          ${t.sponsor_btn}
+        <a href="${esc(sponsorUrl)}" target="_blank" rel="noopener" class="sponsor-btn">
+          ${esc(sponsorBtn)}
         </a>
       </div>
     </div>
   `;
 }
 
-export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false): Response {
+export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false, country = ""): Response {
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
 
@@ -1305,7 +1330,7 @@ export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false): 
       </div>
     </div>
 
-    ${renderSponsorSlot(env, lang, isPremium)}
+    ${renderSponsorSlot(env, lang, isPremium, country)}
   </main>
 
   <footer class="footer-block">
@@ -1436,7 +1461,8 @@ export function renderProfilePage(
   initialData?: ProfileData | null,
   errorMessage?: string | null,
   lang: Lang = "ru",
-  isPremium = false
+  isPremium = false,
+  country = ""
 ): Response {
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
@@ -1589,7 +1615,7 @@ export function renderProfilePage(
       </div>
     </div>
 
-    ${renderSponsorSlot(env, lang, isPremium)}
+    ${renderSponsorSlot(env, lang, isPremium, country)}
 
     <section class="feed" id="postsFeed">
       ${postsHtml}
