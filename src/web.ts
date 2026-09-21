@@ -424,6 +424,13 @@ const COMMON_STYLES = `
     display: block;
     cursor: pointer;
   }
+  .post-media-box video {
+    width: 100%;
+    max-height: 480px;
+    object-fit: contain;
+    display: block;
+    background: #000;
+  }
   .video-indicator {
     display: inline-block;
     border: 1px solid #333333;
@@ -1300,13 +1307,21 @@ export function renderProfilePage(
     const authorName = post.author || profile.displayName || cleanUser;
     const authorAvatar = post.authorAvatar || profile.avatar || "";
 
-    const mediaHtml = post.imageUrl
+    const videoHtml = post.videoUrl
       ? `<div class="post-media-box">
-          <img src="${esc(safeMediaUrl(post.imageUrl))}" data-orig="${esc(safeMediaUrl(post.imageUrl))}" alt="Post image" referrerpolicy="no-referrer" onclick="openLightbox(this.src)" onerror="handleImgError(this)" />
+          <video src="/api/media?url=${encodeURIComponent(post.videoUrl)}" data-orig="${esc(safeMediaUrl(post.videoUrl))}" controls playsinline preload="metadata" poster="${esc(safeMediaUrl(post.imageUrl || ''))}" onerror="handleVideoError(this)">
+            Ваш браузер не поддерживает видео.
+          </video>
         </div>`
       : "";
 
-    const videoMarker = post.has_video
+    const mediaHtml = videoHtml || (post.imageUrl
+      ? `<div class="post-media-box">
+          <img src="${esc(safeMediaUrl(post.imageUrl))}" data-orig="${esc(safeMediaUrl(post.imageUrl))}" alt="Post image" referrerpolicy="no-referrer" onclick="openLightbox(this.src)" onerror="handleImgError(this)" />
+        </div>`
+      : "");
+
+    const videoMarker = (post.has_video && !post.videoUrl)
       ? `<span class="video-indicator">${t.video}</span>`
       : "";
 
@@ -1376,6 +1391,12 @@ export function renderProfilePage(
         el.src = '/api/img?url=' + encodeURIComponent(el.dataset.orig || el.src);
       } else {
         el.style.display = 'none';
+      }
+    }
+    function handleVideoError(el) {
+      if (!el.dataset.failed && el.dataset.orig) {
+        el.dataset.failed = '1';
+        el.src = el.dataset.orig;
       }
     }
   </script>
@@ -1533,9 +1554,15 @@ export function renderProfilePage(
 
       if (box.dataset.loaded) return;
 
+      loadCommentsForPost(username, idx, false);
+    }
+
+    function loadCommentsForPost(username, idx, refresh) {
+      var box = document.getElementById('comments-' + idx);
+      if (!box) return;
       box.innerHTML = '<div class="comments-loading"><span class="loading-bar"></span> ${t.loading_comments}</div>';
 
-      fetch('/api/comments/' + encodeURIComponent(username) + '/' + idx)
+      fetch('/api/comments/' + encodeURIComponent(username) + '/' + idx + (refresh ? '?refresh=1' : ''))
         .then(function(res) { return res.json(); })
         .then(function(data) {
           box.dataset.loaded = 'true';
@@ -1543,28 +1570,54 @@ export function renderProfilePage(
             box.innerHTML = '<div class="comments-empty">${t.no_comments}</div>';
             return;
           }
-          var html = '<div class="comments-list">';
-          data.comments.forEach(function(c) {
-            var a = (c.author || '@anonymous').trim();
-            var handle = a.replace(/^@/, '');
-            var avatarHtml = c.avatar
-              ? '<img src="' + escHtml(c.avatar) + '" data-orig="' + escHtml(c.avatar) + '" class="comment-author-avatar" alt="' + escHtml(handle) + '" referrerpolicy="no-referrer" onerror="handleImgError(this)" />'
-              : '<div class="comment-author-avatar" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#777;">@</div>';
-
-            html += '<div class="comment-row">' +
-              '<div class="comment-author-block">' +
-                avatarHtml +
-                '<a href="/@' + encodeURIComponent(handle) + (currentLang === 'en' ? '?lang=en' : '') + '" class="comment-author-name">' + escHtml(a) + '</a>' +
-              '</div>' +
-              '<div class="comment-content">' + formatPostTextClient(c.text || '') + '</div>' +
-            '</div>';
-          });
-          html += '</div>';
-          box.innerHTML = html;
+          box._allComments = data.comments;
+          box._shownCount = 10;
+          renderCommentsList(box, idx, username);
         })
         .catch(function() {
           box.innerHTML = '<div class="comments-error">${t.toast_error}</div>';
         });
+    }
+
+    function renderCommentsList(box, idx, username) {
+      var comments = box._allComments || [];
+      var shown = Math.min(box._shownCount || 10, comments.length);
+      var html = '<div class="comments-list">';
+      for (var i = 0; i < shown; i++) {
+        var c = comments[i];
+        var a = (c.author || '@anonymous').trim();
+        var handle = a.replace(/^@/, '');
+        var avatarHtml = c.avatar
+          ? '<img src="' + escHtml(c.avatar) + '" data-orig="' + escHtml(c.avatar) + '" class="comment-author-avatar" alt="' + escHtml(handle) + '" referrerpolicy="no-referrer" onerror="handleImgError(this)" />'
+          : '<div class="comment-author-avatar" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#777;">@</div>';
+
+        html += '<div class="comment-row">' +
+          '<div class="comment-author-block">' +
+            avatarHtml +
+            '<a href="/@' + encodeURIComponent(handle) + (currentLang === 'en' ? '?lang=en' : '') + '" class="comment-author-name">' + escHtml(a) + '</a>' +
+          '</div>' +
+          '<div class="comment-content">' + formatPostTextClient(c.text || '') + '</div>' +
+        '</div>';
+      }
+      html += '</div>';
+
+      var moreBtns = '<div style="display:flex;gap:8px;justify-content:center;margin-top:10px;">';
+      if (shown < comments.length) {
+        var remaining = comments.length - shown;
+        moreBtns += '<button class="btn-sharp" style="font-size:0.8rem;padding:4px 12px;" onclick="showMoreLocalComments(' + idx + ')">' + (currentLang === 'en' ? 'Show more (' + remaining + ')' : 'Показать ещё (' + remaining + ')') + '</button>';
+      }
+      moreBtns += '<button class="btn-sharp" style="font-size:0.8rem;padding:4px 12px;opacity:0.85;" onclick="loadCommentsForPost(currentUsername, ' + idx + ', true)">' + (currentLang === 'en' ? 'Refresh comments' : 'Обновить комментарии') + '</button>';
+      moreBtns += '</div>';
+
+      html += moreBtns;
+      box.innerHTML = html;
+    }
+
+    function showMoreLocalComments(idx) {
+      var box = document.getElementById('comments-' + idx);
+      if (!box || !box._allComments) return;
+      box._shownCount = (box._shownCount || 10) + 15;
+      renderCommentsList(box, idx, currentUsername);
     }
 
     function toggleTheme() {
@@ -1613,11 +1666,15 @@ export function renderProfilePage(
         var authorName = post.author || (profile ? profile.displayName : '') || currentUsername;
         var authorAvatar = post.authorAvatar || (profile ? profile.avatar : '') || '';
 
-        var mediaHtml = post.imageUrl
-          ? '<div class="post-media-box"><img src="' + escHtml(post.imageUrl) + '" data-orig="' + escHtml(post.imageUrl) + '" alt="Post image" referrerpolicy="no-referrer" onclick="openLightbox(this.src)" onerror="handleImgError(this)" /></div>'
+        var videoHtml = post.videoUrl
+          ? '<div class="post-media-box"><video src="/api/media?url=' + encodeURIComponent(post.videoUrl) + '" data-orig="' + escHtml(post.videoUrl) + '" controls playsinline preload="metadata" poster="' + escHtml(post.imageUrl || '') + '" onerror="handleVideoError(this)"></video></div>'
           : '';
 
-        var videoMarker = post.has_video
+        var mediaHtml = videoHtml || (post.imageUrl
+          ? '<div class="post-media-box"><img src="' + escHtml(post.imageUrl) + '" data-orig="' + escHtml(post.imageUrl) + '" alt="Post image" referrerpolicy="no-referrer" onclick="openLightbox(this.src)" onerror="handleImgError(this)" /></div>'
+          : '');
+
+        var videoMarker = (post.has_video && !post.videoUrl)
           ? '<span class="video-indicator">${t.video}</span>'
           : '';
 
@@ -1946,7 +2003,7 @@ ${urls.map(u => `  <url>
   return new Response(xml, { headers: { "content-type": "application/xml; charset=UTF-8" } });
 }
 
-export async function handleImageProxy(request: Request): Promise<Response> {
+export async function handleMediaProxy(request: Request): Promise<Response> {
   const urlParam = new URL(request.url).searchParams.get("url");
   if (!urlParam) {
     return new Response("Missing url param", { status: 400 });
@@ -1966,27 +2023,45 @@ export async function handleImageProxy(request: Request): Promise<Response> {
   }
 
   try {
-    const upstream = await fetch(urlParam, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://www.threads.com/",
-        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-      },
-    });
-
-    if (!upstream.ok) {
-      return new Response("Upstream image error", { status: upstream.status });
+    const upstreamHeaders: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Referer": "https://www.threads.com/",
+      "Accept": "*/*",
+    };
+    const range = request.headers.get("range");
+    if (range) {
+      upstreamHeaders["Range"] = range;
     }
 
-    const contentType = upstream.headers.get("content-type") || "image/jpeg";
+    const upstream = await fetch(urlParam, {
+      headers: upstreamHeaders,
+    });
+
+    if (!upstream.ok && upstream.status !== 206) {
+      return new Response("Upstream media error", { status: upstream.status });
+    }
+
+    const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+    const resHeaders = new Headers();
+    resHeaders.set("content-type", contentType);
+    resHeaders.set("cache-control", "public, max-age=604800, stale-while-revalidate=2592000");
+    if (upstream.headers.has("content-range")) {
+      resHeaders.set("content-range", upstream.headers.get("content-range")!);
+    }
+    if (upstream.headers.has("accept-ranges")) {
+      resHeaders.set("accept-ranges", upstream.headers.get("accept-ranges")!);
+    }
+    if (upstream.headers.has("content-length")) {
+      resHeaders.set("content-length", upstream.headers.get("content-length")!);
+    }
+
     return new Response(upstream.body, {
-      status: 200,
-      headers: {
-        "content-type": contentType,
-        "cache-control": "public, max-age=604800, stale-while-revalidate=2592000",
-      },
+      status: upstream.status,
+      headers: resHeaders,
     });
   } catch {
-    return new Response("Failed to fetch image", { status: 502 });
+    return new Response("Failed to fetch media", { status: 502 });
   }
 }
+
+export const handleImageProxy = handleMediaProxy;

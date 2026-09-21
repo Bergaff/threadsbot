@@ -18,6 +18,7 @@ export interface Post {
   text: string;
   has_image: boolean;
   has_video: boolean;
+  videoUrl?: string;
   image?: Uint8Array;
   imageUrl?: string;
   images?: string[];
@@ -159,6 +160,7 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
         text: string;
         has_image: boolean;
         has_video: boolean;
+        videoUrl?: string;
         imageUrl?: string;
         images?: string[];
         postUrl?: string;
@@ -169,16 +171,67 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
         authorAvatar?: string;
       }[] = [];
       const seen = new Set<string>();
+
+      // Поиск предзагруженного Relay JSON в тегах script для точных метрик и видео
+      const relayMap = new Map<string, { likes?: string; replies?: string; videoUrl?: string; imageUrl?: string }>();
+      try {
+        const jsonScripts = document.querySelectorAll('script[type="application/json"]');
+        jsonScripts.forEach(script => {
+          const raw = script.textContent || "";
+          if (raw.includes("like_count") || raw.includes("video_versions") || raw.includes("direct_reply_count") || raw.includes("text_post_app_info")) {
+            try {
+              const parsed = JSON.parse(raw);
+              function traverse(node: any) {
+                if (!node || typeof node !== "object") return;
+                if (node.caption && typeof node.caption.text === "string") {
+                  const key = node.caption.text.trim().substring(0, 60);
+                  const l = node.like_count !== undefined ? String(node.like_count) : "";
+                  const r = (node.text_post_app_info && node.text_post_app_info.direct_reply_count !== undefined)
+                    ? String(node.text_post_app_info.direct_reply_count)
+                    : (node.comment_count !== undefined ? String(node.comment_count) : "");
+                  const v = (node.video_versions && node.video_versions.length > 0) ? node.video_versions[0].url : "";
+                  const img = node.image_versions2?.candidates?.[0]?.url || "";
+                  if (key && !relayMap.has(key)) {
+                    relayMap.set(key, { likes: l, replies: r, videoUrl: v, imageUrl: img });
+                  }
+                }
+                if (Array.isArray(node)) {
+                  for (let idx = 0; idx < node.length; idx++) traverse(node[idx]);
+                } else {
+                  for (const k of Object.keys(node)) {
+                    if (typeof node[k] === "object") traverse(node[k]);
+                  }
+                }
+              }
+              traverse(parsed);
+            } catch (e) {}
+          }
+        });
+      } catch (e) {}
+
       const containers = document.querySelectorAll('div[data-pressable-container="true"],article,div[role="article"]');
       for (let cIdx = 0; cIdx < containers.length; cIdx++) {
         const container = containers[cIdx];
+
+        // Находим родительскую карточку поста, чтобы захватить кнопки действий (лайки, ответы)
+        let root: HTMLElement = container as HTMLElement;
+        let parent = container.parentElement;
+        for (let d = 0; d < 3 && parent; d++) {
+          if (parent.querySelector('svg[aria-label*="Like" i], svg[aria-label*="Нравится" i], svg[aria-label*="Reply" i], svg[aria-label*="Ответить" i], svg[aria-label*="Repost" i]')) {
+            root = parent;
+            break;
+          }
+          parent = parent.parentElement;
+        }
+
         let bestText = "";
         let has_image = false;
         let has_video = false;
+        let videoUrl = "";
         const imgList: string[] = [];
 
         try {
-          const imgs = container.querySelectorAll('img[src*="cdninstagram.com"],img[src*="fbcdn.net"]');
+          const imgs = root.querySelectorAll('img[src*="cdninstagram.com"],img[src*="fbcdn.net"]');
           for (let imgIdx = 0; imgIdx < imgs.length; imgIdx++) {
             const node = imgs[imgIdx] as HTMLImageElement;
             const src = node.currentSrc || node.src;
@@ -190,18 +243,28 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
         } catch (e) {}
 
         try {
-          has_video = container.querySelectorAll('video,div[role="button"] svg[aria-label*="video"],div[role="button"] svg[aria-label="Play"]').length > 0;
+          const vid = (root.querySelector("video") || container.querySelector("video")) as HTMLVideoElement | null;
+          if (vid) {
+            has_video = true;
+            const vSrc = vid.currentSrc || vid.src || vid.querySelector("source")?.src || vid.getAttribute("data-src") || "";
+            if (vSrc && !vSrc.startsWith("blob:")) {
+              videoUrl = vSrc;
+            }
+          }
+          if (!has_video) {
+            has_video = root.querySelectorAll('video,div[role="button"] svg[aria-label*="video" i],div[role="button"] svg[aria-label="Play" i],svg[aria-label*="видео" i]').length > 0;
+          }
         } catch (e) {}
 
         let postUrl = "";
         try {
-          const pLink = container.querySelector('a[href*="/post/"]') as HTMLAnchorElement | null;
+          const pLink = (root.querySelector('a[href*="/post/"]') || container.querySelector('a[href*="/post/"]')) as HTMLAnchorElement | null;
           if (pLink) postUrl = pLink.getAttribute("href") || "";
         } catch (e) {}
 
         let author = "";
         try {
-          const authorLink = container.querySelector('a[href^="/@"][role="link"], a[href^="/@"]');
+          const authorLink = root.querySelector('a[href^="/@"][role="link"], a[href^="/@"]');
           if (authorLink) {
             const m = (authorLink.getAttribute("href") || "").match(/\/@([A-Za-z0-9._]+)/);
             if (m) author = m[1];
@@ -210,7 +273,7 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
 
         let authorAvatar = "";
         try {
-          const imgs = container.querySelectorAll("img");
+          const imgs = root.querySelectorAll("img");
           for (let aIdx = 0; aIdx < imgs.length; aIdx++) {
             const alt = (imgs[aIdx].getAttribute("alt") || "").toLowerCase();
             const src = imgs[aIdx].currentSrc || imgs[aIdx].src || "";
@@ -223,7 +286,7 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
 
         let date = "";
         try {
-          const timeEl = container.querySelector("time");
+          const timeEl = root.querySelector("time");
           if (timeEl) {
             date = (timeEl.getAttribute("datetime") || timeEl.innerText || "").trim();
           }
@@ -231,38 +294,74 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
 
         let likes = "";
         let replies = "";
-        const cText = (container as HTMLElement).innerText || container.textContent || "";
+        const rootText = ((root as HTMLElement).innerText || root.textContent || "").replace(/\u00a0/g, " ");
 
-        // 1. Text pattern match in container
-        const rMatch = cText.match(/(\d[\d.,KMkмk\s]*)\s*(?:replies|reply|ответов|ответа|ответ\b)/i);
+        // 1. Text pattern match in card
+        const rMatch = rootText.match(/(\d[\d.,KMkмk\s]*)\s*(?:replies|reply|ответов|ответа|ответ\b)/i);
         if (rMatch) replies = rMatch[1].trim();
 
-        const lMatch = cText.match(/(\d[\d.,KMkмk\s]*)\s*(?:likes|like|отметок|отметки|отметка|нравится)\b/i);
+        const lMatch = rootText.match(/(\d[\d.,KMkмk\s]*)\s*(?:likes|like|отметок|отметки|отметка|нравится)\b/i);
         if (lMatch) likes = lMatch[1].trim();
 
         // 2. Safe SVG / button scan for likes
         if (!likes) {
           try {
-            const svgs = container.querySelectorAll("svg");
+            const svgs = root.querySelectorAll("svg");
             for (let s = 0; s < svgs.length; s++) {
               const svg = svgs[s];
               const label = (svg.getAttribute("aria-label") || "").toLowerCase();
               if (label.includes("like") || label.includes("нравится") || label.includes("отмет")) {
                 const m = label.match(/(\d[\d.,kmkмk\s]*)/);
-                if (m && m[1].trim()) { likes = m[1].trim(); break; }
+                if (m && m[1].trim() && !/^[0-9]$/.test(m[1].trim())) { likes = m[1].trim(); break; }
                 const btn = svg.closest('div[role="button"], button') || svg.parentElement;
-                const countEl = btn ? (btn.querySelector("span") || btn.nextElementSibling) : null;
-                const txt = countEl ? (countEl.textContent || "").trim() : "";
-                if (/^\d[\d.,kmkмk\s]*$/i.test(txt)) { likes = txt; break; }
+                if (btn) {
+                  const spans = btn.querySelectorAll("span");
+                  for (let sp = 0; sp < spans.length; sp++) {
+                    const txt = (spans[sp].textContent || "").trim();
+                    if (/^[\d.,kmkмk]+$/i.test(txt)) { likes = txt; break; }
+                  }
+                  if (likes) break;
+                  const next = btn.nextElementSibling;
+                  if (next) {
+                    const nextTxt = (next.textContent || "").trim();
+                    if (/^[\d.,kmkмk]+$/i.test(nextTxt)) { likes = nextTxt; break; }
+                  }
+                }
               }
             }
           } catch (e) {}
         }
 
-        // 3. Post link replies
+        // 3. Post link replies & reply buttons
         if (!replies) {
           try {
-            const links = container.querySelectorAll('a[href*="/post/"]');
+            const rSvgs = root.querySelectorAll('svg[aria-label*="Reply" i], svg[aria-label*="Ответить" i], svg[aria-label*="коммент" i]');
+            for (let s = 0; s < rSvgs.length; s++) {
+              const svg = rSvgs[s];
+              const label = (svg.getAttribute("aria-label") || "").toLowerCase();
+              const m = label.match(/(\d[\d.,kmkмk\s]*)/);
+              if (m && m[1].trim() && !/^[0-9]$/.test(m[1].trim())) { replies = m[1].trim(); break; }
+              const btn = svg.closest('div[role="button"], button') || svg.parentElement;
+              if (btn) {
+                const spans = btn.querySelectorAll("span");
+                for (let sp = 0; sp < spans.length; sp++) {
+                  const txt = (spans[sp].textContent || "").trim();
+                  if (/^[\d.,kmkмk]+$/i.test(txt)) { replies = txt; break; }
+                }
+                if (replies) break;
+                const next = btn.nextElementSibling;
+                if (next) {
+                  const nextTxt = (next.textContent || "").trim();
+                  if (/^[\d.,kmkмk]+$/i.test(nextTxt)) { replies = nextTxt; break; }
+                }
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (!replies) {
+          try {
+            const links = root.querySelectorAll('a[href*="/post/"]');
             for (let l = 0; l < links.length; l++) {
               const txt = (links[l].textContent || "").trim();
               const m = txt.match(/(\d[\d.,kmkмk\s]*)\s*(?:replies|reply|ответов|ответа)/i);
@@ -282,6 +381,17 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
           }
         } catch (e) {}
 
+        // Сопоставление с данными Relay
+        if (bestText) {
+          const rData = relayMap.get(bestText.substring(0, 60));
+          if (rData) {
+            if (!likes && rData.likes) likes = rData.likes;
+            if (!replies && rData.replies) replies = rData.replies;
+            if (!videoUrl && rData.videoUrl) { videoUrl = rData.videoUrl; has_video = true; }
+            if (!imgList.length && rData.imageUrl) { imgList.push(rData.imageUrl); has_image = true; }
+          }
+        }
+
         if (bestText.length > 3 || has_image || has_video) {
           const key = bestText.substring(0, 100) + (has_image ? "_img" : "") + (has_video ? "_vid" : "");
           if (!seen.has(key)) {
@@ -290,6 +400,7 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
               text: bestText,
               has_image,
               has_video,
+              videoUrl: videoUrl || undefined,
               imageUrl: imgList[0],
               images: imgList,
               postUrl,
@@ -489,6 +600,18 @@ export async function fetchProfileWithPosts(
     try {
       await logSystem(env, "info", "scraper", `Запуск сбора @${username} через аккаунт [${account.name}]`);
       opened = await openBrowser(env, account);
+
+      const capturedVideos: string[] = [];
+      opened.page.on("response", (resp) => {
+        try {
+          const u = resp.url();
+          const ct = resp.headers()["content-type"] || "";
+          if ((ct.startsWith("video/") || u.includes(".mp4")) && (u.includes("cdninstagram.com") || u.includes("fbcdn.net"))) {
+            if (!capturedVideos.includes(u)) capturedVideos.push(u);
+          }
+        } catch {}
+      });
+
       const invalid = await checkProfile(opened.page, env, username);
       if (invalid === "session_expired") {
         await logSystem(env, "warn", "scraper", `Сессия истекла у аккаунта [${account.name}] при запросе @${username}`);
@@ -501,6 +624,12 @@ export async function fetchProfileWithPosts(
       }
       const profile = await collectProfileHeader(opened.page, username);
       const posts = await collectPosts(opened.page, amount);
+      let vIdx = 0;
+      for (const p of posts) {
+        if (p.has_video && !p.videoUrl && vIdx < capturedVideos.length) {
+          p.videoUrl = capturedVideos[vIdx++];
+        }
+      }
       const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
       await markSuccess(env, account.name, posts.length, updated || undefined);
       await logSystem(env, "info", "scraper", `Успешно загружен профиль @${username}: ${posts.length} постов через [${account.name}]`);

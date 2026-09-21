@@ -133,6 +133,40 @@ describe("Web Viewer SSR & Routing", () => {
     expect(html).toContain('max-height: 32px');
   });
 
+  it("renders video element when post has videoUrl", async () => {
+    const dataWithVideo = {
+      profile: {
+        username: "testuser",
+        displayName: "Test",
+        bio: "Bio",
+        avatar: "",
+        followers: "100",
+        verified: false,
+      },
+      posts: [
+        {
+          text: "Post with video",
+          has_image: true,
+          has_video: true,
+          videoUrl: "https://scontent.cdninstagram.com/v/video.mp4",
+          imageUrl: "https://scontent.cdninstagram.com/v/poster.jpg",
+          date: "1h",
+          author: "testuser",
+          likes: "142",
+          replies: "35",
+        },
+      ],
+    };
+
+    const res = renderProfilePage(mockEnv, "testuser", dataWithVideo, null, "ru");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("<video");
+    expect(html).toContain("/api/media?url=");
+    expect(html).toContain("142");
+    expect(html).toContain("(35)");
+  });
+
   it("renders prominent error status card when profile is not found or error occurred", async () => {
     const res = renderProfilePage(mockEnv, "nonexistent_user", null, "Профиль не найден в Threads", "ru");
     expect(res.status).toBe(200);

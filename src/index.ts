@@ -79,8 +79,8 @@ export default {
       return renderSitemap(url.origin, ["durov", "mosseri", "zuck", "mrbeast", "openai", "techcrunch"]);
     }
 
-    // Прокси для изображений (чтобы грузились без VPN в РФ)
-    if (url.pathname === "/api/img") {
+    // Прокси для изображений и видео (чтобы грузились без VPN в РФ)
+    if (url.pathname === "/api/img" || url.pathname === "/api/media") {
       return handleImageProxy(request);
     }
 
@@ -158,14 +158,17 @@ export default {
     if (commentsMatch) {
       const username = commentsMatch[1].toLowerCase();
       const postIndex = Number(commentsMatch[2]);
+      const refresh = url.searchParams.get("refresh") === "1";
       const db = new Database(env);
       if (!verifyAdmin(request, env)) {
         ctx.waitUntil(db.logEvent(0, "web_comments", `${username}:${postIndex}`).catch(() => {}));
       }
       const cacheKey = `${username}_cmt_${postIndex}`;
-      const cached = await db.cache<Comment[]>(cacheKey, "comments");
-      if (cached) {
-        return Response.json({ ok: true, cached: true, comments: cached });
+      if (!refresh) {
+        const cached = await db.cache<Comment[]>(cacheKey, "comments");
+        if (cached) {
+          return Response.json({ ok: true, cached: true, comments: cached });
+        }
       }
 
       if (!env.BROWSER) {
@@ -173,7 +176,7 @@ export default {
       }
 
       try {
-        const fetched = await fetchComments(env, username, postIndex, 15);
+        const fetched = await fetchComments(env, username, postIndex, 30);
         if (fetched.status === "ok" && fetched.data) {
           await db.setCache(cacheKey, "comments", fetched.data);
           return Response.json({ ok: true, cached: false, comments: fetched.data });
