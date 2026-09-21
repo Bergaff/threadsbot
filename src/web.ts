@@ -1292,9 +1292,10 @@ export function renderProfilePage(
     verified: false,
   };
   const posts = initialData?.posts || [];
-  const hasData = Boolean(initialData && posts.length > 0);
+  const hasData = Boolean(initialData && (initialData.profile || posts.length > 0));
 
-  const postsHtml = posts.map((post, idx) => {
+  const postsHtml = posts.length > 0
+    ? posts.map((post, idx) => {
     const postDate = post.date || "";
     const authorName = post.author || profile.displayName || cleanUser;
     const authorAvatar = post.authorAvatar || profile.avatar || "";
@@ -1349,7 +1350,8 @@ export function renderProfilePage(
         <div class="comments-box" id="comments-${idx}"></div>
       </article>
     `;
-  }).join("");
+  }).join("")
+    : (hasData ? `<div class="status-card" style="text-align:center;padding:24px 16px;"><p style="color:#777;">${lang === 'en' ? 'No posts in this profile yet.' : 'В этом профиле пока нет постов.'}</p></div>` : "");
 
   const pageTitle = `@${esc(cleanUser)} в Threads - читать без VPN | Threads Viewer`;
 
@@ -1589,7 +1591,7 @@ export function renderProfilePage(
       fetch('/api/profile/' + encodeURIComponent(currentUsername))
         .then(function(res) { return res.json(); })
         .then(function(res) {
-          if (res.ok && res.posts && res.posts.length) {
+          if (res.ok && (res.posts || res.profile)) {
             window.location.reload();
           } else {
             var box = document.getElementById('loadingBox');

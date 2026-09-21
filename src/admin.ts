@@ -476,6 +476,9 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
       ? `${days} дн. (${new Date(diag.expiresAt).toLocaleDateString("ru-RU")})`
       : "без срока";
     const issuesStr = diag.issues.length ? `<div style="color:#f87171;font-size:0.75rem;">${esc(diag.issues.join("; "))}</div>` : "";
+    const errStr = a.last_error
+      ? `<div style="color:#f87171;font-size:0.72rem;max-width:240px;word-break:break-word;margin-top:2px;">${esc(a.last_error)}</div>`
+      : "";
 
     return `
       <tr>
@@ -483,7 +486,7 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         <td>${a.is_alive ? `<span class="status-badge-ok">Активен</span>` : `<span class="status-badge-err">Ошибка</span>`}</td>
         <td>${a.hourly_requests} / 20</td>
         <td>${a.requests_count}</td>
-        <td>${a.errors_count}</td>
+        <td>${a.errors_count}${errStr}</td>
         <td>${esc(expiryStr)}${issuesStr}</td>
         <td>
           <div style="display:flex;gap:4px;flex-wrap:wrap;">
