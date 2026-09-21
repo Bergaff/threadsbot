@@ -170,6 +170,25 @@ describe("Web Viewer SSR & Routing", () => {
     expect(xml).toContain("<loc>https://mythreads.workers.dev/@zuck</loc>");
   });
 
+  it("contains syntactically valid JavaScript scripts on profile and home pages", async () => {
+    const pages = [
+      renderProfilePage(mockEnv, "zuck", null, null, "ru"),
+      renderProfilePage(mockEnv, "zuck", { profile: { username: "zuck", displayName: "Mark", bio: "Bio", avatar: "https://example.com/a.jpg", followers: "10M", verified: true }, posts: [] }, null, "ru"),
+      renderHomePage(mockEnv, "ru"),
+      renderHomePage(mockEnv, "en"),
+    ];
+
+    for (const res of pages) {
+      const html = await res.text();
+      const matches = html.match(/<script>([\s\S]*?)<\/script>/g) || [];
+      expect(matches.length).toBeGreaterThan(0);
+      for (const scriptTag of matches) {
+        const code = scriptTag.replace(/<\/?script>/g, "");
+        expect(() => new Function(code)).not.toThrow();
+      }
+    }
+  });
+
   describe("Image Proxy Security", () => {
     it("rejects missing url parameter", async () => {
       const req = new Request("https://worker.dev/api/img");

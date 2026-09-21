@@ -1302,7 +1302,7 @@ export function renderProfilePage(
 
     const mediaHtml = post.imageUrl
       ? `<div class="post-media-box">
-          <img src="${esc(safeMediaUrl(post.imageUrl))}" data-orig="${esc(safeMediaUrl(post.imageUrl))}" alt="Post image" referrerpolicy="no-referrer" onclick="openLightbox('${esc(safeMediaUrl(post.imageUrl))}')" onerror="if(!this.dataset.proxied){this.dataset.proxied='1';this.src='/api/img?url='+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display='none';}" />
+          <img src="${esc(safeMediaUrl(post.imageUrl))}" data-orig="${esc(safeMediaUrl(post.imageUrl))}" alt="Post image" referrerpolicy="no-referrer" onclick="openLightbox(this.src)" onerror="handleImgError(this)" />
         </div>`
       : "";
 
@@ -1314,13 +1314,13 @@ export function renderProfilePage(
       <article class="post-card" id="post-${idx}">
         <div class="post-card-top">
           <div class="post-author-block">
-            ${authorAvatar ? `<img src="${esc(safeMediaUrl(authorAvatar))}" data-orig="${esc(safeMediaUrl(authorAvatar))}" class="post-author-avatar" alt="${esc(authorName)}" referrerpolicy="no-referrer" onerror="if(!this.dataset.proxied){this.dataset.proxied='1';this.src='/api/img?url='+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display='none';}" />` : `<div class="post-author-avatar" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:11px;">@</div>`}
+            ${authorAvatar ? `<img src="${esc(safeMediaUrl(authorAvatar))}" data-orig="${esc(safeMediaUrl(authorAvatar))}" class="post-author-avatar" alt="${esc(authorName)}" referrerpolicy="no-referrer" onerror="handleImgError(this)" />` : `<div class="post-author-avatar" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:11px;">@</div>`}
             <div>
               <a href="/@${esc(cleanUser)}${lang === 'en' ? '?lang=en' : ''}" class="post-author-handle">${esc(authorName)}</a>
               ${postDate ? `<div class="post-timestamp">${esc(postDate)}</div>` : ""}
             </div>
           </div>
-          <button class="toolbar-btn" title="${t.share_post}" onclick="copyPostLink('${esc(cleanUser)}', ${idx})">
+          <button class="toolbar-btn" title="${t.share_post}" onclick="copyPostLink(${idx})">
             ${t.share_post}
           </button>
         </div>
@@ -1338,7 +1338,7 @@ export function renderProfilePage(
             <span class="post-metric-label">${t.like}:</span>
             <span class="post-metric-val">${post.likes ? esc(post.likes) : "0"}</span>
           </span>
-          <button class="toolbar-btn comment-btn" onclick="toggleComments('${esc(cleanUser)}', ${idx}, this)" title="${t.comments}">
+          <button class="toolbar-btn comment-btn" onclick="toggleComments(${idx}, this)" title="${t.comments}">
             <span class="comment-label">${t.comments}</span>
             <span class="comment-count">${post.replies ? ` (${esc(post.replies)})` : ""}</span>
           </button>
@@ -1370,6 +1370,14 @@ export function renderProfilePage(
         document.documentElement.setAttribute('data-theme', 'light');
       }
     })();
+    function handleImgError(el) {
+      if (!el.dataset.proxied) {
+        el.dataset.proxied = '1';
+        el.src = '/api/img?url=' + encodeURIComponent(el.dataset.orig || el.src);
+      } else {
+        el.style.display = 'none';
+      }
+    }
   </script>
   <style>${COMMON_STYLES}</style>
 </head>
@@ -1386,7 +1394,7 @@ export function renderProfilePage(
         </div>
         <div class="profile-avatar-box">
           ${profile.avatar
-            ? `<img src="${esc(safeMediaUrl(profile.avatar))}" data-orig="${esc(safeMediaUrl(profile.avatar))}" class="profile-avatar-img" alt="${esc(cleanUser)}" referrerpolicy="no-referrer" onerror="if(!this.dataset.proxied){this.dataset.proxied='1';this.src='/api/img?url='+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display='none';}" />`
+            ? `<img src="${esc(safeMediaUrl(profile.avatar))}" data-orig="${esc(safeMediaUrl(profile.avatar))}" class="profile-avatar-img" alt="${esc(cleanUser)}" referrerpolicy="no-referrer" onerror="handleImgError(this)" />`
             : `<div class="profile-avatar-img" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:24px;">@</div>`}
         </div>
       </div>
@@ -1475,7 +1483,9 @@ export function renderProfilePage(
       }
     }
 
-    function copyPostLink(username, idx) {
+    function copyPostLink(a, b) {
+      var idx = (b !== undefined) ? b : a;
+      var username = (b !== undefined) ? a : currentUsername;
       var url = window.location.origin + '/@' + username + '#post-' + idx;
       if (navigator.clipboard) {
         navigator.clipboard.writeText(url);
@@ -1510,7 +1520,9 @@ export function renderProfilePage(
       return withMentions.replace(/\\n/g, '<br>');
     }
 
-    function toggleComments(username, idx, btn) {
+    function toggleComments(a, b, c) {
+      var username = c ? a : currentUsername;
+      var idx = c ? b : a;
       var box = document.getElementById('comments-' + idx);
       if (!box) return;
       if (box.style.display === 'block') {
@@ -1536,7 +1548,7 @@ export function renderProfilePage(
             var a = (c.author || '@anonymous').trim();
             var handle = a.replace(/^@/, '');
             var avatarHtml = c.avatar
-              ? '<img src="' + escHtml(c.avatar) + '" data-orig="' + escHtml(c.avatar) + '" class="comment-author-avatar" alt="' + escHtml(handle) + '" referrerpolicy="no-referrer" onerror="if(!this.dataset.proxied){this.dataset.proxied=\'1\';this.src=\'/api/img?url=\'+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display=\'none\';}" />'
+              ? '<img src="' + escHtml(c.avatar) + '" data-orig="' + escHtml(c.avatar) + '" class="comment-author-avatar" alt="' + escHtml(handle) + '" referrerpolicy="no-referrer" onerror="handleImgError(this)" />'
               : '<div class="comment-author-avatar" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#777;">@</div>';
 
             html += '<div class="comment-row">' +
@@ -1602,7 +1614,7 @@ export function renderProfilePage(
         var authorAvatar = post.authorAvatar || (profile ? profile.avatar : '') || '';
 
         var mediaHtml = post.imageUrl
-          ? '<div class="post-media-box"><img src="' + escHtml(post.imageUrl) + '" data-orig="' + escHtml(post.imageUrl) + '" alt="Post image" referrerpolicy="no-referrer" onclick="openLightbox(\'' + escHtml(post.imageUrl) + '\')" onerror="if(!this.dataset.proxied){this.dataset.proxied=\'1\';this.src=\'/api/img?url=\'+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display=\'none\';}" /></div>'
+          ? '<div class="post-media-box"><img src="' + escHtml(post.imageUrl) + '" data-orig="' + escHtml(post.imageUrl) + '" alt="Post image" referrerpolicy="no-referrer" onclick="openLightbox(this.src)" onerror="handleImgError(this)" /></div>'
           : '';
 
         var videoMarker = post.has_video
@@ -1610,7 +1622,7 @@ export function renderProfilePage(
           : '';
 
         var avatarHtml = authorAvatar
-          ? '<img src="' + escHtml(authorAvatar) + '" data-orig="' + escHtml(authorAvatar) + '" class="post-author-avatar" alt="' + escHtml(authorName) + '" referrerpolicy="no-referrer" onerror="if(!this.dataset.proxied){this.dataset.proxied=\'1\';this.src=\'/api/img?url=\'+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display=\'none\';}" />'
+          ? '<img src="' + escHtml(authorAvatar) + '" data-orig="' + escHtml(authorAvatar) + '" class="post-author-avatar" alt="' + escHtml(authorName) + '" referrerpolicy="no-referrer" onerror="handleImgError(this)" />'
           : '<div class="post-author-avatar" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:11px;">@</div>';
 
         html += '<article class="post-card" id="post-' + idx + '">' +
@@ -1622,7 +1634,7 @@ export function renderProfilePage(
                 (postDate ? '<div class="post-timestamp">' + escHtml(postDate) + '</div>' : '') +
               '</div>' +
             '</div>' +
-            '<button class="toolbar-btn" title="${t.share_post}" onclick="copyPostLink(\'' + escHtml(currentUsername) + '\', ' + idx + ')">${t.share_post}</button>' +
+            '<button class="toolbar-btn" title="${t.share_post}" onclick="copyPostLink(' + idx + ')">${t.share_post}</button>' +
           '</div>' +
           '<div class="post-body-text">' + formatPostTextClient(post.text || '') + '</div>' +
           videoMarker +
@@ -1633,7 +1645,7 @@ export function renderProfilePage(
               '<span class="post-metric-label">${t.like}:</span>' +
               '<span class="post-metric-val">' + (post.likes ? escHtml(post.likes) : '0') + '</span>' +
             '</span>' +
-            '<button class="toolbar-btn comment-btn" onclick="toggleComments(\'' + escHtml(currentUsername) + '\', ' + idx + ', this)" title="${t.comments}">' +
+            '<button class="toolbar-btn comment-btn" onclick="toggleComments(' + idx + ', this)" title="${t.comments}">' +
               '<span class="comment-label">${t.comments}</span>' +
               '<span class="comment-count">' + (post.replies ? ' (' + escHtml(post.replies) + ')' : '') + '</span>' +
             '</button>' +
@@ -1699,7 +1711,7 @@ export function renderProfilePage(
               if (res.profile.avatar) {
                 var avBox = document.querySelector('.profile-avatar-box');
                 if (avBox) {
-                  avBox.innerHTML = '<img src="' + escHtml(res.profile.avatar) + '" data-orig="' + escHtml(res.profile.avatar) + '" class="profile-avatar-img" alt="' + escHtml(currentUsername) + '" referrerpolicy="no-referrer" onerror="if(!this.dataset.proxied){this.dataset.proxied=\'1\';this.src=\'/api/img?url=\'+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display=\'none\';}" />';
+                  avBox.innerHTML = '<img src="' + escHtml(res.profile.avatar) + '" data-orig="' + escHtml(res.profile.avatar) + '" class="profile-avatar-img" alt="' + escHtml(currentUsername) + '" referrerpolicy="no-referrer" onerror="handleImgError(this)" />';
                 }
               }
               if (res.profile.followers) {
