@@ -446,6 +446,94 @@ const COMMON_STYLES = `
     margin-bottom: 8px;
   }
 
+  .history-section {
+    margin-top: 24px;
+    text-align: left;
+    width: 100%;
+    max-width: 620px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #282828;
+    padding-bottom: 6px;
+  }
+  .history-title {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #888888;
+    font-weight: 600;
+  }
+  .history-clear-btn {
+    background: transparent;
+    border: none;
+    color: #777777;
+    font-size: 0.78rem;
+    cursor: pointer;
+    font-family: inherit;
+    text-decoration: underline;
+    padding: 0;
+  }
+  .history-clear-btn:hover {
+    color: #bbbbbb;
+  }
+  .history-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .history-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    color: #cccccc;
+    text-decoration: none;
+    font-size: 0.82rem;
+  }
+  .history-chip:hover {
+    background: #1f1f1f;
+    border-color: #444444;
+    color: #ffffff;
+  }
+  .history-chip-avatar {
+    color: #8ab4f8;
+    font-size: 0.75rem;
+    font-weight: bold;
+  }
+  html[data-theme="light"] .history-section {
+    border-color: #b5ab99;
+  }
+  html[data-theme="light"] .history-header {
+    border-bottom: 1px solid #c0b6a4;
+  }
+  html[data-theme="light"] .history-title {
+    color: #635b4f;
+  }
+  html[data-theme="light"] .history-clear-btn {
+    color: #736b5d;
+  }
+  html[data-theme="light"] .history-chip {
+    background: #ded5c6;
+    border: 1px solid #b8ad9b;
+    color: #2e2820;
+  }
+  html[data-theme="light"] .history-chip:hover {
+    background: #e6ddce;
+    border-color: #8f8473;
+    color: #000000;
+  }
+  html[data-theme="light"] .history-chip-avatar {
+    color: #1a56a6;
+  }
+
   .post-toolbar {
     display: flex;
     align-items: center;
@@ -1035,6 +1123,8 @@ const I18N = {
     toast_updated: "Посты обновлены",
     toast_all_loaded: "Все посты загружены",
     toast_error: "Не удалось загрузить",
+    recent_profiles_title: "История просмотров",
+    clear_history: "Очистить",
     tos: "TOS",
     privacy: "Privacy Policy",
     footer_text: "Threads Viewer. Независимый сервис. Не аффилирован с Meta Platforms Inc.",
@@ -1081,6 +1171,8 @@ const I18N = {
     toast_updated: "Posts updated",
     toast_all_loaded: "All posts loaded",
     toast_error: "Failed to load",
+    recent_profiles_title: "Recent profiles",
+    clear_history: "Clear",
     tos: "TOS",
     privacy: "Privacy Policy",
     footer_text: "Threads Viewer. Independent service. Not affiliated with Meta Platforms Inc.",
@@ -1089,9 +1181,12 @@ const I18N = {
   },
 };
 
-function renderNavbar(env: Env, lang: Lang, searchDefault = ""): string {
+function renderNavbar(env: Env, lang: Lang, searchDefault = "", isPremium = false): string {
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
+  const premiumTag = isPremium
+    ? `<span style="font-size:0.75rem;padding:2px 8px;background:#242424;border:1px solid #444;color:#ffd700;font-weight:600;display:inline-flex;align-items:center;">PREMIUM</span>`
+    : "";
   return `
     <header class="navbar">
       <a href="/?lang=${lang}" class="navbar-brand">
@@ -1103,6 +1198,7 @@ function renderNavbar(env: Env, lang: Lang, searchDefault = ""): string {
         </form>
       </div>
       <div class="navbar-actions">
+        ${premiumTag}
         <button type="button" class="btn-theme-toggle" id="themeToggleBtn" onclick="toggleTheme()" title="Switch theme">
           <span id="themeToggleText">${lang === 'en' ? 'Light' : 'Светлая'}</span>
         </button>
@@ -1117,8 +1213,15 @@ function renderNavbar(env: Env, lang: Lang, searchDefault = ""): string {
   `;
 }
 
-function renderNoticeBar(env: Env, lang: Lang, username?: string): string {
+function renderNoticeBar(env: Env, lang: Lang, username?: string, isPremium = false): string {
   const t = I18N[lang];
+  if (isPremium) {
+    return `
+      <div class="notice-bar" style="background:#1c1c1c;border-color:#3a3a3a;color:#ffd700;">
+        <span>${lang === 'en' ? 'Premium Active - Ad-free unlimited browsing' : 'Премиум активен - Без рекламы и ограничений'}</span>
+      </div>
+    `;
+  }
   const tgUser = getBotUsername(env);
   const tgLink = username ? `https://t.me/${tgUser}?start=sub_${username}` : `https://t.me/${tgUser}`;
   return `
@@ -1129,7 +1232,8 @@ function renderNoticeBar(env: Env, lang: Lang, username?: string): string {
   `;
 }
 
-function renderSponsorSlot(env: Env, lang: Lang): string {
+function renderSponsorSlot(env: Env, lang: Lang, isPremium = false): string {
+  if (isPremium) return "";
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   return `
@@ -1151,7 +1255,7 @@ function renderSponsorSlot(env: Env, lang: Lang): string {
   `;
 }
 
-export function renderHomePage(env: Env, lang: Lang = "ru"): Response {
+export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false): Response {
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
 
@@ -1174,8 +1278,8 @@ export function renderHomePage(env: Env, lang: Lang = "ru"): Response {
   <style>${COMMON_STYLES}</style>
 </head>
 <body>
-  ${renderNavbar(env, lang)}
-  ${renderNoticeBar(env, lang)}
+  ${renderNavbar(env, lang, "", isPremium)}
+  ${renderNoticeBar(env, lang, undefined, isPremium)}
 
   <main class="container">
     <div class="hero-card">
@@ -1191,9 +1295,17 @@ export function renderHomePage(env: Env, lang: Lang = "ru"): Response {
       <div class="example-hint">
         ${t.example_hint}
       </div>
+
+      <div id="recentHistorySection" class="history-section" style="display:none;">
+        <div class="history-header">
+          <span class="history-title">${t.recent_profiles_title}</span>
+          <button type="button" class="history-clear-btn" onclick="clearBrowsingHistory()">${t.clear_history}</button>
+        </div>
+        <div id="recentHistoryList" class="history-list"></div>
+      </div>
     </div>
 
-    ${renderSponsorSlot(env, lang)}
+    ${renderSponsorSlot(env, lang, isPremium)}
   </main>
 
   <footer class="footer-block">
@@ -1271,8 +1383,41 @@ export function renderHomePage(env: Env, lang: Lang = "ru"): Response {
         el.innerText = isLight ? 'Темная' : 'Светлая';
       }
     }
-    document.addEventListener('DOMContentLoaded', updateThemeBtnText);
+    function loadBrowsingHistory() {
+      try {
+        var raw = localStorage.getItem('threads_history');
+        if (!raw) return;
+        var list = JSON.parse(raw);
+        if (!Array.isArray(list) || !list.length) return;
+        var sec = document.getElementById('recentHistorySection');
+        var container = document.getElementById('recentHistoryList');
+        if (!sec || !container) return;
+        container.innerHTML = list.map(function(item) {
+          var u = (item.username || '').replace(/^@/, '');
+          return '<a href="/@' + encodeURIComponent(u) + (currentLang === 'en' ? '?lang=en' : '') + '" class="history-chip">' +
+            '<span class="history-chip-avatar">@</span>' +
+            '<span class="history-chip-name">@' + escHtml(u) + '</span>' +
+          '</a>';
+        }).join('');
+        sec.style.display = 'block';
+      } catch (e) {}
+    }
+    function clearBrowsingHistory() {
+      try {
+        localStorage.removeItem('threads_history');
+        var sec = document.getElementById('recentHistorySection');
+        if (sec) sec.style.display = 'none';
+      } catch (e) {}
+    }
+    function escHtml(str) {
+      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+      updateThemeBtnText();
+      loadBrowsingHistory();
+    });
     updateThemeBtnText();
+    loadBrowsingHistory();
   </script>
 </body>
 </html>`;
@@ -1290,7 +1435,8 @@ export function renderProfilePage(
   username: string,
   initialData?: ProfileData | null,
   errorMessage?: string | null,
-  lang: Lang = "ru"
+  lang: Lang = "ru",
+  isPremium = false
 ): Response {
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
@@ -1408,8 +1554,8 @@ export function renderProfilePage(
   <style>${COMMON_STYLES}</style>
 </head>
 <body>
-  ${renderNavbar(env, lang, "@" + cleanUser)}
-  ${renderNoticeBar(env, lang, cleanUser)}
+  ${renderNavbar(env, lang, "@" + cleanUser, isPremium)}
+  ${renderNoticeBar(env, lang, cleanUser, isPremium)}
 
   <main class="container">
     <div class="profile-card">
@@ -1443,7 +1589,7 @@ export function renderProfilePage(
       </div>
     </div>
 
-    ${renderSponsorSlot(env, lang)}
+    ${renderSponsorSlot(env, lang, isPremium)}
 
     <section class="feed" id="postsFeed">
       ${postsHtml}
@@ -1488,6 +1634,23 @@ export function renderProfilePage(
     var currentUsername = "${esc(cleanUser)}";
     var currentLang = "${lang}";
     var isLoaded = ${hasData ? "true" : "false"};
+
+    (function recordProfileHistory() {
+      try {
+        var raw = localStorage.getItem('threads_history');
+        var list = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(list)) list = [];
+        list = list.filter(function(item) {
+          return item && item.username && item.username.toLowerCase() !== currentUsername.toLowerCase();
+        });
+        list.unshift({
+          username: currentUsername,
+          time: Date.now()
+        });
+        if (list.length > 12) list = list.slice(0, 12);
+        localStorage.setItem('threads_history', JSON.stringify(list));
+      } catch (e) {}
+    })();
 
     function setLangCookie(code) {
       document.cookie = "lang=" + code + ";path=/;max-age=31536000";

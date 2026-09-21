@@ -206,6 +206,30 @@ describe("Web Viewer SSR & Routing", () => {
     expect(xml).toContain("<loc>https://mythreads.workers.dev/@zuck</loc>");
   });
 
+  it("renders ad-free premium state when isPremium is true", async () => {
+    const resHome = renderHomePage(mockEnv, "ru", true);
+    const htmlHome = await resHome.text();
+    expect(htmlHome).not.toContain('<div class="sponsor-card">');
+    expect(htmlHome).toContain("Премиум активен");
+
+    const resProfile = renderProfilePage(mockEnv, "zuck", null, null, "ru", true);
+    const htmlProfile = await resProfile.text();
+    expect(htmlProfile).not.toContain('<div class="sponsor-card">');
+    expect(htmlProfile).toContain("Премиум активен");
+  });
+
+  it("creates and verifies web auth tokens", async () => {
+    const { createAuthToken, verifyAuthToken } = await import("../src/auth");
+    const token = await createAuthToken(777, "secret_key_123");
+    expect(token).toContain("777.");
+
+    const verified = await verifyAuthToken(token, "secret_key_123");
+    expect(verified).toBe(777);
+
+    const wrongKey = await verifyAuthToken(token, "wrong_secret");
+    expect(wrongKey).toBeNull();
+  });
+
   it("contains syntactically valid JavaScript scripts on profile and home pages", async () => {
     const pages = [
       renderProfilePage(mockEnv, "zuck", null, null, "ru"),

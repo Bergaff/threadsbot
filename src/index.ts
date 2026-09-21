@@ -5,6 +5,7 @@ import { Database } from "./db";
 import { diagnoseAccountCookies } from "./cookies";
 import { Telegram, type TelegramUpdate } from "./telegram";
 import { fetchComments, fetchProfileWithPosts, logSystem, type ProfileData, type Comment } from "./threads";
+import { verifyAuthToken } from "./auth";
 import {
   detectLanguage,
   handleImageProxy,
@@ -66,9 +67,37 @@ export default {
 
     const lang = detectLanguage(request);
 
+    async function checkPremiumUser(req: Request, e: Env): Promise<{ isPremium: boolean; newAuthCookie?: string }> {
+      const u = new URL(req.url);
+      const authQuery = u.searchParams.get("auth");
+      const cookieHeader = req.headers.get("cookie") || "";
+      const cookieMatch = cookieHeader.match(/(?:^|;\s*)threads_auth=([A-Za-z0-9._]+)/);
+      const authCookie = cookieMatch ? cookieMatch[1] : null;
+
+      const candidate = authQuery || authCookie;
+      if (!candidate) return { isPremium: false };
+
+      const uid = await verifyAuthToken(candidate, e.WEBHOOK_SECRET);
+      if (!uid) return { isPremium: false };
+
+      const d = new Database(e);
+      const sub = await d.subscription(uid);
+      if (sub?.active) {
+        const newAuthCookie = authQuery ? `threads_auth=${candidate}; Path=/; Max-Age=2592000; SameSite=Lax` : undefined;
+        return { isPremium: true, newAuthCookie };
+      }
+      return { isPremium: false };
+    }
+
     // Главная страница
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      return renderHomePage(env, lang);
+      const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
+      let res = renderHomePage(env, lang, isPremium);
+      if (newAuthCookie) {
+        res = new Response(res.body, res);
+        res.headers.append("Set-Cookie", newAuthCookie);
+      }
+      return res;
     }
 
     // Служебные страницы и SEO
@@ -93,9 +122,15 @@ export default {
       if (!isAdmin) {
         ctx.waitUntil(db.logEvent(0, "web_view", username).catch(() => {}));
       }
-      ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (admin: ${isAdmin})`).catch(() => {}));
+      const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
+      ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
       const cached = await db.cache<ProfileData>(username, "web_profile");
-      return renderProfilePage(env, username, cached, null, lang);
+      let res = renderProfilePage(env, username, cached, null, lang, isPremium);
+      if (newAuthCookie) {
+        res = new Response(res.body, res);
+        res.headers.append("Set-Cookie", newAuthCookie);
+      }
+      return res;
     }
 
     // API для получения данных профиля и постов (для "крутить как обычный тредс")
