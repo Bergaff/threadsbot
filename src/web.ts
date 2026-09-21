@@ -26,7 +26,7 @@ export function detectLanguage(request: Request): Lang {
   return "en";
 }
 
-function esc(value: unknown): string {
+export function esc(value: unknown): string {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -780,6 +780,100 @@ const COMMON_STYLES = `
     border: none;
   }
 
+  /* Support Form */
+  .support-card {
+    background: #141414;
+    border: 1px solid #282828;
+    padding: 18px;
+    margin: 24px auto 0;
+    max-width: 620px;
+    text-align: left;
+    box-shadow: none;
+    border-radius: 0;
+  }
+  .support-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #e0e0e0;
+    margin-bottom: 6px;
+  }
+  .support-desc {
+    font-size: 0.8rem;
+    color: #888888;
+    margin-bottom: 14px;
+    line-height: 1.4;
+  }
+  .support-field {
+    margin-bottom: 12px;
+  }
+  .support-label {
+    display: block;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #888888;
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .support-input,
+  .support-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: #1c1c1c;
+    border: 1px solid #333333;
+    color: #eeeeee;
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 0.84rem;
+    outline: none;
+    border-radius: 0;
+  }
+  .support-input:focus,
+  .support-textarea:focus {
+    border-color: #555555;
+  }
+  .support-textarea {
+    resize: vertical;
+    min-height: 70px;
+  }
+  .support-btn {
+    background: #242424;
+    border: 1px solid #3c3c3c;
+    color: #dddddd;
+    padding: 8px 18px;
+    font-family: inherit;
+    font-size: 0.84rem;
+    cursor: pointer;
+    border-radius: 0;
+    font-weight: 600;
+  }
+  .support-btn:hover {
+    background: #2e2e2e;
+    border-color: #555555;
+    color: #ffffff;
+  }
+  .support-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .support-feedback {
+    margin-top: 10px;
+    padding: 8px 12px;
+    font-size: 0.82rem;
+    border: 1px solid #333333;
+    background: #181818;
+  }
+  .support-feedback.success {
+    color: #81c784;
+    border-color: #2e7d32;
+    background: #102413;
+  }
+  .support-feedback.error {
+    color: #e57373;
+    border-color: #c62828;
+    background: #2b1111;
+  }
+
   /* Toast */
   .toast-box {
     position: fixed;
@@ -1065,6 +1159,49 @@ const COMMON_STYLES = `
   html[data-theme="light"] .sponsor-btn:hover {
     background: #363128;
   }
+  html[data-theme="light"] .support-card {
+    background: #ded5c6;
+    border: 1px solid #b5ab99;
+  }
+  html[data-theme="light"] .support-title {
+    color: #241f17;
+  }
+  html[data-theme="light"] .support-desc {
+    color: #635b4f;
+  }
+  html[data-theme="light"] .support-label {
+    color: #635b4f;
+  }
+  html[data-theme="light"] .support-input,
+  html[data-theme="light"] .support-textarea {
+    background: #ede6da;
+    border: 1px solid #b8ad9b;
+    color: #222222;
+  }
+  html[data-theme="light"] .support-input:focus,
+  html[data-theme="light"] .support-textarea:focus {
+    border-color: #8f8473;
+  }
+  html[data-theme="light"] .support-btn {
+    background: #cec4b3;
+    border: 1px solid #9f9482;
+    color: #222222;
+  }
+  html[data-theme="light"] .support-btn:hover {
+    background: #c2b6a3;
+    border-color: #7b7161;
+    color: #000000;
+  }
+  html[data-theme="light"] .support-feedback.success {
+    color: #1b5e20;
+    border-color: #81c784;
+    background: #d8ead9;
+  }
+  html[data-theme="light"] .support-feedback.error {
+    color: #b71c1c;
+    border-color: #e57373;
+    background: #f7dede;
+  }
   html[data-theme="light"] .footer-block {
     border-top: 1px solid #b5ab99;
     color: #6b6354;
@@ -1125,6 +1262,16 @@ const I18N = {
     toast_error: "Не удалось загрузить",
     recent_profiles_title: "История просмотров",
     clear_history: "Очистить",
+    support_title: "Остались вопросы? Напишите нам",
+    support_desc: "Есть вопрос, идея или заметили ошибку? Отправьте сообщение, и оно поступит администратору в Telegram.",
+    support_contact_label: "Куда ответить (необязательно)",
+    support_contact_placeholder: "@username в Telegram или email (можно оставить пустым)",
+    support_message_label: "Ваш вопрос или сообщение",
+    support_message_placeholder: "Опишите ваш вопрос или предложение...",
+    support_submit: "Отправить сообщение",
+    support_sending: "Отправка...",
+    support_success: "Спасибо! Ваше сообщение отправлено администратору.",
+    support_error: "Не удалось отправить сообщение. Пожалуйста, попробуйте позже.",
     tos: "TOS",
     privacy: "Privacy Policy",
     footer_text: "Threads Viewer. Независимый сервис. Не аффилирован с Meta Platforms Inc.",
@@ -1173,6 +1320,16 @@ const I18N = {
     toast_error: "Failed to load",
     recent_profiles_title: "Recent profiles",
     clear_history: "Clear",
+    support_title: "Have questions? Contact us",
+    support_desc: "Have a question, feedback, or found a bug? Send a message and it will be delivered directly to the admin in Telegram.",
+    support_contact_label: "Contact info for reply (optional)",
+    support_contact_placeholder: "Telegram @username or email (optional)",
+    support_message_label: "Your question or message",
+    support_message_placeholder: "Describe your question or feedback...",
+    support_submit: "Send message",
+    support_sending: "Sending...",
+    support_success: "Thank you! Your message has been sent to the admin.",
+    support_error: "Failed to send message. Please try again later.",
     tos: "TOS",
     privacy: "Privacy Policy",
     footer_text: "Threads Viewer. Independent service. Not affiliated with Meta Platforms Inc.",
@@ -1280,6 +1437,28 @@ function renderSponsorSlot(env: Env, lang: Lang, isPremium = false, country = ""
   `;
 }
 
+export function renderSupportCard(lang: Lang): string {
+  const t = I18N[lang];
+  return `
+    <div class="support-card" id="supportSection">
+      <div class="support-title">${t.support_title}</div>
+      <div class="support-desc">${t.support_desc}</div>
+      <form id="supportForm" onsubmit="handleSupportSubmit(event)">
+        <div class="support-field">
+          <label class="support-label" for="supportContact">${t.support_contact_label}</label>
+          <input type="text" id="supportContact" class="support-input" placeholder="${t.support_contact_placeholder}" maxlength="100" />
+        </div>
+        <div class="support-field">
+          <label class="support-label" for="supportMessage">${t.support_message_label}</label>
+          <textarea id="supportMessage" class="support-textarea" rows="3" placeholder="${t.support_message_placeholder}" maxlength="2000" required></textarea>
+        </div>
+        <button type="submit" id="supportSubmitBtn" class="support-btn">${t.support_submit}</button>
+        <div id="supportFeedback" class="support-feedback" style="display:none;"></div>
+      </form>
+    </div>
+  `;
+}
+
 export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false, country = ""): Response {
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
@@ -1331,6 +1510,8 @@ export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false, c
     </div>
 
     ${renderSponsorSlot(env, lang, isPremium, country)}
+
+    ${renderSupportCard(lang)}
   </main>
 
   <footer class="footer-block">
@@ -1437,6 +1618,66 @@ export function renderHomePage(env: Env, lang: Lang = "ru", isPremium = false, c
     function escHtml(str) {
       return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
+    function handleSupportSubmit(e) {
+      e.preventDefault();
+      var btn = document.getElementById('supportSubmitBtn');
+      var fb = document.getElementById('supportFeedback');
+      var contactEl = document.getElementById('supportContact');
+      var msgEl = document.getElementById('supportMessage');
+      if (!btn || !msgEl) return;
+      var message = msgEl.value.trim();
+      var contact = contactEl ? contactEl.value.trim() : '';
+      if (!message) return;
+
+      var sendingText = currentLang === 'en' ? 'Sending...' : 'Отправка...';
+      var successText = currentLang === 'en' ? 'Thank you! Your message has been sent to the admin.' : 'Спасибо! Ваше сообщение отправлено администратору.';
+      var errorText = currentLang === 'en' ? 'Failed to send message. Please try again later.' : 'Не удалось отправить сообщение. Пожалуйста, попробуйте позже.';
+      var origBtnText = btn.innerText;
+
+      btn.disabled = true;
+      btn.innerText = sendingText;
+      if (fb) {
+        fb.style.display = 'none';
+        fb.className = 'support-feedback';
+      }
+
+      fetch('/api/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contact: contact,
+          message: message,
+          path: window.location.pathname
+        })
+      })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        btn.innerText = origBtnText;
+        if (fb) {
+          fb.style.display = 'block';
+          if (data && data.ok) {
+            fb.className = 'support-feedback success';
+            fb.innerText = successText;
+            msgEl.value = '';
+            if (contactEl) contactEl.value = '';
+          } else {
+            fb.className = 'support-feedback error';
+            fb.innerText = (data && data.error) || errorText;
+          }
+        }
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.innerText = origBtnText;
+        if (fb) {
+          fb.style.display = 'block';
+          fb.className = 'support-feedback error';
+          fb.innerText = errorText;
+        }
+      });
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
       updateThemeBtnText();
       loadBrowsingHistory();
@@ -1637,6 +1878,8 @@ export function renderProfilePage(
         ${t.load_more}
       </button>
     </div>
+
+    ${renderSupportCard(lang)}
   </main>
 
   <div id="lightbox" class="lightbox-overlay" onclick="closeLightbox()">
@@ -1680,6 +1923,66 @@ export function renderProfilePage(
 
     function setLangCookie(code) {
       document.cookie = "lang=" + code + ";path=/;max-age=31536000";
+    }
+
+    function handleSupportSubmit(e) {
+      e.preventDefault();
+      var btn = document.getElementById('supportSubmitBtn');
+      var fb = document.getElementById('supportFeedback');
+      var contactEl = document.getElementById('supportContact');
+      var msgEl = document.getElementById('supportMessage');
+      if (!btn || !msgEl) return;
+      var message = msgEl.value.trim();
+      var contact = contactEl ? contactEl.value.trim() : '';
+      if (!message) return;
+
+      var sendingText = currentLang === 'en' ? 'Sending...' : 'Отправка...';
+      var successText = currentLang === 'en' ? 'Thank you! Your message has been sent to the admin.' : 'Спасибо! Ваше сообщение отправлено администратору.';
+      var errorText = currentLang === 'en' ? 'Failed to send message. Please try again later.' : 'Не удалось отправить сообщение. Пожалуйста, попробуйте позже.';
+      var origBtnText = btn.innerText;
+
+      btn.disabled = true;
+      btn.innerText = sendingText;
+      if (fb) {
+        fb.style.display = 'none';
+        fb.className = 'support-feedback';
+      }
+
+      fetch('/api/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contact: contact,
+          message: message,
+          path: window.location.pathname
+        })
+      })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        btn.innerText = origBtnText;
+        if (fb) {
+          fb.style.display = 'block';
+          if (data && data.ok) {
+            fb.className = 'support-feedback success';
+            fb.innerText = successText;
+            msgEl.value = '';
+            if (contactEl) contactEl.value = '';
+          } else {
+            fb.className = 'support-feedback error';
+            fb.innerText = (data && data.error) || errorText;
+          }
+        }
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.innerText = origBtnText;
+        if (fb) {
+          fb.style.display = 'block';
+          fb.className = 'support-feedback error';
+          fb.innerText = errorText;
+        }
+      });
     }
 
     function showToast(msg) {

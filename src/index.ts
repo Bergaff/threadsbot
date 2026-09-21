@@ -8,6 +8,7 @@ import { fetchComments, fetchProfileWithPosts, logSystem, type ProfileData, type
 import { verifyAuthToken } from "./auth";
 import {
   detectLanguage,
+  esc,
   handleImageProxy,
   renderHomePage,
   renderPrivacyPage,
@@ -220,6 +221,67 @@ export default {
         return Response.json({ ok: false, error: fetched.error || fetched.status });
       } catch (err) {
         return Response.json({ ok: false, error: String(err) }, { status: 500 });
+      }
+    }
+
+    // API для отправки формы поддержки с сайта
+    if (url.pathname === "/api/support" && request.method === "POST") {
+      try {
+        const body = await request.json<any>().catch(() => ({}));
+        const rawMessage = typeof body.message === "string" ? body.message.trim() : "";
+        const rawContact = typeof body.contact === "string" ? body.contact.trim().slice(0, 100) : "";
+        const rawPath = typeof body.path === "string" ? body.path.trim().slice(0, 100) : "";
+
+        if (!rawMessage || rawMessage.length < 3) {
+          return Response.json({ ok: false, error: "Сообщение слишком короткое" }, { status: 400 });
+        }
+
+        const ip = request.headers.get("cf-connecting-ip") || "unknown";
+        const countryCode = (request.headers.get("cf-ipcountry") || (request as any).cf?.country || "").toUpperCase();
+
+        const db = new Database(env);
+        const ticketId = await db.createTicket(
+          0,
+          rawContact || "web_guest",
+          `[${countryCode || "GLOBAL"}] [${rawPath || "/"}] ${rawMessage}`,
+          "web_support"
+        );
+        ctx.waitUntil(db.logEvent(0, "web_support", rawContact || "anonymous").catch(() => {}));
+
+        // Отправка в Telegram всем администраторам
+        if (env.TELEGRAM_TOKEN) {
+          const tg = new Telegram(env.TELEGRAM_TOKEN);
+          const aids = adminIds(env);
+          const contactEsc = rawContact ? esc(rawContact) : "Не указан (без ответа)";
+          const textLines = [
+            `<b>[WEB SUPPORT] Новое обращение #${ticketId}</b>`,
+            "",
+            `<b>Контакты:</b> ${contactEsc}`,
+            `<b>Страна / IP:</b> ${countryCode || "unknown"} (<code>${esc(ip)}</code>)`,
+            rawPath ? `<b>Страница:</b> <code>${esc(rawPath)}</code>` : "",
+            "",
+            `<b>Вопрос:</b>`,
+            esc(rawMessage.slice(0, 2500))
+          ].filter(Boolean).join("\n");
+
+          let replyKb: any = undefined;
+          const tgMatch = rawContact.match(/^(?:@|https?:\/\/t\.me\/)?([A-Za-z0-9_]{4,32})$/);
+          if (tgMatch) {
+            replyKb = {
+              inline_keyboard: [
+                [{ text: `Написать @${tgMatch[1]}`, url: `https://t.me/${tgMatch[1]}` }]
+              ]
+            };
+          }
+
+          for (const aid of aids) {
+            ctx.waitUntil(tg.sendMessage(aid, textLines, replyKb).catch(() => {}));
+          }
+        }
+
+        return Response.json({ ok: true, ticketId });
+      } catch (err: any) {
+        return Response.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
       }
     }
 

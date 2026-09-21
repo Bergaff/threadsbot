@@ -244,6 +244,50 @@ describe("Web Viewer SSR & Routing", () => {
     expect(wrongKey).toBeNull();
   });
 
+  it("renders support form on home and profile pages", async () => {
+    const resHomeRu = renderHomePage(mockEnv, "ru");
+    const htmlHomeRu = await resHomeRu.text();
+    expect(htmlHomeRu).toContain('id="supportSection"');
+    expect(htmlHomeRu).toContain("Остались вопросы? Напишите нам");
+    expect(htmlHomeRu).toContain('id="supportContact"');
+    expect(htmlHomeRu).toContain('id="supportMessage"');
+    expect(htmlHomeRu).toContain('id="supportSubmitBtn"');
+
+    const resHomeEn = renderHomePage(mockEnv, "en");
+    const htmlHomeEn = await resHomeEn.text();
+    expect(htmlHomeEn).toContain('id="supportSection"');
+    expect(htmlHomeEn).toContain("Have questions? Contact us");
+    expect(htmlHomeEn).toContain("Telegram @username or email (optional)");
+
+    const resProfRu = renderProfilePage(mockEnv, "zuck", null, null, "ru");
+    const htmlProfRu = await resProfRu.text();
+    expect(htmlProfRu).toContain('id="supportSection"');
+    expect(htmlProfRu).toContain("Остались вопросы? Напишите нам");
+  });
+
+  it("handles /api/support endpoint validations", async () => {
+    const worker = (await import("../src/index")).default;
+    const fakeCtx = { waitUntil: () => {}, passThroughOnException: () => {} } as any;
+
+    // Too short message
+    const reqShort = new Request("https://site.com/api/support", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "hi" }),
+    });
+    const resShort = await worker.fetch(reqShort, mockEnv, fakeCtx);
+    expect(resShort.status).toBe(400);
+
+    // Empty body
+    const reqEmpty = new Request("https://site.com/api/support", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const resEmpty = await worker.fetch(reqEmpty, mockEnv, fakeCtx);
+    expect(resEmpty.status).toBe(400);
+  });
+
   it("contains syntactically valid JavaScript scripts on profile and home pages", async () => {
     const pages = [
       renderProfilePage(mockEnv, "zuck", null, null, "ru"),
