@@ -1587,6 +1587,64 @@ export function renderProfilePage(
       if (val) window.location.href = '/@' + val + (currentLang === 'en' ? '?lang=en' : '');
     }
 
+    function renderPostsClient(posts, profile) {
+      var feed = document.getElementById('postsFeed');
+      if (!feed) return;
+      if (!posts || !posts.length) {
+        feed.innerHTML = '<div class="status-card" style="text-align:center;padding:24px 16px;"><p style="color:#777;">' + (currentLang === 'en' ? 'No posts in this profile yet.' : 'В этом профиле пока нет постов.') + '</p></div>';
+        return;
+      }
+      var html = '';
+      for (var idx = 0; idx < posts.length; idx++) {
+        var post = posts[idx];
+        var postDate = post.date || '';
+        var authorName = post.author || (profile ? profile.displayName : '') || currentUsername;
+        var authorAvatar = post.authorAvatar || (profile ? profile.avatar : '') || '';
+
+        var mediaHtml = post.imageUrl
+          ? '<div class="post-media-box"><img src="' + escHtml(post.imageUrl) + '" data-orig="' + escHtml(post.imageUrl) + '" alt="Post image" referrerpolicy="no-referrer" onclick="openLightbox(\'' + escHtml(post.imageUrl) + '\')" onerror="if(!this.dataset.proxied){this.dataset.proxied=\'1\';this.src=\'/api/img?url=\'+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display=\'none\';}" /></div>'
+          : '';
+
+        var videoMarker = post.has_video
+          ? '<span class="video-indicator">${t.video}</span>'
+          : '';
+
+        var avatarHtml = authorAvatar
+          ? '<img src="' + escHtml(authorAvatar) + '" data-orig="' + escHtml(authorAvatar) + '" class="post-author-avatar" alt="' + escHtml(authorName) + '" referrerpolicy="no-referrer" onerror="if(!this.dataset.proxied){this.dataset.proxied=\'1\';this.src=\'/api/img?url=\'+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display=\'none\';}" />'
+          : '<div class="post-author-avatar" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:11px;">@</div>';
+
+        html += '<article class="post-card" id="post-' + idx + '">' +
+          '<div class="post-card-top">' +
+            '<div class="post-author-block">' +
+              avatarHtml +
+              '<div>' +
+                '<a href="/@' + escHtml(currentUsername) + (currentLang === 'en' ? '?lang=en' : '') + '" class="post-author-handle">' + escHtml(authorName) + '</a>' +
+                (postDate ? '<div class="post-timestamp">' + escHtml(postDate) + '</div>' : '') +
+              '</div>' +
+            '</div>' +
+            '<button class="toolbar-btn" title="${t.share_post}" onclick="copyPostLink(\'' + escHtml(currentUsername) + '\', ' + idx + ')">${t.share_post}</button>' +
+          '</div>' +
+          '<div class="post-body-text">' + formatPostTextClient(post.text || '') + '</div>' +
+          videoMarker +
+          mediaHtml +
+          '<div class="post-toolbar">' +
+            '<span class="post-metric" title="${t.like}">' +
+              '<span class="post-metric-icon">&#9825;</span>' +
+              '<span class="post-metric-label">${t.like}:</span>' +
+              '<span class="post-metric-val">' + (post.likes ? escHtml(post.likes) : '0') + '</span>' +
+            '</span>' +
+            '<button class="toolbar-btn comment-btn" onclick="toggleComments(\'' + escHtml(currentUsername) + '\', ' + idx + ', this)" title="${t.comments}">' +
+              '<span class="comment-label">${t.comments}</span>' +
+              '<span class="comment-count">' + (post.replies ? ' (' + escHtml(post.replies) + ')' : '') + '</span>' +
+            '</button>' +
+            '<a href="https://t.me/${esc(tgUser)}?start=sub_' + escHtml(currentUsername) + '" target="_blank" rel="noopener" class="toolbar-btn" style="margin-left:auto;">${t.in_bot}</a>' +
+          '</div>' +
+          '<div class="comments-box" id="comments-' + idx + '"></div>' +
+        '</article>';
+      }
+      feed.innerHTML = html;
+    }
+
     if (!isLoaded) {
       var stepIdx = 0;
       var stepsRu = [
@@ -1615,7 +1673,48 @@ export function renderProfilePage(
         .then(function(res) {
           clearInterval(stepInterval);
           if (res.ok && (res.posts || res.profile)) {
-            window.location.reload();
+            var box = document.getElementById('loadingBox');
+            if (box) box.style.display = 'none';
+
+            if (res.profile) {
+              if (res.profile.displayName) {
+                var el = document.querySelector('.profile-name');
+                if (el) el.innerText = res.profile.displayName;
+              }
+              if (res.profile.bio) {
+                var bioEl = document.querySelector('.profile-bio');
+                if (bioEl) {
+                  bioEl.innerHTML = formatPostTextClient(res.profile.bio);
+                } else {
+                  var pCard = document.querySelector('.profile-card');
+                  if (pCard) {
+                    var newBio = document.createElement('div');
+                    newBio.className = 'profile-bio';
+                    newBio.innerHTML = formatPostTextClient(res.profile.bio);
+                    var statsRow = document.querySelector('.profile-stats-row');
+                    pCard.insertBefore(newBio, statsRow);
+                  }
+                }
+              }
+              if (res.profile.avatar) {
+                var avBox = document.querySelector('.profile-avatar-box');
+                if (avBox) {
+                  avBox.innerHTML = '<img src="' + escHtml(res.profile.avatar) + '" data-orig="' + escHtml(res.profile.avatar) + '" class="profile-avatar-img" alt="' + escHtml(currentUsername) + '" referrerpolicy="no-referrer" onerror="if(!this.dataset.proxied){this.dataset.proxied=\'1\';this.src=\'/api/img?url=\'+encodeURIComponent(this.dataset.orig||this.src);}else{this.style.display=\'none\';}" />';
+                }
+              }
+              if (res.profile.followers) {
+                var folRow = document.querySelector('.profile-stats-row');
+                if (folRow && !folRow.innerText.includes(res.profile.followers)) {
+                  var folSpan = document.createElement('span');
+                  folSpan.innerText = '${t.followers_label}: ' + res.profile.followers;
+                  folRow.insertBefore(folSpan, folRow.firstChild);
+                }
+              }
+            }
+
+            renderPostsClient(res.posts || [], res.profile);
+            var moreSec = document.getElementById('loadMoreSection');
+            if (moreSec && res.posts && res.posts.length) moreSec.style.display = 'block';
           } else {
             var box = document.getElementById('loadingBox');
             var title = document.getElementById('loadingStatusTitle');
