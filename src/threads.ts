@@ -110,13 +110,8 @@ async function openBrowser(env: Env, account: Account): Promise<Opened> {
         userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         viewport: { width: 680, height: 900 },
       });
-      const page = await context.newPage();
-      // Открываем домен, прикрепляем куки, перезагружаем для синхронизации сессии
-      await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 20_000 });
-      await sleep(800);
       await addAccountCookies(context, account.cookies);
-      await page.reload({ waitUntil: "domcontentloaded", timeout: 20_000 });
-      await sleep(1000);
+      const page = await context.newPage();
       return { browser, context, page, startedAt: Date.now() };
     } catch (error) {
       await browser?.close().catch(() => {});
@@ -305,29 +300,27 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
     }
     if (all.length >= target) break;
     stall = added ? 0 : stall + 1;
+    if (stall >= 1 && all.length > 0) break;
     if (stall >= 2) break;
     await page.evaluate(() => window.scrollBy(0, 1100));
-    await sleep(1200);
+    await sleep(700);
   }
   return all.slice(0, target);
 }
 
 async function checkProfile(page: Page, env: Env, username: string): Promise<ThreadsStatus | null> {
-  // После openBrowser мы на главной. Если уже /login — сессия реально мертва.
-  if (isLoginUrl(page.url())) return "session_expired";
-  await page.goto(`${BASE(env)}/@${username}`, { waitUntil: "domcontentloaded", timeout: 25_000 });
-  await sleep(2000);
+  await page.goto(`${BASE(env)}/@${username}`, { waitUntil: "domcontentloaded", timeout: 20_000 });
+  await sleep(1500);
   const body = await page.locator("body").innerText().catch(() => "");
   if (isUserNotFoundPage(body)) return "user_not_found";
   if (isLoginUrl(page.url())) {
-    // Как в Python: несуществующий @username часто редиректит на /login.
+    // Несуществующий @username часто редиректит на /login.
     // Проверяем главную — если там залогинены, профиль просто не существует.
-    await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 20_000 });
-    await sleep(1500);
+    await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 15_000 });
+    await sleep(1000);
     if (isLoginUrl(page.url())) return "session_expired";
     return "user_not_found";
   }
-  await page.waitForSelector("span[dir='auto'],div[dir='auto']", { timeout: 5_000 }).catch(() => {});
   return null;
 }
 

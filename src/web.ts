@@ -1588,9 +1588,32 @@ export function renderProfilePage(
     }
 
     if (!isLoaded) {
+      var stepIdx = 0;
+      var stepsRu = [
+        'Запрашиваем профиль, посты и медиа с серверов Threads...',
+        'Подключение к защищенному шлюзу и чтение постов...',
+        'Загрузка медиафайлов и комментариев...',
+        'Формирование ленты постов...'
+      ];
+      var stepsEn = [
+        'Fetching profile, posts and media from Threads servers...',
+        'Connecting to secure gateway and reading posts...',
+        'Loading media and comments...',
+        'Preparing post feed...'
+      ];
+      var stepInterval = setInterval(function() {
+        stepIdx++;
+        var list = currentLang === 'en' ? stepsEn : stepsRu;
+        var txt = document.getElementById('loadingStatusText');
+        if (txt && stepIdx < list.length) {
+          txt.innerText = list[stepIdx];
+        }
+      }, 1800);
+
       fetch('/api/profile/' + encodeURIComponent(currentUsername))
         .then(function(res) { return res.json(); })
         .then(function(res) {
+          clearInterval(stepInterval);
           if (res.ok && (res.posts || res.profile)) {
             window.location.reload();
           } else {
@@ -1611,6 +1634,7 @@ export function renderProfilePage(
           }
         })
         .catch(function() {
+          clearInterval(stepInterval);
           var box = document.getElementById('loadingBox');
           var title = document.getElementById('loadingStatusTitle');
           var txt = document.getElementById('loadingStatusText');
