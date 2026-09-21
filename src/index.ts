@@ -4,7 +4,7 @@ import { adminIds, type Env } from "./config";
 import { Database } from "./db";
 import { diagnoseAccountCookies } from "./cookies";
 import { Telegram, type TelegramUpdate } from "./telegram";
-import { fetchComments, fetchProfileWithPosts, type ProfileData, type Comment } from "./threads";
+import { fetchComments, fetchProfileWithPosts, logSystem, type ProfileData, type Comment } from "./threads";
 import {
   detectLanguage,
   handleImageProxy,
@@ -89,9 +89,11 @@ export default {
     if (profileMatch) {
       const username = profileMatch[1].toLowerCase();
       const db = new Database(env);
-      if (!verifyAdmin(request, env)) {
+      const isAdmin = verifyAdmin(request, env);
+      if (!isAdmin) {
         ctx.waitUntil(db.logEvent(0, "web_view", username).catch(() => {}));
       }
+      ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (admin: ${isAdmin})`).catch(() => {}));
       const cached = await db.cache<ProfileData>(username, "web_profile");
       return renderProfilePage(env, username, cached, null, lang);
     }
@@ -104,22 +106,28 @@ export default {
       }
 
       const db = new Database(env);
-      if (!verifyAdmin(request, env)) {
+      const isAdmin = verifyAdmin(request, env);
+      if (!isAdmin) {
         ctx.waitUntil(db.logEvent(0, "web_api", username).catch(() => {}));
       }
+      await logSystem(env, "info", "api", `[API_REQ] Запрос профиля /api/profile/${username} (admin: ${isAdmin})`);
+
       // Сначала проверяем D1 кеш
       const cached = await db.cache<ProfileData>(username, "web_profile");
       if (cached) {
+        await logSystem(env, "info", "api", `[API_CACHE] Отдан кеш для @${username} (${cached.posts?.length || 0} постов)`);
         return Response.json({ ok: true, cached: true, ...cached });
       }
 
       // Если нет в кеше и есть браузер — запрашиваем
       if (!env.BROWSER) {
+        await logSystem(env, "error", "api", `[API_ERROR] Browser Run (env.BROWSER) отсутствует`);
         return Response.json({ ok: false, error: "Browser Run недоступен на этом плане Cloudflare" }, { status: 503 });
       }
 
       const counts = await db.accountCounts();
       if (!counts.alive) {
+        await logSystem(env, "warn", "api", `[API_ERROR] Нет активных аккаунтов (живых: 0 из ${counts.total})`);
         return Response.json({
           ok: false,
           error: "Нет активных технических аккаунтов Threads. Добавьте JSON cookies через Telegram-бот (/accounts).",
@@ -127,7 +135,9 @@ export default {
       }
 
       try {
+        await logSystem(env, "info", "api", `[API_FETCH] Запуск скрапера для @${username} (аккаунтов доступно: ${counts.alive})`);
         const fetched = await fetchProfileWithPosts(env, username, 20);
+        await logSystem(env, "info", "api", `[API_RESULT] @${username}: status=${fetched.status}, постов=${fetched.data?.posts?.length || 0}`);
         if (fetched.status === "ok" && fetched.data) {
           await db.setCache(username, "web_profile", fetched.data);
           return Response.json({ ok: true, cached: false, ...fetched.data });
@@ -138,6 +148,7 @@ export default {
           error: fetched.status === "user_not_found" ? "Профиль не найден в Threads" : (fetched.error || fetched.status),
         });
       } catch (err) {
+        await logSystem(env, "error", "api", `[API_EXCEPTION] Ошибка сбора @${username}: ${err}`);
         return Response.json({ ok: false, error: String(err) }, { status: 500 });
       }
     }

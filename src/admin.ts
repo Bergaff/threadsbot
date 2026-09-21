@@ -766,6 +766,7 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
           Системный журнал событий и ошибок (${logs.length})
         </div>
         <div style="display:flex;gap:6px;">
+          <button class="btn-admin" onclick="copyLogs(this)">Скопировать логи</button>
           <button class="btn-admin" onclick="refreshLogs(this)">Обновить логи</button>
           <button class="btn-admin btn-admin-danger" onclick="clearLogs(this)">Очистить</button>
         </div>
@@ -789,6 +790,28 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
       if (toastTimer) clearTimeout(toastTimer);
       if (duration > 0) {
         toastTimer = setTimeout(function() { t.style.display = 'none'; }, duration);
+      }
+    }
+
+    function copyLogs(btn) {
+      var c = document.getElementById('logsContainer');
+      if (!c) return;
+      var text = c.innerText;
+      if (!text || text.indexOf('Логов пока нет') !== -1) {
+        showToast('Журнал пуст');
+        return;
+      }
+      if (navigator.clipboard) {
+        var orig = btn.innerText;
+        navigator.clipboard.writeText(text).then(function() {
+          showToast('Логи скопированы в буфер обмена');
+          btn.innerText = 'Скопировано!';
+          setTimeout(function() { btn.innerText = orig; }, 2000);
+        }).catch(function() {
+          showToast('Не удалось скопировать в буфер');
+        });
+      } else {
+        showToast('Буфер обмена недоступен');
       }
     }
 

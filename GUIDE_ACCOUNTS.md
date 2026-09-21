@@ -219,7 +219,7 @@ Python-файлы (`bot.py`, `threads_check.py`) не трогались.
 2. Смена **Production branch** в Cloudflare **сама ничего не выкатывает**. Билд стартует от нового коммита или кнопки Retry build.
 3. Git Builds: Build command = `npm run build`, Deploy command = `npx wrangler deploy`.
 4. **Queues и Browser Rendering есть только на Workers Paid ($5).** На Free кнопки «Текст/Скрины» физически не могут открыть Threads: апдейт уходит в очередь, которой нет, и молча пропадает. Команды `/start` и загрузка JSON при этом могут работать.
-5. Проверка, какой код живой: в боте `/diag` (админ) или `GET /health`. Должно быть `"version": "pr8-2026-09-21-ux"`. Если `unknown` — задеплоен старый worker.
+5. Проверка, какой код живой: в боте `/diag` (админ) или `GET /health`. Должно быть `"version": "pr9-2026-09-21-ux"`. Если `unknown` — задеплоен старый worker.
 
 ### Colab: выкатить Arena-ветку, не мержа `main`
 

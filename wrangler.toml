@@ -51,5 +51,5 @@ head_sampling_rate = 1
 ADMIN_IDS = "369330135,657708753"
 STATS_EXCLUDE_IDS = "369330135,657708753"
 BASE_URL = "https://www.threads.com"
-VERSION = "pr8-2026-09-21-ux"
+VERSION = "pr9-2026-09-21-ux"
 BOT_USERNAME = "threadsreaderbot"

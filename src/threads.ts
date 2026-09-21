@@ -109,7 +109,7 @@ function isBrowserRateLimit(error: unknown) {
   return value.includes("429") || /rate limit|too many requests/i.test(value);
 }
 
-async function openBrowser(env: Env, account: Account, shouldReload = false): Promise<Opened> {
+async function openBrowser(env: Env, account: Account): Promise<Opened> {
   for (let attempt = 0; attempt < 2; attempt++) {
     await waitForBrowserSlot(env);
     await logBrowser(env, "browser_launch");
@@ -122,14 +122,12 @@ async function openBrowser(env: Env, account: Account, shouldReload = false): Pr
         viewport: { width: 680, height: 900 },
       });
       const page = await context.newPage();
-      // Открываем домен, прикрепляем куки сессии
+      // Открываем домен, прикрепляем куки, перезагружаем для синхронизации сессии в Meta
       await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {});
-      await sleep(400);
+      await sleep(500);
       await addAccountCookies(context, account.cookies);
-      if (shouldReload) {
-        await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {});
-        await sleep(800);
-      }
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {});
+      await sleep(800);
       return { browser, context, page, startedAt: Date.now() };
     } catch (error) {
       await browser?.close().catch(() => {});
@@ -673,7 +671,7 @@ export async function probeAccount(env: Env, name: string): Promise<{ name: stri
   let opened: Opened | undefined;
   try {
     await logSystem(env, "info", "probe", `Запуск теста сессии для [${name}] в браузере Threads...`);
-    opened = await openBrowser(env, account, true);
+    opened = await openBrowser(env, account);
     if (isLoginUrl(opened.page.url())) {
       await markSessionExpired(env, name);
       await logSystem(env, "error", "probe", `Тест [${name}] провален: сессия истекла (редирект на /login)`);
@@ -709,7 +707,7 @@ export async function refreshAccountCookies(
 
   let opened: Opened | undefined;
   try {
-    opened = await openBrowser(env, account, true);
+    opened = await openBrowser(env, account);
     if (isLoginUrl(opened.page.url())) {
       await markSessionExpired(env, name);
       return { name, ok: false, message: "Сессия уже истекла в Threads, требуется свежий логин" };
