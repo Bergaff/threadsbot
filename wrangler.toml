@@ -53,7 +53,7 @@ STATS_EXCLUDE_IDS = "369330135,657708753"
 BASE_URL = "https://www.threads.com"
 SITE_URL = "https://threadsviewer.online"
 SITE_DOMAIN = "threadsviewer.online"
-VERSION = "pr23-2026-09-21-ux"
+VERSION = "pr24-2026-09-21-ux"
 BOT_USERNAME = "threadsreaderbot"
 
 # Custom domain

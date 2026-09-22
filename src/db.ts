@@ -47,10 +47,10 @@ export class Database {
     return { ...row, expires_at, active: delta > 0, days_left: Math.max(0, Math.floor(delta/86_400_000)) };
   }
   async hasSubscription(uid: number) { return (await this.subscription(uid))?.active === true; }
-  async activate(uid: number, method: string, amount: number): Promise<Date> {
+  async activate(uid: number, method: string, amount: number, days: number = LIMITS.subscriptionDays): Promise<Date> {
     const old = await this.subscription(uid);
     const base = old?.active ? new Date(String(old.expires_at)) : new Date();
-    const expiry = new Date(base.getTime() + LIMITS.subscriptionDays*86_400_000);
+    const expiry = new Date(base.getTime() + days * 86_400_000);
     await this.db.batch([
       this.db.prepare("INSERT INTO subscriptions(user_id,expires_at,payment_method,total_paid,payments_count) VALUES(?,?,?,?,1) ON CONFLICT(user_id) DO UPDATE SET expires_at=excluded.expires_at,payment_method=excluded.payment_method,total_paid=total_paid+excluded.total_paid,payments_count=payments_count+1").bind(uid,expiry.toISOString(),method,amount),
       this.db.prepare("INSERT INTO payments_log(user_id,amount,method,timestamp) VALUES(?,?,?,?)").bind(uid,String(amount),method,now()),

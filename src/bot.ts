@@ -20,7 +20,15 @@ export class Bot {
 
  async update(update:TelegramUpdate){if(update.pre_checkout_query){await this.tg.answerPreCheckoutQuery(update.pre_checkout_query.id);return}if(update.callback_query){await this.callback(update.callback_query);return}if(update.message)await this.message(update.message)}
  private async message(m:TgMessage){if(!m.from)return;const uid=m.from.id,cid=m.chat.id,raw=(m.text||m.caption||"").trim();if(await this.db.isBanned(uid))return;this.tg.sendChatAction(cid,"typing").catch(()=>{});
-  if(m.successful_payment){const exp=await this.db.activate(uid,"stars",m.successful_payment.total_amount);await this.db.logEvent(uid,"subscribe","stars");await this.tg.sendMessage(cid,`🎉 <b>${text("paid",await this.lang(uid))}!</b> ${text("until",await this.lang(uid))} ${fmtDate(exp)}`);return}
+  if(m.successful_payment){
+    const payload = m.successful_payment.invoice_payload || "";
+    const isWeek = payload.endsWith("_7") || m.successful_payment.total_amount <= 50;
+    const days = isWeek ? LIMITS.subscriptionDaysWeek : LIMITS.subscriptionDays;
+    const exp=await this.db.activate(uid,"stars",m.successful_payment.total_amount, days);
+    await this.db.logEvent(uid,"subscribe",`stars:${days}d`);
+    await this.tg.sendMessage(cid,`🎉 <b>${text("paid",await this.lang(uid))}!</b> ${text("until",await this.lang(uid))} ${fmtDate(exp)}`);
+    return;
+  }
   if(m.reply_to_message?.from?.is_bot){await this.replyComments(m);return}
   const waiting=await this.db.state(uid,"waiting_support");if(waiting){await this.supportInput(m,waiting);return}
   const adminReply=await this.db.state(uid,"admin_reply");if(adminReply&&isAdmin(this.env,uid)){await this.adminReply(m,Number(adminReply));return}
@@ -35,7 +43,7 @@ export class Bot {
  private async help(m:TgMessage){let value=text("help",await this.lang(m.from!.id));if(isAdmin(this.env,m.from!.id))value+="\n\n🔐 /admin\n🧭 /diag\n📂 /accounts\n🩺 /account_check\n🗑 /account_del имя\n📦 /account_export имя\n➕ Пришли JSON файл (подпись = имя аккаунта) — добавить";await this.tg.sendMessage(m.chat.id,value);this.removeButtons(m.chat.id).catch(()=>{})}
  private async terms(m:TgMessage){await this.tg.sendMessage(m.chat.id,text("terms",await this.lang(m.from!.id)))}
  private async acquireLock(cid:number,lang:string):Promise<boolean>{const lock=await this.db.state(cid,"fetch_lock");if(lock&&Date.now()-Number(lock)<180_000){await this.tg.sendMessage(cid,text("please_wait",lang));return false}await this.db.setState(cid,"fetch_lock",String(Date.now()));return true}
- private async subscribe(m:TgMessage){const uid=m.from!.id,cid=m.chat.id,lang=await this.lang(uid),sub=await this.db.subscription(uid);if(sub?.active){await this.buttons(cid,`✅ ${text("until",lang)} ${String(sub.expires_at).slice(0,10)} (${sub.days_left} ${text("days",lang)})`,kb([[{text:`🔄 ${text("renew",lang)}`,callback_data:"sub:choose"}]]));return}const u=await this.db.usage(uid);await this.buttons(cid,`📱 <b>${text("subscription",lang)} — 30 ${text("days",lang)}</b>\n✅ ${text("unlimited",lang)}\n🆓 ${text("left_today",lang)}: ${Math.max(0,LIMITS.freeDaily-u.daily)}`,kb([[{text:`💳 ${text("subscribe",lang)}`,callback_data:"sub:choose"}]]))}
+ private async subscribe(m:TgMessage){const uid=m.from!.id,cid=m.chat.id,lang=await this.lang(uid),sub=await this.db.subscription(uid);if(sub?.active){await this.buttons(cid,`✅ ${text("until",lang)} ${String(sub.expires_at).slice(0,10)} (${sub.days_left} ${text("days",lang)})`,kb([[{text:`🔄 ${text("renew",lang)}`,callback_data:"sub:choose"}]]));return}const u=await this.db.usage(uid);const title=lang==="en"?`📱 <b>Premium Subscription</b>\n\n⚡ Unlimited post reading & media viewer\n⚡ Anonymous creator tracking (/track)\n⚡ Ad-free web mirror (threadsviewer.online)\n\n🆓 Free requests left today: ${Math.max(0,LIMITS.freeDaily-u.daily)}`:`📱 <b>Премиум подписка</b>\n\n⚡ Безлимитное чтение постов и медиа\n⚡ Анонимный мониторинг авторов (/track)\n⚡ Веб-зеркало без рекламы (threadsviewer.online)\n\n🆓 Осталось бесплатных запросов на сегодня: ${Math.max(0,LIMITS.freeDaily-u.daily)}`;await this.buttons(cid,title,kb([[{text:`💳 ${text("subscribe",lang)}`,callback_data:"sub:choose"}]]));}
  private async status(m:TgMessage){const uid=m.from!.id,lang=await this.lang(uid),sub=await this.db.subscription(uid);if(sub?.active)await this.tg.sendMessage(m.chat.id,`✅ <b>${text("active",lang)}</b> ${text("until",lang)} ${String(sub.expires_at).slice(0,10)} (${sub.days_left} ${text("days",lang)})\n/web — персональная ссылка на сайт`);else{const u=await this.db.usage(uid);await this.tg.sendMessage(m.chat.id,`❌ <b>${text("no_sub_short",lang)}</b>\n🆓 ${text("left_today",lang)}: ${Math.max(0,LIMITS.freeDaily-u.daily)}\n/subscribe\n/web — привязать сайт`)}}
  private async webLink(m:TgMessage){const uid=m.from!.id,cid=m.chat.id,lang=await this.lang(uid),sub=await this.db.subscription(uid);const token=await createAuthToken(uid,this.env.WEBHOOK_SECRET);const siteBase=this.env.SITE_URL||"https://threadsviewer.online";const link=`${siteBase}/?auth=${token}`;if(sub?.active){await this.buttons(cid,`⭐ <b>${lang==="en"?"Web Viewer: Ad-Free Premium":"Веб-зеркало: Премиум без рекламы"}</b>\n\n${lang==="en"?"Your subscription is active until":"Ваша подписка активна до"} ${String(sub.expires_at).slice(0,10)} (${sub.days_left} ${text("days",lang)}).\n\n${lang==="en"?"Open the website with this auth token to disable all ads:":"Откройте сайт с этим токеном для отключения рекламы:"}\n\n<code>?auth=${token}</code>`,kb([[{text:lang==="en"?"🌐 Open site (no ads)":"🌐 Открыть сайт без рекламы",url:link}]]));}else{await this.buttons(cid,`🌐 <b>${lang==="en"?"Web Viewer Sync":"Синхронизация с веб-зеркалом"}</b>\n\n${lang==="en"?"Your personal auth token for the site:":"Ваш токен для авторизации на сайте:"}\n<code>?auth=${token}</code>\n\n${lang==="en"?"Subscribe via /subscribe to get unlimited bot access AND disable all ads on the website!":"Оформите подписку через /subscribe, чтобы снять лимиты в боте И отключить рекламу на сайте!"}`,kb([[{text:lang==="en"?"💳 Subscribe":"💳 Оформить подписку",callback_data:"sub:choose"}],[{text:lang==="en"?"🌐 Open website":"🌐 Открыть сайт",url:link}]]));}}
  private async track(m:TgMessage,explicitTarget?:string){const uid=m.from!.id,cid=m.chat.id,lang=await this.lang(uid);const raw=explicitTarget||(m.text||"").replace(/^\/track(@\w+)?/i,"").trim();if(!raw){await this.tg.sendMessage(cid,lang==="en"?"Send <code>/track @username</code> to enable anonymous monitoring of new posts.\n\nYour tracked creators: /tracks":"Отправьте <code>/track @username</code>, чтобы включить анонимный мониторинг новых постов.\n\nСписок отслеживаемых: /tracks");return}const target=parseThreadsUsername(raw);if(!target){await this.tg.sendMessage(cid,lang==="en"?"Invalid Threads username.":"Некорректный username автора.");return}const res=await this.db.addTrack(uid,target);if(!res.ok){if(res.error==="free_limit"){await this.buttons(cid,lang==="en"?"[PRO] <b>Anonymous Creator Tracking</b>\n\nTracking new posts without following is available on the Premium plan.\n\nSubscribe via /subscribe to track up to 5 creators and get notified of new posts in Telegram!":"[PRO] <b>Анонимный мониторинг авторов</b>\n\nОтслеживание новых постов без подписки на автора доступно на тарифе Премиум.\n\nОформите подписку через /subscribe, чтобы отслеживать до 5 авторов и получать их посты в Telegram!",kb([[{text:text("subscribe",lang),callback_data:"sub:choose"}]]));}else{await this.tg.sendMessage(cid,lang==="en"?`Limit reached: you are already tracking ${res.count}/${res.max} creators.\nUse <code>/untrack @username</code> to remove one.`:`Достигнут лимит: вы уже отслеживаете ${res.count}/${res.max} авторов.\nИспользуйте <code>/untrack @username</code>, чтобы удалить автора.`);}return}await this.tg.sendMessage(cid,lang==="en"?`[+] Tracking enabled for <b>@${esc(target)}</b>!\n\nAs soon as a new post is published, the bot will deliver it here.\nActive tracks: ${res.count}/${res.max}.\n\nList: /tracks\nStop tracking: <code>/untrack @${esc(target)}</code>`:`[+] Анонимный мониторинг для <b>@${esc(target)}</b> активирован!\n\nКак только появится новый пост, бот пришлет его вам сюда.\nОтслеживается: ${res.count}/${res.max}.\n\nСписок: /tracks\nОтписаться: <code>/untrack @${esc(target)}</code>`);}
@@ -64,9 +72,68 @@ export class Bot {
  }
  private async username(m:TgMessage,raw:string){const username=parseThreadsUsername(raw),uid=m.from!.id,lang=await this.lang(uid);if(!username){await this.tg.sendMessage(m.chat.id,text("invalid_username",lang));return}const access=await this.access(uid);if(!access.ok){await this.db.logEvent(uid,"free_exhausted",access.kind);await this.buttons(m.chat.id,`${access.note}\n\n<b>${text("subscribe_unlocks",lang)}</b>`,kb([[{text:text("subscribe_btn",lang),callback_data:"sub:choose"}]]));return}const [limited,counts]=await Promise.all([this.db.rateLimit(uid),this.db.accountCounts()]);if(limited){await this.tg.sendMessage(m.chat.id,`⏳ ${limited}`);return}if(!counts.alive){await this.alert("Все аккаунты мертвы!");await this.tg.sendMessage(m.chat.id,text("no_accounts",lang));return}await this.buttons(m.chat.id,`🔍 <b>@${esc(username)}</b> — ${text("format",lang)}:${access.note?`\n${access.note}`:""}`,kb([[{text:text("text_btn",lang),callback_data:`text:${username}:0`},{text:text("screens_btn",lang),callback_data:`img:${username}:0`}]])) }
 
- private async callback(cb:CallbackQuery){if(!cb.data||!cb.message)return;const d=cb.data,uid=cb.from.id,cid=cb.message.chat.id;if(!d.startsWith("sub:check:")&&!d.startsWith("set_lang:"))await this.tg.answerCallbackQuery(cb.id).catch(()=>{});if(d.startsWith("set_lang:")){const lang=d.split(":")[1];await this.db.setLang(uid,languages.includes(lang as any)?lang:"en");await this.tg.answerCallbackQuery(cb.id,{text:text("language_set",lang)}).catch(()=>{});await this.tg.deleteMessage(cid,cb.message.message_id).catch(()=>{});const fake:{message_id:number;chat:{id:number};from:any}={message_id:0,chat:{id:cid},from:cb.from};await this.start(fake);return}if(d==="sub:choose"){const lang=await this.lang(uid);await this.buttons(cid,text("payment_method",lang),kb([[{text:`⭐ Stars (${LIMITS.priceStars}⭐)`,callback_data:"sub:stars"}],[{text:`💎 Crypto (${LIMITS.priceCryptoUsd}$)`,callback_data:"sub:crypto"}]]));return}if(d==="sub:stars"){const lang=await this.lang(uid);await this.tg.sendInvoice(cid,`${text("subscription",lang)} Threads Bot`,`30 ${text("days",lang)}`,`sub_${uid}`,LIMITS.priceStars);return}if(d==="sub:crypto")return this.crypto(cid,uid);if(d.startsWith("sub:check:"))return this.cryptoCheck(cb,Number(d.split(":")[2]));if(d.startsWith("sup:"))return this.supportCallback(cb);if(d.startsWith("ticket:"))return this.ticketCallback(cb);if(d.startsWith("adm:"))return this.adminCallback(cb);if(d.startsWith("cmt:"))return this.commentsPage(cb);if(/^(text|img):[\w.]+:\d+$/.test(d))return this.choice(cb)}
- private async crypto(cid:number,uid:number){const lang=await this.lang(uid),response=await fetch("https://pay.crypt.bot/api/createInvoice",{method:"POST",headers:{"content-type":"application/json","Crypto-Pay-API-Token":this.env.CRYPTO_BOT_TOKEN},body:JSON.stringify({asset:"USDT",amount:String(LIMITS.priceCryptoUsd),description:"Threads Bot Subscription — 30 days",payload:String(uid),paid_btn_name:"callback",paid_btn_url:`https://t.me/${(await this.tg.getMe()).username}`})});const data:any=await response.json();if(!data.ok){await this.tg.sendMessage(cid,"❌ Error.");return}await this.buttons(cid,`💎 <b>${LIMITS.priceCryptoUsd} USDT</b>\n${text("after_payment",lang)} «${text("i_paid",lang)}».`,kb([[{text:`💎 ${text("pay",lang)}`,url:data.result.pay_url}],[{text:`✅ ${text("i_paid",lang)}`,callback_data:`sub:check:${data.result.invoice_id}`}]]))}
- private async cryptoCheck(cb:CallbackQuery,id:number){const response=await fetch(`https://pay.crypt.bot/api/getInvoices?invoice_ids=${id}`,{headers:{"Crypto-Pay-API-Token":this.env.CRYPTO_BOT_TOKEN}}),data:any=await response.json(),lang=await this.lang(cb.from.id);if(data.ok&&data.result.items?.[0]?.status==="paid"){const exp=await this.db.activate(cb.from.id,"crypto",LIMITS.priceCryptoUsd);await this.db.logEvent(cb.from.id,"subscribe","crypto");await this.tg.answerCallbackQuery(cb.id,{text:"✅!",show_alert:true}).catch(()=>{});await this.tg.editText(cb.message!.chat.id,cb.message!.message_id,`🎉 <b>${text("paid",lang)}!</b> ${text("until",lang)} ${fmtDate(exp)}`)}else await this.tg.answerCallbackQuery(cb.id,{text:`⏳ ${text("not_found",lang)}`,show_alert:true}).catch(()=>{})}
+ private async callback(cb:CallbackQuery){if(!cb.data||!cb.message)return;const d=cb.data,uid=cb.from.id,cid=cb.message.chat.id;if(!d.startsWith("sub:check:")&&!d.startsWith("set_lang:"))await this.tg.answerCallbackQuery(cb.id).catch(()=>{});if(d.startsWith("set_lang:")){const lang=d.split(":")[1];await this.db.setLang(uid,languages.includes(lang as any)?lang:"en");await this.tg.answerCallbackQuery(cb.id,{text:text("language_set",lang)}).catch(()=>{});await this.tg.deleteMessage(cid,cb.message.message_id).catch(()=>{});const fake:{message_id:number;chat:{id:number};from:any}={message_id:0,chat:{id:cid},from:cb.from};await this.start(fake);return}  if(d==="sub:choose"){
+    const lang=await this.lang(uid);
+    const isEn = lang==="en";
+    const title = isEn ? "Choose your subscription plan:" : "Выберите подходящий тариф:";
+    await this.buttons(cid, title, kb([
+      [{text: isEn ? `⚡ 7 days — ${LIMITS.priceStarsWeek} ⭐ (Stars)` : `⚡ 7 дней — ${LIMITS.priceStarsWeek} ⭐ (Звёзды)`, callback_data:"sub:stars:7"}],
+      [{text: isEn ? `⚡ 7 days — ${LIMITS.priceCryptoUsdWeek} $ (USDT)` : `⚡ 7 дней — ${LIMITS.priceCryptoUsdWeek} $ (USDT)`, callback_data:"sub:crypto:7"}],
+      [{text: isEn ? `👑 30 days — ${LIMITS.priceStarsMonth} ⭐ (Stars)` : `👑 30 дней — ${LIMITS.priceStarsMonth} ⭐ (Звёзды)`, callback_data:"sub:stars:30"}],
+      [{text: isEn ? `👑 30 days — ${LIMITS.priceCryptoUsdMonth} $ (USDT)` : `👑 30 дней — ${LIMITS.priceCryptoUsdMonth} $ (USDT)`, callback_data:"sub:crypto:30"}],
+    ]));
+    return;
+  }
+  if(d==="sub:stars" || d.startsWith("sub:stars:")){
+    const days = d.split(":")[2] === "7" ? 7 : 30;
+    const price = days === 7 ? LIMITS.priceStarsWeek : LIMITS.priceStarsMonth;
+    const lang=await this.lang(uid);
+    await this.tg.sendInvoice(cid,`${text("subscription",lang)} Threads Bot (${days} ${text("days",lang)})`,`${days} ${text("days",lang)}`,`sub_${uid}_${days}`,price);
+    return;
+  }
+  if(d==="sub:crypto" || d.startsWith("sub:crypto:")){
+    const days = d.split(":")[2] === "7" ? 7 : 30;
+    return this.crypto(cid,uid,days);
+  }
+  if(d.startsWith("sub:check:")){
+    const parts = d.split(":");
+    const id = Number(parts[2]);
+    const days = Number(parts[3] || 30);
+    return this.cryptoCheck(cb, id, days);
+  }if(d.startsWith("sup:"))return this.supportCallback(cb);if(d.startsWith("ticket:"))return this.ticketCallback(cb);if(d.startsWith("adm:"))return this.adminCallback(cb);if(d.startsWith("cmt:"))return this.commentsPage(cb);if(/^(text|img):[\w.]+:\d+$/.test(d))return this.choice(cb)}
+ private async crypto(cid:number,uid:number,days=30){
+   const lang=await this.lang(uid);
+   const amount = days===7 ? LIMITS.priceCryptoUsdWeek : LIMITS.priceCryptoUsdMonth;
+   const response=await fetch("https://pay.crypt.bot/api/createInvoice",{
+     method:"POST",
+     headers:{"content-type":"application/json","Crypto-Pay-API-Token":this.env.CRYPTO_BOT_TOKEN},
+     body:JSON.stringify({
+       asset:"USDT",
+       amount:String(amount),
+       description:`Threads Bot Subscription — ${days} days`,
+       payload:`${uid}:${days}`,
+       paid_btn_name:"callback",
+       paid_btn_url:`https://t.me/${(await this.tg.getMe()).username}`
+     })
+   });
+   const data:any=await response.json();
+   if(!data.ok){await this.tg.sendMessage(cid,"❌ Error.");return}
+   await this.buttons(cid,`💎 <b>${amount} USDT (${days} ${text("days",lang)})</b>\n${text("after_payment",lang)} «${text("i_paid",lang)}».`,kb([[{text:`💎 ${text("pay",lang)}`,url:data.result.pay_url}],[{text:`✅ ${text("i_paid",lang)}`,callback_data:`sub:check:${data.result.invoice_id}:${days}`}]]));
+ }
+ private async cryptoCheck(cb:CallbackQuery,id:number,days=30){
+   const response=await fetch(`https://pay.crypt.bot/api/getInvoices?invoice_ids=${id}`,{headers:{"Crypto-Pay-API-Token":this.env.CRYPTO_BOT_TOKEN}});
+   const data:any=await response.json();
+   const lang=await this.lang(cb.from.id);
+   if(data.ok&&data.result.items?.[0]?.status==="paid"){
+     const amount = days===7 ? LIMITS.priceCryptoUsdWeek : LIMITS.priceCryptoUsdMonth;
+     const exp=await this.db.activate(cb.from.id,"crypto",amount,days);
+     await this.db.logEvent(cb.from.id,"subscribe",`crypto:${days}d`);
+     await this.tg.answerCallbackQuery(cb.id,{text:"✅!",show_alert:true}).catch(()=>{});
+     await this.tg.editText(cb.message!.chat.id,cb.message!.message_id,`🎉 <b>${text("paid",lang)}!</b> ${text("until",lang)} ${fmtDate(exp)}`);
+   } else {
+     await this.tg.answerCallbackQuery(cb.id,{text:`⏳ ${text("not_found",lang)}`,show_alert:true}).catch(()=>{});
+   }
+ }
  private async supportCallback(cb:CallbackQuery){const d=cb.data!,uid=cb.from.id,cid=cb.message!.chat.id,lang=await this.lang(uid);if(d.startsWith("sup:write:")){const type=d.split(":")[2];await this.db.setState(uid,"waiting_support",type);await this.buttons(cid,`${type==="suggestion"?"💡":"❓"} <b>${text(type==="suggestion"?"suggestion":"question",lang)}</b>\n\nSend your message:`,kb([[{text:"❌ Cancel",callback_data:"sup:cancel"}]]));return}if(d==="sup:cancel"){await this.db.clearState(uid,"waiting_support");await this.tg.editText(cid,cb.message!.message_id,"❌ Cancelled.");return}const tickets=await this.db.tickets(uid);let value=tickets.length?`📋 <b>${text("my_tickets",lang)}:</b>\n\n`: `📋 ${text("my_tickets",lang)}: —`;for(const t of tickets)value+=`${t.status==="answered"?"✅":"⏳"}${t.ticket_type==="suggestion"?"💡":"❓"} <b>#${t.id}</b> (${String(t.created_at).slice(0,10)})\n   ${esc(String(t.message).slice(0,80))}\n${t.answer?`   💬 ${esc(String(t.answer).slice(0,80))}\n`:""}\n`;await this.buttons(cid,value,kb([[{text:`❓ ${text("question",lang)}`,callback_data:"sup:write:question"},{text:`💡 ${text("suggestion",lang)}`,callback_data:"sup:write:suggestion"}]]))}
  private async ticketCallback(cb:CallbackQuery){if(!isAdmin(this.env,cb.from.id))return;if(cb.data==="ticket:cancel"){await this.db.clearState(cb.from.id,"admin_reply");await this.tg.editText(cb.message!.chat.id,cb.message!.message_id,"❌ Cancelled.");return}const id=Number(cb.data!.split(":")[2]);await this.db.setState(cb.from.id,"admin_reply",String(id));await this.buttons(cb.message!.chat.id,`💬 Reply to <b>#${id}</b>:`,kb([[{text:"❌ Cancel",callback_data:"ticket:cancel"}]]))}
  private async adminCallback(cb:CallbackQuery){

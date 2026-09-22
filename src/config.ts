@@ -22,9 +22,14 @@ export interface Env {
 }
 
 export const LIMITS = {
-  priceStars: 150,
+  priceStarsMonth: 149,
+  priceStarsWeek: 49,
+  priceCryptoUsdMonth: 2.5,
+  priceCryptoUsdWeek: 1.0,
+  priceStars: 149,
   priceCryptoUsd: 2.5,
   subscriptionDays: 30,
+  subscriptionDaysWeek: 7,
   freeMonthly: 60,
   freeDaily: 5,
   perMinute: 3,

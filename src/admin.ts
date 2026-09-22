@@ -726,7 +726,8 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         </div>
         <div style="display:flex;gap:6px;">
           <button class="btn-admin" onclick="checkWebhookStatus(this)">Проверить вебхук</button>
-          <button class="btn-admin btn-admin-primary" onclick="syncWebhook(this)">Привязать к threadsviewer.online</button>
+          <button class="btn-admin btn-admin-primary" onclick="syncWebhook(this, false)">Привязать к threadsviewer.online</button>
+          <button class="btn-admin" onclick="syncWebhook(this, true)" title="Сбросить старые зависшие сообщения">Очистить очередь и привязать</button>
         </div>
       </div>
       <div id="webhookStatusBox" style="font-size:0.85rem;color:#aaa;line-height:1.6;background:#141414;padding:12px 14px;border:1px solid #282828;">
@@ -875,11 +876,14 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         });
     }
 
-    function syncWebhook(btn) {
-      if (!confirm('Привязать Telegram Webhook к текущему домену threadsviewer.online?')) return;
+    function syncWebhook(btn, dropPending) {
+      var msg = dropPending
+        ? 'Привязать Telegram Webhook к threadsviewer.online И сбросить все старые зависшие сообщения?'
+        : 'Привязать Telegram Webhook к текущему домену threadsviewer.online?';
+      if (!confirm(msg)) return;
       var orig = btn ? btn.innerText : '';
       if (btn) { btn.disabled = true; btn.innerText = 'Привязка...'; }
-      fetch('/admin/api/webhook/sync', { method: 'POST' })
+      fetch('/admin/api/webhook/sync' + (dropPending ? '?drop=1' : ''), { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }

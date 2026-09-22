@@ -1578,7 +1578,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr23";
+  const ver = env.VERSION || "pr24";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2029,9 +2029,9 @@ export function renderProfilePage(
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <link rel="canonical" href="${canonicalUrl}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr23')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr23')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr23')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr24')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr24')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr24')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">

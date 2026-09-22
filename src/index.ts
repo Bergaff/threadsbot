@@ -79,15 +79,16 @@ export default {
     }
 
     if (url.pathname === "/setup-webhook") {
-      if (request.method !== "POST") {
+      const auth = request.headers.get("authorization");
+      const secretParam = url.searchParams.get("secret");
+      const isAuth = auth === `Bearer ${env.WEBHOOK_SECRET}` || secretParam === env.WEBHOOK_SECRET;
+      if (!isAuth) {
         return Response.json({
           ok: false,
-          error: "Send POST /setup-webhook with Authorization: Bearer <WEBHOOK_SECRET>, or use Admin panel (/admin) to sync webhook."
-        }, { status: 405 });
+          error: "Unauthorized. Pass ?secret=YOUR_WEBHOOK_SECRET in URL or Authorization: Bearer <secret>"
+        }, { status: 401 });
       }
-      if (request.headers.get("authorization") !== `Bearer ${env.WEBHOOK_SECRET}`) {
-        return new Response("Unauthorized", { status: 401 });
-      }
+      const dropPending = url.searchParams.get("drop_pending") === "1" || url.searchParams.get("drop") === "true";
       const webhook = `${url.origin}/telegram/${env.WEBHOOK_SECRET}`;
       const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/setWebhook`, {
         method: "POST",
@@ -96,18 +97,27 @@ export default {
           url: webhook,
           secret_token: env.WEBHOOK_SECRET,
           allowed_updates: ["message", "callback_query", "pre_checkout_query"],
-          drop_pending_updates: false,
+          drop_pending_updates: dropPending,
         }),
       });
-      return new Response(response.body, { status: response.status, headers: { "content-type": "application/json" } });
+      const data = await response.json<any>();
+      return Response.json({
+        ok: Boolean(data.ok),
+        registered_url: webhook,
+        drop_pending_updates: dropPending,
+        telegram_response: data
+      });
     }
 
-    if (url.pathname === `/telegram/${env.WEBHOOK_SECRET}`) {
+    if (url.pathname.startsWith("/telegram/")) {
+      const pathSecret = url.pathname.slice("/telegram/".length).replace(/\/$/, "");
+      const headerSecret = request.headers.get("x-telegram-bot-api-secret-token");
+      const isAuthorized = pathSecret === env.WEBHOOK_SECRET || headerSecret === env.WEBHOOK_SECRET;
+      if (!isAuthorized) {
+        return new Response("Forbidden", { status: 403 });
+      }
       if (request.method !== "POST") {
         return new Response("Method not allowed", { status: 405 });
-      }
-      if (request.headers.get("x-telegram-bot-api-secret-token") !== env.WEBHOOK_SECRET) {
-        return new Response("Forbidden", { status: 403 });
       }
 
       const update = await request.json<TelegramUpdate>();
