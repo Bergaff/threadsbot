@@ -1319,7 +1319,7 @@ const I18N = {
   ru: {
     home_title: "Threads Viewer - Смотреть и читать Threads без VPN онлайн",
     home_desc: "Анонимный просмотр профилей, постов, фото и комментариев в Threads без VPN и регистрации. Удобный веб-ридер с поиском по авторам.",
-    keywords: "threads без впн, смотреть тредс онлайн, читать threads анонимно, threads viewer, threads reader, threads без регистрации, профили threads, зеркало threads, тредс инстаграм, threads online",
+    keywords: "threads без впн, смотреть тредс онлайн, читать threads анонимно, threads viewer, threads reader, threads без регистрации, профили threads, зеркало threads, тредс инстаграм, threads online, threads анонимно, threads войти, threads net что это за приложение",
     search_placeholder: "Поиск @username...",
     hero_search_placeholder: "Введите @username или threads.com/@...",
     hero_tag: "Анонимное веб-зеркало",
@@ -1578,7 +1578,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr21";
+  const ver = env.VERSION || "pr22";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2029,9 +2029,9 @@ export function renderProfilePage(
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <link rel="canonical" href="${canonicalUrl}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr21')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr21')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr21')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr22')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr22')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr22')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2803,7 +2803,8 @@ Sitemap: ${origin}/sitemap.xml
 export function renderSitemap(origin: string, popularProfiles: string[]): Response {
   const urls = [
     `${origin}/`,
-    `${origin}/?lang=en`,
+    `${origin}/ru/`,
+    `${origin}/en/`,
     `${origin}/terms`,
     `${origin}/privacy`,
     ...popularProfiles.map(u => `${origin}/@${u}`),
@@ -2813,12 +2814,17 @@ export function renderSitemap(origin: string, popularProfiles: string[]): Respon
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.map(u => `  <url>
     <loc>${esc(u)}</loc>
-    <changefreq>daily</changefreq>
-    <priority>${u.endsWith('/') ? '1.0' : '0.8'}</priority>
+    <changefreq>${u.includes('/@') ? 'hourly' : 'daily'}</changefreq>
+    <priority>${u.endsWith('/') ? '1.0' : (u.includes('/@') ? '0.8' : '0.5')}</priority>
   </url>`).join("\n")}
 </urlset>`;
 
-  return new Response(xml, { headers: { "content-type": "application/xml; charset=UTF-8" } });
+  return new Response(xml, {
+    headers: {
+      "content-type": "application/xml; charset=UTF-8",
+      "cache-control": "public, max-age=3600, s-maxage=3600",
+    },
+  });
 }
 
 export async function handleMediaProxy(request: Request): Promise<Response> {

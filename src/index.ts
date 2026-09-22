@@ -1,5 +1,6 @@
 import { handleAdminRoute, verifyAdmin } from "./admin";
 import { FAVICON_SVG, FAVICON_ICO_BASE64, FAVICON_DATA_URL } from "./assets";
+import { matchEdgeCache, putEdgeCache } from "./cache";
 import { Bot } from "./bot";
 import { adminIds, type Env } from "./config";
 import { Database } from "./db";
@@ -92,23 +93,64 @@ export default {
       return { isPremium: false };
     }
 
-    // Главная страница
-    if (url.pathname === "/" || url.pathname === "/index.html") {
+    // Главная страница (включая языковые маршруты /ru, /ru/, /en, /en/)
+    if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/ru" || url.pathname === "/ru/" || url.pathname === "/en" || url.pathname === "/en/") {
+      const pageLang = url.pathname.startsWith("/en") ? "en" : (url.pathname.startsWith("/ru") ? "ru" : lang);
+      const edgeHit = await matchEdgeCache(request);
+      if (edgeHit) return edgeHit;
+
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
-      let res = renderHomePage(env, lang, isPremium, country, url.origin);
+      let res = renderHomePage(env, pageLang, isPremium, country, url.origin);
       if (newAuthCookie) {
         res = new Response(res.body, res);
         res.headers.append("Set-Cookie", newAuthCookie);
+      } else if (!isPremium) {
+        putEdgeCache(request, res, ctx, 300);
       }
       return res;
     }
 
     // Служебные страницы и SEO
-    if (url.pathname === "/terms") return renderTermsPage(lang);
-    if (url.pathname === "/privacy") return renderPrivacyPage(lang);
-    if (url.pathname === "/robots.txt") return renderRobotsTxt(url.origin);
+    if (url.pathname === "/terms") {
+      const res = renderTermsPage(lang);
+      putEdgeCache(request, res, ctx, 86400);
+      return res;
+    }
+    if (url.pathname === "/privacy") {
+      const res = renderPrivacyPage(lang);
+      putEdgeCache(request, res, ctx, 86400);
+      return res;
+    }
+    if (url.pathname === "/robots.txt") {
+      const res = renderRobotsTxt(url.origin);
+      putEdgeCache(request, res, ctx, 86400);
+      return res;
+    }
     if (url.pathname === "/sitemap.xml") {
-      return renderSitemap(url.origin, ["durov", "mosseri", "zuck", "mrbeast", "openai", "techcrunch"]);
+      const edgeHit = await matchEdgeCache(request);
+      if (edgeHit) return edgeHit;
+
+      let extraUsers: string[] = [];
+      try {
+        if (env.DB) {
+          const rows = await env.DB.prepare(
+            "SELECT DISTINCT username FROM cache WHERE mode='web_profile' ORDER BY cached_at DESC LIMIT 100"
+          ).all<{ username: string }>();
+          if (rows.results?.length) {
+            extraUsers = rows.results.map((r: any) => r.username).filter(Boolean);
+          }
+        }
+      } catch {}
+
+      const defaultProfiles = [
+        "durov", "mosseri", "zuck", "mrbeast", "openai", "techcrunch",
+        "temalebedev", "wylsacom", "cristiano", "leomessi", "selenagomez",
+        "kimkardashian", "billgates", "shakira", "nasa", "apple", "netflix"
+      ];
+      const combined = Array.from(new Set([...defaultProfiles, ...extraUsers]));
+      const res = renderSitemap(url.origin, combined);
+      putEdgeCache(request, res, ctx, 3600);
+      return res;
     }
 
     // Верификация поисковых систем (Яндекс.Вебмастер и Google Search Console)
@@ -179,11 +221,14 @@ export default {
       return handleImageProxy(request);
     }
 
-    // Просмотр конкретного поста: /@username/post/:postId или /profile/username/post/:postId
-    const postMatch = url.pathname.match(/^\/(?:@|profile\/)([A-Za-z0-9._]+)\/post\/([A-Za-z0-9._-]+)$/);
+    // Просмотр конкретного поста: /@username/post/:postId, /user/username/post/:postId, /profile/username/post/:postId
+    const postMatch = url.pathname.match(/^\/(?:@|profile\/|user\/|u\/)?([A-Za-z0-9._]+)\/post\/([A-Za-z0-9._-]+)\/?$/);
     if (postMatch) {
       const username = postMatch[1].toLowerCase();
       const targetPostId = postMatch[2];
+      const edgeHit = await matchEdgeCache(request);
+      if (edgeHit) return edgeHit;
+
       const db = new Database(env);
       const isAdmin = verifyAdmin(request, env);
       if (!isAdmin) {
@@ -196,14 +241,19 @@ export default {
       if (newAuthCookie) {
         res = new Response(res.body, res);
         res.headers.append("Set-Cookie", newAuthCookie);
+      } else if (cached && !isPremium) {
+        putEdgeCache(request, res, ctx, 900);
       }
       return res;
     }
 
-    // Просмотр профиля: /@username или /profile/username
-    const profileMatch = url.pathname.match(/^\/(?:@|profile\/)([A-Za-z0-9._]+)$/);
+    // Просмотр профиля: /@username, /profile/username, /user/username, /u/username
+    const profileMatch = url.pathname.match(/^\/(?:@|profile\/|user\/|u\/)([A-Za-z0-9._]+)\/?$/);
     if (profileMatch) {
       const username = profileMatch[1].toLowerCase();
+      const edgeHit = await matchEdgeCache(request);
+      if (edgeHit) return edgeHit;
+
       const db = new Database(env);
       const isAdmin = verifyAdmin(request, env);
       if (!isAdmin) {
@@ -216,8 +266,27 @@ export default {
       if (newAuthCookie) {
         res = new Response(res.body, res);
         res.headers.append("Set-Cookie", newAuthCookie);
+      } else if (cached && !isPremium) {
+        putEdgeCache(request, res, ctx, 900);
       }
       return res;
+    }
+
+    // Прямой переход по никнейму без префикса (например, /zuck -> 301 редирект на /@zuck)
+    const directUserMatch = url.pathname.match(/^\/([A-Za-z0-9._]{1,40})\/?$/);
+    const reservedWords = new Set([
+      "admin", "api", "terms", "privacy", "robots.txt", "sitemap.xml",
+      "favicon.ico", "favicon.svg", "apple-touch-icon.png", "og-image.svg", "og-image.png",
+      "ru", "en", "index.html"
+    ]);
+    if (
+      directUserMatch &&
+      !reservedWords.has(directUserMatch[1].toLowerCase()) &&
+      !directUserMatch[1].startsWith("yandex_") &&
+      !directUserMatch[1].startsWith("google")
+    ) {
+      const target = `/@${directUserMatch[1].toLowerCase()}${url.search}`;
+      return Response.redirect(new URL(target, url.origin).toString(), 301);
     }
 
     // API для получения данных профиля и постов (для "крутить как обычный тредс")
@@ -226,6 +295,9 @@ export default {
       if (!username || !/^[A-Za-z0-9._]{1,60}$/.test(username)) {
         return Response.json({ ok: false, error: "Некорректный username" }, { status: 400 });
       }
+
+      const edgeHit = await matchEdgeCache(request);
+      if (edgeHit) return edgeHit;
 
       const db = new Database(env);
       const isAdmin = verifyAdmin(request, env);
@@ -238,7 +310,13 @@ export default {
       const cached = await db.cache<ProfileData>(username, "web_profile");
       if (cached) {
         await logSystem(env, "info", "api", `[API_CACHE] Отдан кеш для @${username} (${cached.posts?.length || 0} постов)`);
-        return Response.json({ ok: true, cached: true, ...cached });
+        const res = Response.json({ ok: true, cached: true, ...cached }, {
+          headers: {
+            "cache-control": "public, max-age=600, s-maxage=900, stale-while-revalidate=1800",
+          },
+        });
+        putEdgeCache(request, res, ctx, 900);
+        return res;
       }
 
       // Если нет в кеше и есть браузер — запрашиваем
@@ -262,7 +340,13 @@ export default {
         await logSystem(env, "info", "api", `[API_RESULT] @${username}: status=${fetched.status}, постов=${fetched.data?.posts?.length || 0}`);
         if (fetched.status === "ok" && fetched.data) {
           await db.setCache(username, "web_profile", fetched.data);
-          return Response.json({ ok: true, cached: false, ...fetched.data });
+          const res = Response.json({ ok: true, cached: false, ...fetched.data }, {
+            headers: {
+              "cache-control": "public, max-age=600, s-maxage=900, stale-while-revalidate=1800",
+            },
+          });
+          putEdgeCache(request, res, ctx, 900);
+          return res;
         }
         return Response.json({
           ok: false,
@@ -281,6 +365,11 @@ export default {
       const username = commentsMatch[1].toLowerCase();
       const postIndex = Number(commentsMatch[2]);
       const refresh = url.searchParams.get("refresh") === "1";
+      if (!refresh) {
+        const edgeHit = await matchEdgeCache(request);
+        if (edgeHit) return edgeHit;
+      }
+
       const db = new Database(env);
       if (!verifyAdmin(request, env)) {
         ctx.waitUntil(db.logEvent(0, "web_comments", `${username}:${postIndex}`).catch(() => {}));
@@ -289,7 +378,13 @@ export default {
       if (!refresh) {
         const cached = await db.cache<Comment[]>(cacheKey, "comments");
         if (cached) {
-          return Response.json({ ok: true, cached: true, comments: cached });
+          const res = Response.json({ ok: true, cached: true, comments: cached }, {
+            headers: {
+              "cache-control": "public, max-age=900, s-maxage=1800, stale-while-revalidate=3600",
+            },
+          });
+          putEdgeCache(request, res, ctx, 1800);
+          return res;
         }
       }
 
@@ -301,7 +396,13 @@ export default {
         const fetched = await fetchComments(env, username, postIndex, 30);
         if (fetched.status === "ok" && fetched.data) {
           await db.setCache(cacheKey, "comments", fetched.data);
-          return Response.json({ ok: true, cached: false, comments: fetched.data });
+          const res = Response.json({ ok: true, cached: false, comments: fetched.data }, {
+            headers: {
+              "cache-control": "public, max-age=900, s-maxage=1800, stale-while-revalidate=3600",
+            },
+          });
+          putEdgeCache(request, res, ctx, 1800);
+          return res;
         }
         return Response.json({ ok: false, error: fetched.error || fetched.status });
       } catch (err) {

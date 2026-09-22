@@ -18,8 +18,14 @@ export class Database {
   unban(uid: number) { return this.db.prepare("DELETE FROM banned_users WHERE user_id=?").bind(uid).run(); }
   async banned() { return (await this.db.prepare("SELECT * FROM banned_users ORDER BY banned_at DESC").all()).results; }
 
-  logEvent(uid: number, type: string, data = "") { return this.db.prepare("INSERT INTO user_events(user_id,event_type,event_data,timestamp) VALUES(?,?,?,?)").bind(uid,type,data,now()).run(); }
-  logRequest(uid: number, username: string) { return this.db.prepare("INSERT INTO request_log(user_id,username_requested,timestamp) VALUES(?,?,?)").bind(uid,username,now()).run(); }
+  logEvent(uid: number, type: string, data = "") {
+    if (!this.db?.prepare) return Promise.resolve() as any;
+    return this.db.prepare("INSERT INTO user_events(user_id,event_type,event_data,timestamp) VALUES(?,?,?,?)").bind(uid,type,data,now()).run();
+  }
+  logRequest(uid: number, username: string) {
+    if (!this.db?.prepare) return Promise.resolve() as any;
+    return this.db.prepare("INSERT INTO request_log(user_id,username_requested,timestamp) VALUES(?,?,?)").bind(uid,username,now()).run();
+  }
   async usage(uid: number): Promise<{daily:number;monthly:number}> {
     const d = new Date(); d.setUTCHours(0,0,0,0);
     const m = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
@@ -141,11 +147,15 @@ export class Database {
   }
 
   async cache<T>(username:string, mode:string, page=0): Promise<T|null> {
+    if (!this.db?.prepare) return null;
     const row = await this.db.prepare("SELECT data,cached_at FROM cache WHERE username=? AND mode=? AND page=?").bind(username,mode,page).first<{data:string;cached_at:string}>();
     if (!row || Date.now()-new Date(row.cached_at).getTime() >= LIMITS.cacheMinutes*60_000) return null;
     return JSON.parse(row.data) as T;
   }
-  setCache(username:string, mode:string, data:unknown, page=0) { return this.db.prepare("INSERT INTO cache VALUES(?,?,?,?,?) ON CONFLICT(username,mode,page) DO UPDATE SET data=excluded.data,cached_at=excluded.cached_at").bind(username,mode,page,JSON.stringify(data),now()).run(); }
+  setCache(username:string, mode:string, data:unknown, page=0) {
+    if (!this.db?.prepare) return Promise.resolve() as any;
+    return this.db.prepare("INSERT INTO cache VALUES(?,?,?,?,?) ON CONFLICT(username,mode,page) DO UPDATE SET data=excluded.data,cached_at=excluded.cached_at").bind(username,mode,page,JSON.stringify(data),now()).run();
+  }
 
   async state(scope:string|number,key:StateName): Promise<string|null> { return (await this.db.prepare("SELECT value FROM bot_state WHERE scope=? AND state_key=?").bind(String(scope),key).first<{value:string}>())?.value || null; }
   setState(scope:string|number,key:StateName,value:string) { return this.db.prepare("INSERT INTO bot_state VALUES(?,?,?,?) ON CONFLICT(scope,state_key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(String(scope),key,value,now()).run(); }

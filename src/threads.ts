@@ -85,6 +85,7 @@ function keepSessionCookies(raw: string): string | null {
 
 export async function logSystem(env: Env, level: "info" | "warn" | "error", category: string, message: string) {
   try {
+    if (!env.DB?.prepare) return;
     const data = `[${level.toUpperCase()}][${category}] ${message}`;
     await env.DB.prepare(
       "INSERT INTO user_events(user_id, event_type, event_data, timestamp) VALUES(0, 'system_log', ?, ?)"
@@ -95,6 +96,7 @@ export async function logSystem(env: Env, level: "info" | "warn" | "error", cate
 }
 
 async function logBrowser(env: Env, type: string, data = "") {
+  if (!env.DB?.prepare) return;
   await env.DB.prepare("INSERT INTO user_events(user_id,event_type,event_data,timestamp) VALUES(0,?,?,?)").bind(type, data, iso()).run().catch(() => {});
 }
 

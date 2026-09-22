@@ -476,4 +476,56 @@ describe("Web Viewer SSR & Routing", () => {
       expect(res.status).not.toBe(400);
     });
   });
+
+  describe("SEO & Edge Caching Routing", () => {
+    it("handles /ru/ and /en/ language roots and /user/:username paths", async () => {
+      const worker = (await import("../src/index")).default;
+      const fakeCtx = { waitUntil: () => {}, passThroughOnException: () => {} } as any;
+
+      const ruReq = new Request("https://threadsviewer.online/ru/");
+      const ruRes = await worker.fetch(ruReq, mockEnv, fakeCtx);
+      expect(ruRes.status).toBe(200);
+      const ruHtml = await ruRes.text();
+      expect(ruHtml).toContain('lang="ru"');
+
+      const enReq = new Request("https://threadsviewer.online/en/");
+      const enRes = await worker.fetch(enReq, mockEnv, fakeCtx);
+      expect(enRes.status).toBe(200);
+      const enHtml = await enRes.text();
+      expect(enHtml).toContain('lang="en"');
+
+      // /user/zuck should render profile
+      const userReq = new Request("https://threadsviewer.online/user/zuck");
+      const userRes = await worker.fetch(userReq, mockEnv, fakeCtx);
+      expect(userRes.status).toBe(200);
+      const userHtml = await userRes.text();
+      expect(userHtml).toContain("@zuck");
+
+      // /zuck should 301 redirect to /@zuck
+      const directReq = new Request("https://threadsviewer.online/zuck");
+      const directRes = await worker.fetch(directReq, mockEnv, fakeCtx);
+      expect(directRes.status).toBe(301);
+      expect(directRes.headers.get("location")).toBe("https://threadsviewer.online/@zuck");
+    });
+
+    it("includes language roots and cache-control in sitemap", async () => {
+      const res = renderSitemap("https://threadsviewer.online", ["zuck", "durov"]);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toContain("public, max-age=3600");
+      const xml = await res.text();
+      expect(xml).toContain("<loc>https://threadsviewer.online/ru/</loc>");
+      expect(xml).toContain("<loc>https://threadsviewer.online/en/</loc>");
+      expect(xml).toContain("<loc>https://threadsviewer.online/@zuck</loc>");
+    });
+
+    it("verifies edge cache helper fail-open behavior", async () => {
+      const { matchEdgeCache, putEdgeCache } = await import("../src/cache");
+      const req = new Request("https://threadsviewer.online/@zuck");
+      const match = await matchEdgeCache(req);
+      expect(match).toBeNull();
+
+      const testRes = new Response("ok", { status: 200 });
+      expect(() => putEdgeCache(req, testRes)).not.toThrow();
+    });
+  });
 });
