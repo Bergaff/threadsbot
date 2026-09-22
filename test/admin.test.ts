@@ -132,4 +132,27 @@ describe("Admin Route & Authentication", () => {
     expect(verifyAdmin(reqUnauth, mockEnv)).toBe(false);
     expect(verifyAdmin(reqWrong, mockEnv)).toBe(false);
   });
+
+  it("returns webhook status in admin API", async () => {
+    const token = btoa("secret_admin_password");
+    const req = new Request("https://site.com/admin/api/webhook/status", {
+      headers: { cookie: `admin_session=${token}` },
+    });
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: any, init?: any) => {
+      if (String(url).includes("getWebhookInfo")) {
+        return new Response(JSON.stringify({ ok: true, result: { url: "https://old.workers.dev/telegram/sec", pending_update_count: 2 } }));
+      }
+      return origFetch(url, init);
+    }) as any;
+    try {
+      const res = await handleAdminRoute(req, mockEnv);
+      expect(res.status).toBe(200);
+      const data = await res.json<any>();
+      expect(data.ok).toBe(true);
+      expect(data.webhook.pending_update_count).toBe(2);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
 });

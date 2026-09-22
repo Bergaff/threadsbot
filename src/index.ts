@@ -65,6 +65,90 @@ export default {
     }
 
     // ==========================================
+    // ТЕЛЕГРАМ БОТ И СИСТЕМНЫЕ ЭНДПОИНТЫ
+    // ==========================================
+    if (url.pathname === "/health") {
+      const accounts = await new Database(env).accountCounts();
+      return Response.json({
+        ok: true,
+        version: env.VERSION || "unknown",
+        accounts,
+        queue: Boolean(env.UPDATES),
+        browser: Boolean(env.BROWSER),
+      });
+    }
+
+    if (url.pathname === "/setup-webhook") {
+      if (request.method !== "POST") {
+        return Response.json({
+          ok: false,
+          error: "Send POST /setup-webhook with Authorization: Bearer <WEBHOOK_SECRET>, or use Admin panel (/admin) to sync webhook."
+        }, { status: 405 });
+      }
+      if (request.headers.get("authorization") !== `Bearer ${env.WEBHOOK_SECRET}`) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      const webhook = `${url.origin}/telegram/${env.WEBHOOK_SECRET}`;
+      const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/setWebhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          url: webhook,
+          secret_token: env.WEBHOOK_SECRET,
+          allowed_updates: ["message", "callback_query", "pre_checkout_query"],
+          drop_pending_updates: false,
+        }),
+      });
+      return new Response(response.body, { status: response.status, headers: { "content-type": "application/json" } });
+    }
+
+    if (url.pathname === `/telegram/${env.WEBHOOK_SECRET}`) {
+      if (request.method !== "POST") {
+        return new Response("Method not allowed", { status: 405 });
+      }
+      if (request.headers.get("x-telegram-bot-api-secret-token") !== env.WEBHOOK_SECRET) {
+        return new Response("Forbidden", { status: 403 });
+      }
+
+      const update = await request.json<TelegramUpdate>();
+
+      if (needsBrowser(update)) {
+        ctx.waitUntil((async () => {
+          const tg = new Telegram(env.TELEGRAM_TOKEN);
+          const chatId = chatIdOf(update);
+          if (update.callback_query?.id) {
+            await tg.answerCallbackQuery(update.callback_query.id).catch(() => {});
+          }
+          if (chatId) await tg.sendChatAction(chatId, "typing").catch(() => {});
+          try {
+            if (!env.UPDATES) throw new Error("UPDATES queue binding missing");
+            await env.UPDATES.send(update);
+          } catch (err) {
+            await notifyError(env, err);
+            if (chatId) {
+              await tg.sendMessage(
+                chatId,
+                "❌ Очередь Cloudflare не приняла запрос.\n\n" +
+                "Чтение постов требует <b>Workers Paid</b> ($5/мес): Queues + Browser Rendering.\n" +
+                "На Free плане кнопки «Текст/Скрины» не могут открыть Threads.\n\n" +
+                `<code>${String(err).slice(0, 200)}</code>`,
+              ).catch(() => {});
+            }
+          }
+        })());
+      } else {
+        ctx.waitUntil(
+          (async () => {
+            try { await new Bot(env).update(update); }
+            catch (error) { await notifyError(env, error); }
+          })(),
+        );
+      }
+
+      return new Response("OK");
+    }
+
+    // ==========================================
     // ВЕБ-САЙТ И ЗЕРКАЛО ДЛЯ БРАУЗЕРА (БЕЗ VPN)
     // ==========================================
 
@@ -277,7 +361,7 @@ export default {
     const reservedWords = new Set([
       "admin", "api", "terms", "privacy", "robots.txt", "sitemap.xml",
       "favicon.ico", "favicon.svg", "apple-touch-icon.png", "og-image.svg", "og-image.png",
-      "ru", "en", "index.html"
+      "ru", "en", "index.html", "health", "setup-webhook", "telegram"
     ]);
     if (
       directUserMatch &&
@@ -471,89 +555,7 @@ export default {
       }
     }
 
-    // ==========================================
-    // ТЕЛЕГРАМ БОТ И СИСТЕМНЫЕ ЭНДПОИНТЫ
-    // ==========================================
-
-    if (url.pathname === "/health") {
-      const accounts = await new Database(env).accountCounts();
-      return Response.json({
-        ok: true,
-        version: env.VERSION || "unknown",
-        accounts,
-        queue: Boolean(env.UPDATES),
-        browser: Boolean(env.BROWSER),
-      });
-    }
-
-    if (url.pathname === "/setup-webhook" && request.method === "POST") {
-      if (request.headers.get("authorization") !== `Bearer ${env.WEBHOOK_SECRET}`) {
-        return new Response("Unauthorized", { status: 401 });
-      }
-      const webhook = `${url.origin}/telegram/${env.WEBHOOK_SECRET}`;
-      const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/setWebhook`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          url: webhook,
-          secret_token: env.WEBHOOK_SECRET,
-          allowed_updates: ["message", "callback_query", "pre_checkout_query"],
-          drop_pending_updates: false,
-        }),
-      });
-      return new Response(response.body, { status: response.status, headers: { "content-type": "application/json" } });
-    }
-
-    if (url.pathname !== `/telegram/${env.WEBHOOK_SECRET}` || request.method !== "POST") {
-      return new Response("Not found", { status: 404 });
-    }
-    if (request.headers.get("x-telegram-bot-api-secret-token") !== env.WEBHOOK_SECRET) {
-      return new Response("Forbidden", { status: 403 });
-    }
-
-    const update = await request.json<TelegramUpdate>();
-
-    if (needsBrowser(update)) {
-      // Тяжёлое — в очередь. Кнопки подтверждаем СРАЗУ: иначе Telegram крутит
-      // спиннер 30с и считает, что бот мёртв, пока Queue + браузер не стартанут.
-      // Queue и Browser Rendering есть только на Workers Paid.
-      ctx.waitUntil((async () => {
-        const tg = new Telegram(env.TELEGRAM_TOKEN);
-        const chatId = chatIdOf(update);
-        if (update.callback_query?.id) {
-          await tg.answerCallbackQuery(update.callback_query.id).catch(() => {});
-        }
-        if (chatId) await tg.sendChatAction(chatId, "typing").catch(() => {});
-        try {
-          if (!env.UPDATES) throw new Error("UPDATES queue binding missing");
-          await env.UPDATES.send(update);
-        } catch (err) {
-          await notifyError(env, err);
-          if (chatId) {
-            await tg.sendMessage(
-              chatId,
-              "❌ Очередь Cloudflare не приняла запрос.\n\n" +
-              "Чтение постов требует <b>Workers Paid</b> ($5/мес): Queues + Browser Rendering.\n" +
-              "На Free плане кнопки «Текст/Скрины» не могут открыть Threads.\n\n" +
-              `<code>${String(err).slice(0, 200)}</code>`,
-            ).catch(() => {});
-          }
-        }
-      })());
-    } else {
-      // Быстрое (команды, меню, загрузка JSON, платежи, обычный username) —
-      // обрабатываем прямо здесь, но НЕ заставляем Telegram ждать: возвращаем 200
-      // немедленно, а работа продолжается в фоне через ctx.waitUntil.
-      // Это и убирает «задержку перед ответом на команды».
-      ctx.waitUntil(
-        (async () => {
-          try { await new Bot(env).update(update); }
-          catch (error) { await notifyError(env, error); }
-        })(),
-      );
-    }
-
-    return new Response("OK");
+    return new Response("Not found", { status: 404 });
   },
 
   async queue(batch: MessageBatch<TelegramUpdate>, env: Env) {

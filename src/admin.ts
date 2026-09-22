@@ -163,6 +163,50 @@ export async function handleAdminRoute(request: Request, env: Env): Promise<Resp
     return Response.json({ ok: true });
   }
 
+  // Admin API Action: Get Telegram Webhook Status
+  if (path === "/admin/api/webhook/status") {
+    try {
+      if (!env.TELEGRAM_TOKEN) {
+        return Response.json({ ok: false, error: "TELEGRAM_TOKEN is not configured" }, { status: 400 });
+      }
+      const tgRes = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/getWebhookInfo`);
+      const data = await tgRes.json<any>();
+      const expectedUrl = `https://${env.SITE_DOMAIN || url.host}/telegram/${env.WEBHOOK_SECRET}`;
+      return Response.json({
+        ok: true,
+        webhook: data.result,
+        expectedUrl,
+        matches: data.result?.url === expectedUrl,
+      });
+    } catch (err: any) {
+      return Response.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
+    }
+  }
+
+  // Admin API Action: Sync Telegram Webhook to Current Domain
+  if (path === "/admin/api/webhook/sync" && request.method === "POST") {
+    try {
+      if (!env.TELEGRAM_TOKEN || !env.WEBHOOK_SECRET) {
+        return Response.json({ ok: false, error: "TELEGRAM_TOKEN or WEBHOOK_SECRET missing" }, { status: 400 });
+      }
+      const targetUrl = `https://${env.SITE_DOMAIN || url.host}/telegram/${env.WEBHOOK_SECRET}`;
+      const tgRes = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/setWebhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          url: targetUrl,
+          secret_token: env.WEBHOOK_SECRET,
+          allowed_updates: ["message", "callback_query", "pre_checkout_query"],
+          drop_pending_updates: false,
+        }),
+      });
+      const data = await tgRes.json<any>();
+      return Response.json({ ok: Boolean(data.ok), targetUrl, result: data });
+    } catch (err: any) {
+      return Response.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
+    }
+  }
+
   // Render Admin Dashboard HTML
   return await renderDashboardPage(env, db);
 }
@@ -676,6 +720,21 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
     </section>
 
     <section class="admin-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #242424;padding-bottom:6px;">
+        <div class="admin-card-title" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">
+          Подключение Telegram-бота (@${esc(env.BOT_USERNAME || 'threadsreaderbot')})
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-admin" onclick="checkWebhookStatus(this)">Проверить вебхук</button>
+          <button class="btn-admin btn-admin-primary" onclick="syncWebhook(this)">Привязать к threadsviewer.online</button>
+        </div>
+      </div>
+      <div id="webhookStatusBox" style="font-size:0.85rem;color:#aaa;line-height:1.6;background:#141414;padding:12px 14px;border:1px solid #282828;">
+        Проверка статуса вебхука...
+      </div>
+    </section>
+
+    <section class="admin-card">
       <div class="admin-card-title">Разделение источников запросов (Бот vs Сайт за 24ч)</div>
       <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
         <div class="stat-item" style="border-left: 3px solid #22c55e;">
@@ -780,6 +839,68 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
   <div id="toast" class="toast-box"></div>
 
   <script>
+    function checkWebhookStatus(btn) {
+      var orig = btn ? btn.innerText : '';
+      if (btn) { btn.disabled = true; btn.innerText = 'Запрос...'; }
+      var box = document.getElementById('webhookStatusBox');
+      if (box && !btn) box.innerHTML = 'Запрос статуса вебхука в Telegram...';
+      fetch('/admin/api/webhook/status')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          if (!box) return;
+          if (!data.ok) {
+            box.innerHTML = '<span style="color:#ef4444;font-weight:600;">Ошибка: ' + (data.error || 'не удалось получить статус') + '</span>';
+            return;
+          }
+          var w = data.webhook || {};
+          var isMatch = data.matches;
+          var matchBadge = isMatch
+            ? '<span style="color:#22c55e;font-weight:600;margin-left:6px;">[OK: привязан к этому сайту]</span>'
+            : '<span style="color:#ef4444;font-weight:600;margin-left:6px;">[ВНИМАНИЕ: вебхук не совпадает с доменом!]</span>';
+          var html = '<div><b>Зарегистрированный URL в Telegram:</b> <code style="color:#60a5fa;">' + (w.url || 'НЕ УСТАНОВЛЕН') + '</code> ' + matchBadge + '</div>';
+          html += '<div style="margin-top:4px;"><b>Ожидаемый URL (threadsviewer.online):</b> <code style="color:#9ca3af;">' + data.expectedUrl + '</code></div>';
+          html += '<div style="margin-top:4px;"><b>Сообщений в очереди доставки Telegram:</b> <span style="font-weight:700;color:' + (w.pending_update_count > 0 ? '#f59e0b' : '#22c55e') + '">' + (w.pending_update_count || 0) + '</span></div>';
+          if (w.last_error_message) {
+            var errDate = w.last_error_date ? new Date(w.last_error_date * 1000).toLocaleString() : '';
+            html += '<div style="color:#ef4444;margin-top:6px;padding:6px 8px;background:#261212;border:1px solid #ef4444;"><b>Последняя ошибка Telegram:</b> ' + w.last_error_message + ' (' + errDate + ')</div>';
+          } else {
+            html += '<div style="color:#22c55e;margin-top:4px;">Ошибок доставки нет. Telegram успешно соединяется.</div>';
+          }
+          box.innerHTML = html;
+        })
+        .catch(function(e) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          if (box) box.innerHTML = '<span style="color:#ef4444;">Ошибка запроса: ' + e + '</span>';
+        });
+    }
+
+    function syncWebhook(btn) {
+      if (!confirm('Привязать Telegram Webhook к текущему домену threadsviewer.online?')) return;
+      var orig = btn ? btn.innerText : '';
+      if (btn) { btn.disabled = true; btn.innerText = 'Привязка...'; }
+      fetch('/admin/api/webhook/sync', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          if (data && data.ok) {
+            showToast('Webhook успешно перепривязан к threadsviewer.online!');
+            checkWebhookStatus();
+          } else {
+            alert('Ошибка привязки: ' + JSON.stringify(data));
+          }
+        })
+        .catch(function(e) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          alert('Ошибка сети: ' + e);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      checkWebhookStatus();
+    });
+    setTimeout(checkWebhookStatus, 150);
+
     var toastTimer = null;
     function showToast(msg, duration) {
       if (duration === undefined) duration = 4000;
