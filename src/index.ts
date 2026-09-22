@@ -44,6 +44,28 @@ function chatIdOf(update: TelegramUpdate): number | undefined {
   return update.callback_query?.message?.chat.id ?? update.message?.chat.id;
 }
 
+const ipScraperLimits = new Map<string, { count: number; resetAt: number }>();
+
+function checkScraperRateLimit(ip: string, limit = 20, windowMs = 300_000): { allowed: boolean; remaining: number; retryAfter: number } {
+  const now = Date.now();
+  if (ipScraperLimits.size > 2000) {
+    for (const [k, v] of ipScraperLimits.entries()) {
+      if (now > v.resetAt) ipScraperLimits.delete(k);
+    }
+  }
+  const entry = ipScraperLimits.get(ip);
+  if (!entry || now > entry.resetAt) {
+    ipScraperLimits.set(ip, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, remaining: limit - 1, retryAfter: 0 };
+  }
+  if (entry.count >= limit) {
+    const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+    return { allowed: false, remaining: 0, retryAfter };
+  }
+  entry.count++;
+  return { allowed: true, remaining: limit - entry.count, retryAfter: 0 };
+}
+
 async function notifyError(env: Env, error: unknown) {
   console.error(error);
   const telegram = new Telegram(env.TELEGRAM_TOKEN);
@@ -428,6 +450,30 @@ export default {
         }, { status: 503 });
       }
 
+      // Защита от спам-парсинга: мягкий rate limit на чтение новых профилей с одного IP
+      const clientIp = request.headers.get("cf-connecting-ip") || "unknown";
+      const ua = request.headers.get("user-agent") || "";
+      const isSearchBot = /Googlebot|YandexBot|bingbot|DuckDuckBot|Baiduspider/i.test(ua);
+      const { isPremium } = await checkPremiumUser(request, env);
+
+      if (!isAdmin && !isPremium && !isSearchBot) {
+        const rate = checkScraperRateLimit(clientIp, 20, 300_000);
+        if (!rate.allowed) {
+          await logSystem(env, "warn", "api", `[RATE_LIMIT] IP ${clientIp} превысил лимит скрапера для @${username}`);
+          return Response.json({
+            ok: false,
+            error: "Лимит запросов к новым профилям (20 за 5 минут) превышен. Откройте профиль через Telegram-бота @threadsreaderbot или повторите через 2 минуты.",
+            retryAfter: rate.retryAfter,
+          }, {
+            status: 429,
+            headers: {
+              "Retry-After": String(rate.retryAfter),
+              "cache-control": "no-store",
+            },
+          });
+        }
+      }
+
       try {
         await logSystem(env, "info", "api", `[API_FETCH] Запуск скрапера для @${username} (аккаунтов доступно: ${counts.alive})`);
         const fetched = await fetchProfileWithPosts(env, username, 20);
@@ -484,6 +530,26 @@ export default {
 
       if (!env.BROWSER) {
         return Response.json({ ok: false, error: "Browser Run недоступен" }, { status: 503 });
+      }
+
+      const clientIp = request.headers.get("cf-connecting-ip") || "unknown";
+      const { isPremium } = await checkPremiumUser(request, env);
+      const isAuthAdmin = verifyAdmin(request, env);
+      if (!isAuthAdmin && !isPremium) {
+        const rate = checkScraperRateLimit(clientIp + ":cmt", 25, 300_000);
+        if (!rate.allowed) {
+          return Response.json({
+            ok: false,
+            error: "Лимит запросов к комментариям превышен. Подождите пару минут или откройте пост в боте @threadsreaderbot.",
+            retryAfter: rate.retryAfter,
+          }, {
+            status: 429,
+            headers: {
+              "Retry-After": String(rate.retryAfter),
+              "cache-control": "no-store",
+            },
+          });
+        }
       }
 
       try {

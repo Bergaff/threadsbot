@@ -195,15 +195,37 @@ describe("Web Viewer SSR & Routing", () => {
   it("renders terms and privacy policy pages", async () => {
     const termsRes = renderTermsPage("ru");
     expect(termsRes.status).toBe(200);
-    expect(await termsRes.text()).toContain("Пользовательское соглашение");
+    const termsText = await termsRes.text();
+    expect(termsText).toContain("Пользовательское соглашение");
+    expect(termsText).toContain("Политика лимитов на сайте");
+    expect(termsText).toContain("cookieBanner");
 
     const privRes = renderPrivacyPage("ru");
     expect(privRes.status).toBe(200);
-    expect(await privRes.text()).toContain("Политика конфиденциальности");
+    const privText = await privRes.text();
+    expect(privText).toContain("Политика конфиденциальности");
+    expect(privText).toContain("152-ФЗ");
+    expect(privText).toContain("cookieBanner");
 
     const termsEn = renderTermsPage("en");
     expect(termsEn.status).toBe(200);
-    expect(await termsEn.text()).toContain("Terms of Service");
+    const termsEnText = await termsEn.text();
+    expect(termsEnText).toContain("Terms of Service");
+    expect(termsEnText).toContain("Website Usage Limits");
+    expect(termsEnText).toContain("cookieBanner");
+  });
+
+  it("renders cookie banner and ad-free upgrade link on pages", async () => {
+    const homeRes = renderHomePage(mockEnv, "ru");
+    const homeHtml = await homeRes.text();
+    expect(homeHtml).toContain("cookieBanner");
+    expect(homeHtml).toContain("Политика конфиденциальности");
+    expect(homeHtml).toContain("web_adfree");
+
+    const profileRes = renderProfilePage(mockEnv, "zuck", null, null, "ru");
+    const profileHtml = await profileRes.text();
+    expect(profileHtml).toContain("cookieBanner");
+    expect(profileHtml).toContain("web_adfree");
   });
 
   it("renders robots.txt and sitemap.xml for SEO", async () => {

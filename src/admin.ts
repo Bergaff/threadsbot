@@ -716,6 +716,14 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
           <div class="stat-label">Платные подписки</div>
           <div class="stat-value">${analytics.newSubs} ($${analytics.revenue.toFixed(2)})</div>
         </div>
+        <div class="stat-item">
+          <div class="stat-label">Лимиты сайта</div>
+          <div class="stat-value" style="font-size:0.95rem;">Безлимит (кэш Edge)</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Анти-спам скрапера</div>
+          <div class="stat-value" style="font-size:0.95rem;">20 req / 5 мин (IP)</div>
+        </div>
       </div>
     </section>
 

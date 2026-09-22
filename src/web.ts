@@ -1309,9 +1309,98 @@ const COMMON_STYLES = `
     color: #201c17;
   }
 
+  /* Cookie banner */
+  .cookie-banner {
+    position: fixed;
+    bottom: 12px;
+    left: 14px;
+    right: 14px;
+    max-width: 868px;
+    margin: 0 auto;
+    z-index: 9999;
+    background: #141618;
+    border: 1px solid #2d2d2d;
+    border-radius: 0;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 0.85rem;
+    color: #cccccc;
+    box-shadow: none;
+  }
+  .cookie-banner-text {
+    line-height: 1.45;
+    flex: 1;
+  }
+  .cookie-policy-link {
+    color: #3b82f6;
+    text-decoration: underline;
+  }
+  .cookie-banner-btn {
+    background: #242424;
+    color: #ffffff;
+    border: 1px solid #444444;
+    border-radius: 0;
+    padding: 7px 18px;
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: none;
+    box-shadow: none;
+  }
+  .cookie-banner-btn:hover {
+    background: #333333;
+    border-color: #666666;
+  }
+  html[data-theme="light"] .cookie-banner {
+    background: #ece8df;
+    border: 1px solid #b5ab99;
+    color: #333333;
+  }
+  html[data-theme="light"] .cookie-policy-link {
+    color: #0056b3;
+  }
+  html[data-theme="light"] .cookie-banner-btn {
+    background: #dfdacb;
+    border: 1px solid #a69a85;
+    color: #111111;
+  }
+  html[data-theme="light"] .cookie-banner-btn:hover {
+    background: #d4cec0;
+    border-color: #887e6b;
+  }
+  .ad-free-link {
+    font-size: 0.75rem;
+    color: #888888;
+    text-decoration: underline;
+    margin-left: 10px;
+  }
+  .ad-free-link:hover {
+    color: #cccccc;
+  }
+  html[data-theme="light"] .ad-free-link {
+    color: #666666;
+  }
+  html[data-theme="light"] .ad-free-link:hover {
+    color: #201c17;
+  }
+  .terms-subtitle {
+    color: #888888;
+    font-size: 0.82rem;
+    margin-bottom: 16px;
+  }
+  html[data-theme="light"] .terms-subtitle {
+    color: #777777;
+  }
+
   @media (max-width: 600px) {
     .navbar-search { display: none; }
     .hero-title { font-size: 1.3rem; }
+    .cookie-banner { flex-direction: column; align-items: stretch; gap: 10px; }
+    .cookie-banner-btn { width: 100%; text-align: center; }
   }
 `;
 
@@ -1374,8 +1463,8 @@ const I18N = {
     support_sending: "Отправка...",
     support_success: "Спасибо! Ваше сообщение отправлено администратору.",
     support_error: "Не удалось отправить сообщение. Пожалуйста, попробуйте позже.",
-    tos: "TOS",
-    privacy: "Privacy Policy",
+    tos: "Условия и лимиты",
+    privacy: "Политика конфиденциальности",
     footer_text: "Threads Viewer. Независимый сервис. Не аффилирован с Meta Platforms Inc.",
     other_lang: "EN",
     other_lang_code: "en",
@@ -1438,7 +1527,7 @@ const I18N = {
     support_sending: "Sending...",
     support_success: "Thank you! Your message has been sent to the admin.",
     support_error: "Failed to send message. Please try again later.",
-    tos: "TOS",
+    tos: "Terms & Limits",
     privacy: "Privacy Policy",
     footer_text: "Threads Viewer. Independent service. Not affiliated with Meta Platforms Inc.",
     other_lang: "RU",
@@ -1527,11 +1616,17 @@ function renderSponsorSlot(env: Env, lang: Lang, isPremium = false, country = ""
     sponsorBtn = "Learn more";
   }
 
+  const adFreeUrl = `https://t.me/${esc(tgUser)}?start=web_adfree`;
+  const adFreeText = lang === "en" ? "Disable ads" : "Отключить рекламу";
+
   return `
     <div class="sponsor-card">
       <div class="sponsor-card-top">
         <span>${sponsorTag}</span>
-        <a href="${esc(sponsorUrl)}" target="_blank" rel="noopener" style="color: #777; text-decoration: underline;">${sponsorAdLabel}</a>
+        <div style="display:inline-flex;align-items:center;gap:8px;">
+          <a href="${esc(sponsorUrl)}" target="_blank" rel="noopener" style="color: #777; text-decoration: underline;">${sponsorAdLabel}</a>
+          <a href="${esc(adFreeUrl)}" target="_blank" rel="noopener" class="ad-free-link" title="${lang === 'en' ? 'Get ad-free browsing with Telegram bot' : 'Отключить рекламу через Telegram-бота'}">${adFreeText}</a>
+        </div>
       </div>
       <div class="sponsor-card-inner">
         <div class="sponsor-text">
@@ -1568,6 +1663,35 @@ export function renderSupportCard(lang: Lang): string {
   `;
 }
 
+export function renderCookieBanner(lang: Lang = "ru"): string {
+  const isEn = lang === "en";
+  const text = isEn
+    ? `We use technical cookies to ensure site functionality and save your preferences. By continuing to use the service, you agree to our <a href="/privacy?lang=en" class="cookie-policy-link">Privacy Policy</a>.`
+    : `Мы используем технические файлы cookie для корректной работы сайта и сохранения настроек. Продолжая использовать сервис, вы соглашаетесь с <a href="/privacy?lang=ru" class="cookie-policy-link">Политикой обработки данных</a>.`;
+  const btn = isEn ? "Accept" : "Понятно";
+
+  return `
+    <div id="cookieBanner" class="cookie-banner" style="display:none;">
+      <div class="cookie-banner-text">${text}</div>
+      <button type="button" class="cookie-banner-btn" onclick="acceptCookies()">${btn}</button>
+    </div>
+    <script>
+      (function checkCookieConsent(){
+        try {
+          if (localStorage.getItem('threads_cookie_ack') === '1') return;
+          var b = document.getElementById('cookieBanner');
+          if (b) b.style.display = 'flex';
+        } catch(e){}
+      })();
+      function acceptCookies(){
+        try { localStorage.setItem('threads_cookie_ack', '1'); } catch(e){}
+        var b = document.getElementById('cookieBanner');
+        if (b) b.style.display = 'none';
+      }
+    </script>
+  `;
+}
+
 export function renderHomePage(
   env: Env,
   lang: Lang = "ru",
@@ -1578,7 +1702,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr24";
+  const ver = env.VERSION || "pr25-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1897,6 +2021,7 @@ export function renderHomePage(
     loadFavorites();
     loadBrowsingHistory();
   </script>
+  ${renderCookieBanner(lang)}
 </body>
 </html>`;
 
@@ -2029,9 +2154,9 @@ export function renderProfilePage(
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <link rel="canonical" href="${canonicalUrl}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr24')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr24')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr24')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr25-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr25-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr25-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2658,6 +2783,7 @@ export function renderProfilePage(
       }
     });
   </script>
+  ${renderCookieBanner(lang)}
 </body>
 </html>`;
 
@@ -2671,21 +2797,61 @@ export function renderProfilePage(
 
 export function renderTermsPage(lang: Lang = "ru"): Response {
   const isEn = lang === "en";
-  const title = isEn ? "Terms of Service" : "Terms of Service (Пользовательское соглашение)";
-  const date = isEn ? "Last updated: 2026-09-20" : "Дата обновления: 2026-09-20";
-  const h1 = isEn ? "1. General Provisions" : "1. Общие положения";
-  const p1 = isEn
-    ? "Threads Viewer is an independent web viewer for publicly available data from the Threads platform, designed for educational and informational purposes."
-    : "Threads Viewer - независимый веб-просмотрщик общедоступных данных платформы Threads, предназначенный для чтения открытых публикаций в ознакомительных целях.";
-  const h2 = isEn ? "2. Disclaimer" : "2. Отказ от ответственности";
-  const p2 = isEn
-    ? "This service is not affiliated with, endorsed by, or sponsored by Meta Platforms Inc., Instagram, or Threads. All trademarks belong to their respective owners."
-    : "Сервис не связан с Meta Platforms Inc., Instagram или Threads. Все товарные знаки принадлежат их правообладателям.";
-  const h3 = isEn ? "3. Service Use" : "3. Использование сервиса";
-  const p3 = isEn
-    ? "The service is provided on an 'as is' basis. We assume no liability for third-party content published on the external Threads platform."
-    : "Сервис предоставляется по принципу 'как есть' (as is). Администрация не несет ответственности за материалы третьих лиц.";
+  const title = isEn ? "Terms of Service & Usage Limits" : "Пользовательское соглашение и лимиты сервиса";
+  const date = isEn ? "Last updated: 2026-09-22" : "Дата обновления: 22 сентября 2026 г.";
   const backBtn = isEn ? "Back to Home" : "Вернуться на главную";
+
+  const content = isEn ? `
+    <h1>Terms of Service & Usage Limits</h1>
+    <p class="terms-subtitle">${date}</p>
+
+    <h2>1. General Provisions</h2>
+    <p>Threads Viewer (threadsviewer.online, hereinafter referred to as the "Service") is an independent web viewer that provides convenient web access to publicly distributed content from the Threads social network without requiring VPN software or user account registration.</p>
+
+    <h2>2. Disclaimer and Trademarks</h2>
+    <p>The Service is not affiliated with, endorsed by, or sponsored by Meta Platforms Inc., Instagram, or Threads. All trademarks, brand logos, product names, and company emblems mentioned on this website belong to their respective copyright holders.</p>
+
+    <h2>3. Website Usage Limits and Fair Use</h2>
+    <p>- Reading public posts, profiles, photos, and comments directly on the website is completely free and unlimited for normal visitors.</p>
+    <p>- To safeguard server capacity and maintain fast response times, an automated rate limit applies to automated scraper tools (maximum 20 new uncached profile lookups per 5 minutes per IP address).</p>
+    <p>- Previously requested profiles are stored in Cloudflare Edge distributed cache and served with zero delay without consuming scraper resources.</p>
+
+    <h2>4. Advertising and Ad-Free Premium Mode</h2>
+    <p>- To fund server operations and bandwidth costs, the website displays partner promotional units and sponsored banners.</p>
+    <p>- Users who wish to browse without ads can activate an ad-free pass via our Telegram bot (@threadsreaderbot) and connect their session using the /web command.</p>
+    <p>- Verified Telegram bot subscribers also receive access to real-time author tracking with instant message delivery in Telegram.</p>
+
+    <h2>5. Disclaimer of Warranties</h2>
+    <p>The Service is provided on an "as is" and "as available" basis without warranties of any kind. We do not guarantee uninterrupted uptime of upstream network resources and assume no liability for third-party public content retrieved from the Threads platform.</p>
+
+    <h2>6. Support and Contacts</h2>
+    <p>For questions regarding terms of use, feedback, technical suggestions, or copyright matters, please reach out via our support channel in Telegram: @threadsreaderbot.</p>
+  ` : `
+    <h1>Пользовательское соглашение и лимиты сервиса</h1>
+    <p class="terms-subtitle">${date}</p>
+
+    <h2>1. Общие положения</h2>
+    <p>Сервис Threads Viewer (threadsviewer.online, далее - "Сервис") представляет собой независимый веб-интерфейс для комфортного чтения и просмотра открытых публикаций, фотографий и комментариев из социальной сети Threads без необходимости использования VPN и без регистрации аккаунта.</p>
+
+    <h2>2. Отказ от ответственности и товарные знаки</h2>
+    <p>Сервис не является официальным продуктом и не аффилирован с корпорацией Meta Platforms Inc., Instagram или Threads. Все зарегистрированные товарные знаки, фирменные наименования и логотипы принадлежат их законным правообладателям.</p>
+
+    <h2>3. Политика лимитов на сайте</h2>
+    <p>- Просмотр профилей, постов, фотографий и комментариев на веб-сайте является бесплатным и безлимитным для обычных пользователей.</p>
+    <p>- В целях защиты инфраструктуры от спам-атак и автоматических парсеров действует защитный фильтр частоты запросов (Rate Limit): не более 20 запросов к новым (ранее не сохраненным в кеше) профилям за 5 минут с одного IP-адреса.</p>
+    <p>- Ранее открытые профили сохраняются в распределенном кеше Cloudflare Edge и отдаются мгновенно без каких-либо ограничений.</p>
+
+    <h2>4. Реклама и режим без рекламы (Премиум)</h2>
+    <p>- Для финансирования серверной инфраструктуры и прокси-соединений на страницах сайта могут размещаться партнерские рекламные блоки.</p>
+    <p>- Пользователи могут отключить всю рекламу на сайте: для этого достаточно оформить подписку в Telegram-боте (@threadsreaderbot) и перейти на сайт по персональной ссылке через команду /web.</p>
+    <p>- Подписчикам в Telegram-боте также доступен анонимный мониторинг авторов (уведомления о новых постах прямо в Telegram) и режим скриншотов.</p>
+
+    <h2>5. Отказ от гарантий</h2>
+    <p>Сервис предоставляется по принципу "как есть" (as is). Администрация не гарантирует непрерывную доступность внешних серверов и не несет ответственности за материалы третьих лиц, опубликованные в открытом доступе на платформе Threads.</p>
+
+    <h2>6. Поддержка и обратная связь</h2>
+    <p>По всем вопросам работы сервиса, предложениям по улучшению или обращениям правообладателей используйте службу поддержки в Telegram: @threadsreaderbot.</p>
+  `;
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2702,26 +2868,16 @@ export function renderTermsPage(lang: Lang = "ru"): Response {
       }
     })();
   </script>
-  <style>${COMMON_STYLES} .terms-card { background: #131313; border: 1px solid #2d2d2d; border-radius: 0; padding: 24px; margin: 30px auto; max-width: 680px; } .terms-card h1 { margin-bottom: 12px; font-size: 1.4rem; color: #fff; } .terms-card h2 { margin: 18px 0 6px; font-size: 1.05rem; color: #eee; } .terms-card p { color: #888888; margin-bottom: 10px; font-size: 0.88rem; }</style>
+  <style>${COMMON_STYLES} .terms-card { background: #131313; border: 1px solid #2d2d2d; border-radius: 0; padding: 24px; margin: 30px auto; max-width: 680px; } .terms-card h1 { margin-bottom: 8px; font-size: 1.35rem; color: #fff; } .terms-card h2 { margin: 18px 0 6px; font-size: 1.02rem; color: #eee; } .terms-card p { color: #888888; margin-bottom: 8px; font-size: 0.88rem; line-height: 1.55; }</style>
 </head>
 <body>
   <div class="terms-card">
-    <h1>${title}</h1>
-    <p>${date}</p>
-
-    <h2>${h1}</h2>
-    <p>${p1}</p>
-
-    <h2>${h2}</h2>
-    <p>${p2}</p>
-
-    <h2>${h3}</h2>
-    <p>${p3}</p>
-
-    <div style="margin-top: 20px;">
+    ${content}
+    <div style="margin-top: 22px;">
       <a href="/?lang=${lang}" class="btn-sharp">${backBtn}</a>
     </div>
   </div>
+  ${renderCookieBanner(lang)}
 </body>
 </html>`;
   return new Response(html, { headers: { "content-type": "text/html; charset=UTF-8" } });
@@ -2729,21 +2885,85 @@ export function renderTermsPage(lang: Lang = "ru"): Response {
 
 export function renderPrivacyPage(lang: Lang = "ru"): Response {
   const isEn = lang === "en";
-  const title = isEn ? "Privacy Policy" : "Privacy Policy (Политика конфиденциальности)";
-  const date = isEn ? "Last updated: 2026-09-20" : "Дата обновления: 2026-09-20";
-  const h1 = isEn ? "1. Information Collection" : "1. Сбор информации";
-  const p1 = isEn
-    ? "Threads Viewer does not require registration, login, passwords, or personal data. We do not collect personal identifying information from visitors."
-    : "Threads Viewer не требует регистрации, авторизации, ввода паролей или личных данных. Мы не собираем персональную информацию посетителей сайта.";
-  const h2 = isEn ? "2. Cookies" : "2. Файлы Cookie";
-  const p2 = isEn
-    ? "The service does not use persistent tracking cookies. Language preferences are stored locally on your device."
-    : "Сервис не использует постоянные отслеживающие cookie. Все запросы обрабатываются анонимно.";
-  const h3 = isEn ? "3. Security" : "3. Безопасность";
-  const p3 = isEn
-    ? "All network connections are secured with modern HTTPS and TLS encryption standards."
-    : "Все сетевые соединения защищены современными стандартами HTTPS и TLS.";
+  const title = isEn ? "Privacy Policy" : "Политика конфиденциальности и обработки данных";
+  const date = isEn ? "Last updated: 2026-09-22" : "Дата обновления: 22 сентября 2026 г.";
   const backBtn = isEn ? "Back to Home" : "Вернуться на главную";
+
+  const content = isEn ? `
+    <h1>Privacy Policy</h1>
+    <p class="terms-subtitle">${date}</p>
+
+    <h2>1. General Provisions and Legal Basis</h2>
+    <p>This Privacy Policy outlines how Threads Viewer (threadsviewer.online, hereinafter referred to as the "Service") handles technical information and ensures privacy standards in compliance with international data protection regulations and applicable laws.</p>
+    <p>The Service is an independent, unofficial web viewer created exclusively for informational and reading purposes, providing web access to publicly distributed content from the Threads network.</p>
+
+    <h2>2. Data Minimization and Collected Information</h2>
+    <p>The Service adheres to the principle of data minimization:</p>
+    <p>- We do not require account registration, usernames, passwords, phone numbers, or email addresses.</p>
+    <p>- We do not collect, process, or store personally identifiable information (PII) such as full names, identity documents, or financial payment details.</p>
+    <p>- We do not operate user profile databases or link online actions to physical individuals.</p>
+
+    <h2>3. Technical Logs and Automated Processing</h2>
+    <p>To ensure infrastructure security, prevent automated spam attacks (DDoS), and optimize content delivery, our edge servers (Cloudflare) automatically record non-identifying technical request parameters:</p>
+    <p>- IP address of the incoming HTTP request (used solely for rate limiting and threat mitigation);</p>
+    <p>- User-Agent header, operating system type, and browser version;</p>
+    <p>- Requested URL path and timestamp of access.</p>
+    <p>Technical log entries are automatically purged on a scheduled rolling basis.</p>
+
+    <h2>4. Cookies and Local Storage</h2>
+    <p>The Service uses strictly necessary technical cookies and client-side LocalStorage:</p>
+    <p>- Interface theme preference (light or dark mode, stored in LocalStorage);</p>
+    <p>- Language preference (ru or en, stored in LocalStorage and a technical cookie);</p>
+    <p>- Cookie notice acknowledgment (stored in LocalStorage to avoid repeated prompts);</p>
+    <p>- Optional authentication token (threads_auth) for verified Telegram bot subscribers requesting an ad-free view.</p>
+    <p>The Service does not deploy third-party cross-site advertising trackers or social surveillance scripts.</p>
+
+    <h2>5. Public Information</h2>
+    <p>All profile metadata, text posts, media items, and comments displayed via the Service represent publicly accessible information shared openly by authors on the Threads platform. The Service does not bypass privacy walls, password-protected feeds, or private accounts.</p>
+
+    <h2>6. Information Security</h2>
+    <p>All data transit between the user device and the Service is encrypted using modern TLS and HTTPS protocols. Edge caching nodes store publicly available responses temporarily to minimize upstream server load.</p>
+
+    <h2>7. Inquiries and Contact</h2>
+    <p>For questions regarding this policy, technical inquiries, or content issues, please contact our support desk via the official Telegram bot: @threadsreaderbot.</p>
+  ` : `
+    <h1>Политика конфиденциальности и обработки данных</h1>
+    <p class="terms-subtitle">${date}</p>
+
+    <h2>1. Общие положения и правовые основания</h2>
+    <p>Настоящая Политика обработки данных (далее - "Политика") определяет порядок обработки технической информации и меры по обеспечению безопасности в сервисе Threads Viewer (threadsviewer.online, далее - "Сервис") в соответствии с требованиями Федерального закона от 27.07.2006 № 152-ФЗ "О персональных данных" и общепринятыми международными стандартами конфиденциальности.</p>
+    <p>Сервис является независимым неофициальным веб-интерфейсом, созданным для чтения и просмотра открытой информации, опубликованной в публичном доступе пользователями социальной сети Threads.</p>
+
+    <h2>2. Принцип минимизации и категории данных</h2>
+    <p>Сервис строго придерживается принципа минимизации данных:</p>
+    <p>- Сервис не требует регистрации, создания учетной записи, ввода паролей, номеров телефонов или адресов электронной почты.</p>
+    <p>- Сервис не собирает, не обрабатывает и не хранит персональные данные физических лиц, позволяющие идентифицировать конкретного пользователя (ФИО, паспортные данные, контакты, платежные реквизиты).</p>
+    <p>- Сервис не осуществляет сопоставление сетевых запросов с личностями реальных пользователей.</p>
+
+    <h2>3. Технические журналы и автоматическая обработка</h2>
+    <p>В целях обеспечения устойчивой работы, защиты от вредоносных автоматизированных запросов (DDoS-атак) и кеширования контента серверы инфраструктуры (Cloudflare) в автоматическом режиме могут фиксировать технические обезличенные параметры:</p>
+    <p>- Сетевой IP-адрес входящего запроса (используется исключительно для ограничения частоты запросов и фильтрации ботов);</p>
+    <p>- Идентификатор браузера (User-Agent) и тип операционной системы;</p>
+    <p>- Запрашиваемый URL-адрес и метку времени обращения.</p>
+    <p>Технические логи хранятся временно и регулярно удаляются в автоматическом режиме.</p>
+
+    <h2>4. Файлы Cookie и локальное хранилище</h2>
+    <p>Сервис использует исключительно технические файлы cookie и данные локального хранилища браузера (LocalStorage):</p>
+    <p>- Сохранение цветовой темы интерфейса (светлая или темная, в LocalStorage);</p>
+    <p>- Сохранение языковой версии (ru или en, в cookie и LocalStorage);</p>
+    <p>- Фиксация согласия с уведомлением об использовании файлов cookie (в LocalStorage);</p>
+    <p>- Сессионный токен авторизации (threads_auth) для подписчиков Telegram-бота, использующих режим без рекламы.</p>
+    <p>Сервис не применяет сторонние межсайтовые трекеры, пиксели рекламных сетей или аналитические системы с передачей персональных данных.</p>
+
+    <h2>5. Общедоступный характер информации</h2>
+    <p>Все отображаемые текстовые посты, фотографии, видеоматериалы и комментарии являются общедоступной информацией в соответствии со статьей 7 Федерального закона от 27.07.2006 № 149-ФЗ "Об информации, информационных технологиях и о защите информации", открыто размещенной авторами на платформе Threads. Сервис не получает и не отображает информацию из закрытых (приватных) профилей.</p>
+
+    <h2>6. Безопасность передачи данных</h2>
+    <p>Вся передача данных между устройством пользователя и Сервисом защищена современными протоколами шифрования HTTPS и TLS. Обработка запросов осуществляется с применением распределенной инфраструктуры Cloudflare Edge.</p>
+
+    <h2>7. Контакты и обратная связь</h2>
+    <p>По любым вопросам, связанным с настоящей Политикой, а также по вопросам функционирования сервиса, вы можете обратиться через службу поддержки в официальном Telegram-боте: @threadsreaderbot.</p>
+  `;
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2760,26 +2980,16 @@ export function renderPrivacyPage(lang: Lang = "ru"): Response {
       }
     })();
   </script>
-  <style>${COMMON_STYLES} .terms-card { background: #131313; border: 1px solid #2d2d2d; border-radius: 0; padding: 24px; margin: 30px auto; max-width: 680px; } .terms-card h1 { margin-bottom: 12px; font-size: 1.4rem; color: #fff; } .terms-card h2 { margin: 18px 0 6px; font-size: 1.05rem; color: #eee; } .terms-card p { color: #888888; margin-bottom: 10px; font-size: 0.88rem; }</style>
+  <style>${COMMON_STYLES} .terms-card { background: #131313; border: 1px solid #2d2d2d; border-radius: 0; padding: 24px; margin: 30px auto; max-width: 680px; } .terms-card h1 { margin-bottom: 8px; font-size: 1.35rem; color: #fff; } .terms-card h2 { margin: 18px 0 6px; font-size: 1.02rem; color: #eee; } .terms-card p { color: #888888; margin-bottom: 8px; font-size: 0.88rem; line-height: 1.55; }</style>
 </head>
 <body>
   <div class="terms-card">
-    <h1>${title}</h1>
-    <p>${date}</p>
-
-    <h2>${h1}</h2>
-    <p>${p1}</p>
-
-    <h2>${h2}</h2>
-    <p>${p2}</p>
-
-    <h2>${h3}</h2>
-    <p>${p3}</p>
-
-    <div style="margin-top: 20px;">
+    ${content}
+    <div style="margin-top: 22px;">
       <a href="/?lang=${lang}" class="btn-sharp">${backBtn}</a>
     </div>
   </div>
+  ${renderCookieBanner(lang)}
 </body>
 </html>`;
   return new Response(html, { headers: { "content-type": "text/html; charset=UTF-8" } });
