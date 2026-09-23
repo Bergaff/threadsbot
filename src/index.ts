@@ -45,6 +45,15 @@ function chatIdOf(update: TelegramUpdate): number | undefined {
 }
 
 const ipScraperLimits = new Map<string, { count: number; resetAt: number }>();
+const inFlightProfileFetches = new Map<string, Promise<{ data: ProfileData | null; status: any; account?: string; error?: string }>>();
+
+function isValidThreadsUsername(u: string): boolean {
+  if (!u || u.length < 1 || u.length > 30) return false;
+  if (!/^[A-Za-z0-9._]+$/.test(u)) return false;
+  if (u.includes("..") || u.startsWith(".") || u.endsWith(".")) return false;
+  if (/\.(php|html|xml|txt|json|env|asp|aspx|jsp|js|css)$/i.test(u)) return false;
+  return true;
+}
 
 function checkScraperRateLimit(ip: string, limit = 20, windowMs = 300_000): { allowed: boolean; remaining: number; retryAfter: number } {
   const now = Date.now();
@@ -78,6 +87,27 @@ async function notifyError(env: Env, error: unknown) {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // ==========================================
+    // ФИЛЬТРАЦИЯ БОТ-СКАНЕРОВ (WordPress, PHP, .env и т.д.)
+    // ==========================================
+    const lowerPath = url.pathname.toLowerCase();
+    if (
+      lowerPath.endsWith(".php") ||
+      lowerPath.endsWith(".asp") ||
+      lowerPath.endsWith(".aspx") ||
+      lowerPath.endsWith(".jsp") ||
+      lowerPath.endsWith(".env") ||
+      lowerPath.startsWith("/wp-") ||
+      lowerPath === "/xmlrpc" ||
+      lowerPath === "/feed" ||
+      lowerPath === "/rss" ||
+      lowerPath === "/atom" ||
+      lowerPath === "/actuator" ||
+      lowerPath === "/ads.txt"
+    ) {
+      return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=UTF-8" } });
+    }
 
     // ==========================================
     // ВЕБ-АДМИНКА (СТАТУС БОТОВ, АККАУНТЫ, ПАРОЛЬ)
@@ -367,6 +397,9 @@ export default {
     const profileMatch = url.pathname.match(/^\/(?:@|profile\/|user\/|u\/)([A-Za-z0-9._]+)\/?$/);
     if (profileMatch) {
       const username = profileMatch[1].toLowerCase();
+      if (!isValidThreadsUsername(username)) {
+        return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=UTF-8" } });
+      }
       const edgeHit = await matchEdgeCache(request);
       if (edgeHit) return edgeHit;
 
@@ -377,8 +410,11 @@ export default {
       }
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
       ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
-      const cached = await db.cache<ProfileData>(username, "web_profile");
-      let res = renderProfilePage(env, username, cached, null, lang, isPremium, country, undefined, url.origin);
+      const cached = await db.cache<any>(username, "web_profile");
+      const isNotFound = cached && (cached.notFound || cached.status === "user_not_found");
+      const initialData = isNotFound ? null : (cached as ProfileData);
+      const errorMsg = isNotFound ? (lang === "en" ? "Profile Not Found in Threads" : "Профиль не найден в Threads") : null;
+      let res = renderProfilePage(env, username, initialData, errorMsg, lang, isPremium, country, undefined, url.origin);
       if (newAuthCookie) {
         res = new Response(res.body, res);
         res.headers.append("Set-Cookie", newAuthCookie);
@@ -393,13 +429,15 @@ export default {
     const reservedWords = new Set([
       "admin", "api", "terms", "privacy", "robots.txt", "sitemap.xml",
       "favicon.ico", "favicon.svg", "apple-touch-icon.png", "og-image.svg", "og-image.png",
-      "ru", "en", "index.html", "health", "setup-webhook", "telegram"
+      "ru", "en", "index.html", "health", "setup-webhook", "telegram",
+      "feed", "rss", "atom", "xmlrpc", "ads.txt"
     ]);
     if (
       directUserMatch &&
       !reservedWords.has(directUserMatch[1].toLowerCase()) &&
       !directUserMatch[1].startsWith("yandex_") &&
-      !directUserMatch[1].startsWith("google")
+      !directUserMatch[1].startsWith("google") &&
+      isValidThreadsUsername(directUserMatch[1])
     ) {
       const target = `/@${directUserMatch[1].toLowerCase()}${url.search}`;
       return Response.redirect(new URL(target, url.origin).toString(), 301);
@@ -408,7 +446,7 @@ export default {
     // API для получения данных профиля и постов (для "крутить как обычный тредс")
     if (url.pathname.startsWith("/api/profile/")) {
       const username = decodeURIComponent(url.pathname.slice("/api/profile/".length)).replace(/^@/, "").toLowerCase();
-      if (!username || !/^[A-Za-z0-9._]{1,60}$/.test(username)) {
+      if (!isValidThreadsUsername(username)) {
         return Response.json({ ok: false, error: "Некорректный username" }, { status: 400 });
       }
 
@@ -422,9 +460,25 @@ export default {
       }
       await logSystem(env, "info", "api", `[API_REQ] Запрос профиля /api/profile/${username} (admin: ${isAdmin})`);
 
-      // Сначала проверяем D1 кеш
-      const cached = await db.cache<ProfileData>(username, "web_profile");
+      // Сначала проверяем D1 кеш (включая отрицательный кеш)
+      const cached = await db.cache<any>(username, "web_profile");
       if (cached) {
+        if (cached.notFound || cached.status === "user_not_found") {
+          await logSystem(env, "info", "api", `[API_CACHE_NEGATIVE] Отдан кеш (не найден) для @${username}`);
+          const res = Response.json({
+            ok: false,
+            cached: true,
+            status: "user_not_found",
+            error: "Профиль не найден в Threads",
+          }, {
+            status: 404,
+            headers: {
+              "cache-control": "public, max-age=900, s-maxage=900",
+            },
+          });
+          putEdgeCache(request, res, ctx, 900);
+          return res;
+        }
         await logSystem(env, "info", "api", `[API_CACHE] Отдан кеш для @${username} (${cached.posts?.length || 0} постов)`);
         const res = Response.json({ ok: true, cached: true, ...cached }, {
           headers: {
@@ -475,8 +529,20 @@ export default {
       }
 
       try {
-        await logSystem(env, "info", "api", `[API_FETCH] Запуск скрапера для @${username} (аккаунтов доступно: ${counts.alive})`);
-        const fetched = await fetchProfileWithPosts(env, username, 20);
+        // Устранение дублирующих параллельных запросов (In-flight deduplication)
+        let fetchPromise = inFlightProfileFetches.get(username);
+        if (!fetchPromise) {
+          await logSystem(env, "info", "api", `[API_FETCH] Запуск скрапера для @${username} (аккаунтов доступно: ${counts.alive})`);
+          fetchPromise = fetchProfileWithPosts(env, username, 20);
+          inFlightProfileFetches.set(username, fetchPromise);
+          fetchPromise.finally(() => {
+            inFlightProfileFetches.delete(username);
+          });
+        } else {
+          await logSystem(env, "info", "api", `[API_DEDUP] Запрос @${username} подключен к текущему скраперу`);
+        }
+
+        const fetched = await fetchPromise;
         await logSystem(env, "info", "api", `[API_RESULT] @${username}: status=${fetched.status}, постов=${fetched.data?.posts?.length || 0}`);
         if (fetched.status === "ok" && fetched.data) {
           await db.setCache(username, "web_profile", fetched.data);
@@ -488,10 +554,35 @@ export default {
           putEdgeCache(request, res, ctx, 900);
           return res;
         }
+
+        if (fetched.status === "user_not_found") {
+          // Negative caching: кешируем "пользователь не найден" в D1 и на Edge
+          await db.setCache(username, "web_profile", {
+            notFound: true,
+            status: "user_not_found",
+            error: "Профиль не найден в Threads",
+            profile: null,
+            posts: [],
+          });
+          const res = Response.json({
+            ok: false,
+            cached: false,
+            status: "user_not_found",
+            error: "Профиль не найден в Threads",
+          }, {
+            status: 404,
+            headers: {
+              "cache-control": "public, max-age=900, s-maxage=900",
+            },
+          });
+          putEdgeCache(request, res, ctx, 900);
+          return res;
+        }
+
         return Response.json({
           ok: false,
           status: fetched.status,
-          error: fetched.status === "user_not_found" ? "Профиль не найден в Threads" : (fetched.error || fetched.status),
+          error: fetched.error || fetched.status,
         });
       } catch (err) {
         await logSystem(env, "error", "api", `[API_EXCEPTION] Ошибка сбора @${username}: ${err}`);

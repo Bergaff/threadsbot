@@ -187,27 +187,107 @@ const COMMON_STYLES = `
 
   /* Notice Bar */
   .notice-bar {
-    background: #1c1c1c;
-    border-bottom: 1px solid #2d2d2d;
-    color: #b0b0b0;
-    font-size: 0.82rem;
+    background: #111827;
+    border-bottom: 2px solid #2563eb;
+    color: #e2e8f0;
+    font-size: 0.88rem;
     text-align: center;
-    padding: 8px 12px;
+    padding: 10px 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: 14px;
     flex-wrap: wrap;
     box-shadow: none;
   }
+  .notice-bar-highlight {
+    color: #60a5fa;
+    font-weight: 700;
+  }
   .notice-bar a {
-    background: #2b2b2b;
-    border: 1px solid #444444;
+    background: #2563eb;
+    border: 1px solid #3b82f6;
     color: #ffffff;
-    padding: 2px 8px;
+    padding: 6px 16px;
     border-radius: 0;
-    font-size: 0.78rem;
-    font-weight: 600;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    text-decoration: none;
+    box-shadow: none;
+  }
+  .notice-bar a:hover {
+    background: #1d4ed8;
+    border-color: #60a5fa;
+  }
+
+  /* Telegram Callout Card */
+  .tg-callout-card {
+    background: #131722;
+    border: 1px solid #2563eb;
+    border-radius: 0;
+    padding: 16px 18px;
+    margin: 18px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    box-shadow: none;
+  }
+  .tg-callout-left {
+    flex: 1;
+    text-align: left;
+  }
+  .tg-callout-badge {
+    display: inline-block;
+    background: #1e293b;
+    border: 1px solid #3b82f6;
+    color: #93c5fd;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    margin-bottom: 6px;
+  }
+  .tg-callout-title {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 4px;
+  }
+  .tg-callout-desc {
+    font-size: 0.84rem;
+    color: #a0aec0;
+    line-height: 1.45;
+  }
+  .tg-callout-btn {
+    background: #2563eb;
+    border: 1px solid #3b82f6;
+    color: #ffffff;
+    padding: 9px 18px;
+    font-size: 0.86rem;
+    font-weight: 700;
+    white-space: nowrap;
+    text-decoration: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .tg-callout-btn:hover {
+    background: #1d4ed8;
+    border-color: #60a5fa;
+  }
+  .btn-sharp-tg {
+    background: #172554 !important;
+    border: 1px solid #2563eb !important;
+    color: #93c5fd !important;
+    font-weight: 700;
+  }
+  .btn-sharp-tg:hover {
+    background: #1e3a8a !important;
+    border-color: #3b82f6 !important;
+    color: #ffffff !important;
   }
 
   /* Main Container */
@@ -1081,14 +1161,52 @@ const COMMON_STYLES = `
     color: #171410;
   }
   html[data-theme="light"] .notice-bar {
-    background: #d4ccbe;
-    border-bottom: 1px solid #b5ab99;
-    color: #4b453a;
+    background: #e2edfd;
+    border-bottom: 2px solid #2563eb;
+    color: #1e293b;
+  }
+  html[data-theme="light"] .notice-bar-highlight {
+    color: #1d4ed8;
   }
   html[data-theme="light"] .notice-bar a {
-    background: #c6bdad;
-    border: 1px solid #aba08d;
-    color: #201c17;
+    background: #2563eb;
+    border: 1px solid #1d4ed8;
+    color: #ffffff;
+  }
+  html[data-theme="light"] .notice-bar a:hover {
+    background: #1d4ed8;
+  }
+  html[data-theme="light"] .tg-callout-card {
+    background: #e8f0fe;
+    border: 1px solid #2563eb;
+  }
+  html[data-theme="light"] .tg-callout-badge {
+    background: #dbeafe;
+    border: 1px solid #2563eb;
+    color: #1d4ed8;
+  }
+  html[data-theme="light"] .tg-callout-title {
+    color: #0f172a;
+  }
+  html[data-theme="light"] .tg-callout-desc {
+    color: #334155;
+  }
+  html[data-theme="light"] .tg-callout-btn {
+    background: #2563eb;
+    border: 1px solid #1d4ed8;
+    color: #ffffff;
+  }
+  html[data-theme="light"] .tg-callout-btn:hover {
+    background: #1d4ed8;
+  }
+  html[data-theme="light"] .btn-sharp-tg {
+    background: #e0ecff !important;
+    border: 1px solid #2563eb !important;
+    color: #1d4ed8 !important;
+  }
+  html[data-theme="light"] .btn-sharp-tg:hover {
+    background: #c7ddff !important;
+    border-color: #1e40af !important;
   }
   html[data-theme="light"] .hero-card,
   html[data-theme="light"] .profile-card,
@@ -1416,8 +1534,12 @@ const I18N = {
     hero_subtitle: "Введите никнейм автора или ссылку на тред, чтобы открыть посты, фото и комментарии прямо в браузере.",
     open_btn: "Открыть",
     example_hint: 'Например, <span id="exampleZuck" class="blue-example-link" onclick="fillSearch(\'zuck\')">zuck</span>',
-    notice_text: "Чтение Threads без VPN и аккаунта. Уведомления о новых постах доступны в Telegram-боте.",
-    open_bot_btn: "Открыть бота",
+    tg_badge: "Telegram-бот без VPN",
+    tg_card_title: "Читайте Threads прямо в Telegram",
+    tg_card_desc: "Отправляйте никнейм автора боту, читайте посты и комментарии, сохраняйте в избранное и получайте уведомления о новых публикациях.",
+    tg_card_btn: "Перейти в Telegram-бота",
+    notice_text: "Телеграм-бот Threads: читайте любые треды и комментарии прямо в Telegram без VPN.",
+    open_bot_btn: "Открыть в Telegram",
     bot_link_text: "Telegram Бот",
     sponsor_tag: "Партнерский блок",
     sponsor_ad_label: "Реклама",
@@ -1480,8 +1602,12 @@ const I18N = {
     hero_subtitle: "Enter an author's handle or thread link to view posts, photos, and comments directly in your browser.",
     open_btn: "Open",
     example_hint: 'For example, <span id="exampleZuck" class="blue-example-link" onclick="fillSearch(\'zuck\')">zuck</span>',
-    notice_text: "Read Threads without VPN or account. Real-time updates available via our Telegram bot.",
-    open_bot_btn: "Open bot",
+    tg_badge: "Telegram Bot Without VPN",
+    tg_card_title: "Read Threads directly in Telegram",
+    tg_card_desc: "Send an author username to the bot to read threads and replies, bookmark creators, and get instant notifications for new posts.",
+    tg_card_btn: "Open Telegram Bot",
+    notice_text: "Telegram Bot Threads: read any thread and replies directly in Telegram without VPN.",
+    open_bot_btn: "Open in Telegram",
     bot_link_text: "Telegram Bot",
     sponsor_tag: "Sponsored",
     sponsor_ad_label: "Ad",
@@ -1572,17 +1698,27 @@ function renderNoticeBar(env: Env, lang: Lang, username?: string, isPremium = fa
   const t = I18N[lang];
   if (isPremium) {
     return `
-      <div class="notice-bar" style="background:#1c1c1c;border-color:#3a3a3a;color:#ffd700;">
+      <div class="notice-bar" style="background:#111827;border-bottom:2px solid #2563eb;color:#ffd700;">
         <span>${lang === 'en' ? 'Premium Active - Ad-free unlimited browsing' : 'Премиум активен - Без рекламы и ограничений'}</span>
       </div>
     `;
   }
   const tgUser = getBotUsername(env);
   const tgLink = username ? `https://t.me/${tgUser}?start=sub_${username}` : `https://t.me/${tgUser}`;
+  const noticeHighlight = username
+    ? (lang === 'en' ? `@${esc(username)} in Telegram:` : `@${esc(username)} в Telegram:`)
+    : (lang === 'en' ? 'Telegram Bot:' : 'Телеграм-бот Threads:');
+  const noticeMsg = username
+    ? (lang === 'en' ? 'Read this profile, view media and get real-time notifications for new posts without VPN.' : 'Читайте этот профиль, смотрите медиа и получайте уведомления о новых публикациях без VPN.')
+    : (lang === 'en' ? 'Browse Threads profiles without VPN, save favorites and receive instant post updates.' : 'Читайте любые треды без VPN, сохраняйте авторов и получайте уведомления о новых постах.');
+  const btnLabel = username
+    ? (lang === 'en' ? `Open @${esc(username)} in Telegram` : `Читать @${esc(username)} в Telegram`)
+    : (lang === 'en' ? 'Open in Telegram' : 'Открыть в Telegram');
+
   return `
     <div class="notice-bar">
-      <span>${t.notice_text}</span>
-      <a href="${esc(tgLink)}" target="_blank" rel="noopener">${t.open_bot_btn}</a>
+      <span><strong class="notice-bar-highlight">${noticeHighlight}</strong> ${noticeMsg}</span>
+      <a href="${esc(tgLink)}" target="_blank" rel="noopener">${btnLabel}</a>
     </div>
   `;
 }
@@ -1702,7 +1838,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr25-2026-09-22-ux";
+  const ver = env.VERSION || "pr26-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1773,6 +1909,15 @@ export function renderHomePage(
 
       <div class="example-hint">
         ${t.example_hint}
+      </div>
+
+      <div class="tg-callout-card">
+        <div class="tg-callout-left">
+          <div class="tg-callout-badge">${t.tg_badge}</div>
+          <div class="tg-callout-title">${t.tg_card_title}</div>
+          <div class="tg-callout-desc">${t.tg_card_desc}</div>
+        </div>
+        <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener" class="tg-callout-btn">${t.tg_card_btn}</a>
       </div>
 
       <div class="popular-section">
@@ -2154,9 +2299,9 @@ export function renderProfilePage(
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <link rel="canonical" href="${canonicalUrl}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr25-2026-09-22-ux')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr25-2026-09-22-ux')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr25-2026-09-22-ux')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr26-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr26-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr26-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2218,7 +2363,7 @@ export function renderProfilePage(
       </div>
 
       <div class="profile-actions">
-        <a href="https://t.me/${esc(tgUser)}?start=sub_${esc(cleanUser)}" target="_blank" rel="noopener" class="btn-sharp">
+        <a href="https://t.me/${esc(tgUser)}?start=sub_${esc(cleanUser)}" target="_blank" rel="noopener" class="btn-sharp btn-sharp-tg">
           ${t.sub_tg}
         </a>
         <button class="btn-sharp" id="favToggleBtn" onclick="toggleFavorite('${esc(cleanUser)}')">

@@ -528,6 +528,34 @@ describe("Web Viewer SSR & Routing", () => {
       const directRes = await worker.fetch(directReq, mockEnv, fakeCtx);
       expect(directRes.status).toBe(301);
       expect(directRes.headers.get("location")).toBe("https://threadsviewer.online/@zuck");
+
+      // Scanner probes should return 404 immediately and NOT be treated as usernames
+      const phpReq = new Request("https://threadsviewer.online/xmlrpc.php");
+      const phpRes = await worker.fetch(phpReq, mockEnv, fakeCtx);
+      expect(phpRes.status).toBe(404);
+
+      const wpReq = new Request("https://threadsviewer.online/wp-login.php");
+      const wpRes = await worker.fetch(wpReq, mockEnv, fakeCtx);
+      expect(wpRes.status).toBe(404);
+
+      const feedReq = new Request("https://threadsviewer.online/feed");
+      const feedRes = await worker.fetch(feedReq, mockEnv, fakeCtx);
+      expect(feedRes.status).toBe(404);
+    });
+
+    it("renders prominent Telegram callout card on homepage and notice bar", async () => {
+      const homeRes = renderHomePage(mockEnv, "ru");
+      const html = await homeRes.text();
+      expect(html).toContain("tg-callout-card");
+      expect(html).toContain("Читайте Threads прямо в Telegram");
+      expect(html).toContain("tg-callout-btn");
+      expect(html).toContain("notice-bar-highlight");
+
+      const profileRes = renderProfilePage(mockEnv, "zuck", null, null, "ru");
+      const profileHtml = await profileRes.text();
+      expect(profileHtml).toContain("btn-sharp-tg");
+      expect(profileHtml).toContain("notice-bar-highlight");
+      expect(profileHtml).toContain("@zuck в Telegram");
     });
 
     it("includes language roots and cache-control in sitemap", async () => {
