@@ -1832,12 +1832,13 @@ export function renderHomePage(
   lang: Lang = "ru",
   isPremium = false,
   country = "",
-  origin = env.SITE_URL || "https://threadsviewer.online"
+  origin = env.SITE_URL || "https://threadsviewer.online",
+  paymentStatus: "success" | "fail" | null = null
 ): Response {
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr27-2026-09-22-ux";
+  const ver = env.VERSION || "pr28-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1851,6 +1852,7 @@ export function renderHomePage(
   <meta name="yandex-verification" content="f2e3a97ba3ea12b6">
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
+  <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${homeCanonical}">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(ver)}">
   <link rel="alternate icon" href="/favicon.ico?v=${esc(ver)}">
@@ -1896,6 +1898,13 @@ export function renderHomePage(
   ${renderNoticeBar(env, lang, undefined, isPremium)}
 
   <main class="container">
+    ${paymentStatus === 'success' ? `
+    <div style="background:#132818;border:1px solid #22c55e;color:#86efac;padding:14px 18px;margin-bottom:20px;font-size:0.95rem;font-weight:600;">
+      ${lang === 'en' ? 'Payment completed successfully! Thank you for supporting the service.' : 'Оплата успешно завершена! Спасибо за поддержку сервиса.'}
+    </div>` : (paymentStatus === 'fail' ? `
+    <div style="background:#281313;border:1px solid #ef4444;color:#fca5a5;padding:14px 18px;margin-bottom:20px;font-size:0.95rem;font-weight:600;">
+      ${lang === 'en' ? 'Payment was cancelled or failed. If you need help, please contact support.' : 'Оплата была отменена или не удалась. Если возникли трудности, обратитесь в поддержку.'}
+    </div>` : '')}
     <div class="hero-card">
       <div class="hero-tag">${t.hero_tag}</div>
       <h1 class="hero-title">${t.hero_title}</h1>
@@ -2297,10 +2306,11 @@ export function renderProfilePage(
   <meta name="yandex-verification" content="f2e3a97ba3ea12b6">
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
+  <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${canonicalUrl}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr27-2026-09-22-ux')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr27-2026-09-22-ux')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr27-2026-09-22-ux')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr28-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr28-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr28-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3003,6 +3013,7 @@ export function renderTermsPage(lang: Lang = "ru"): Response {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
+  <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <title>${title} - Threads Viewer</title>
   <script>
     (function(){
@@ -3115,6 +3126,7 @@ export function renderPrivacyPage(lang: Lang = "ru"): Response {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
+  <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <title>${title} - Threads Viewer</title>
   <script>
     (function(){

@@ -577,5 +577,40 @@ describe("Web Viewer SSR & Routing", () => {
       const testRes = new Response("ok", { status: 200 });
       expect(() => putEdgeCache(req, testRes)).not.toThrow();
     });
+
+    it("serves merchant payment verification meta tags, endpoints, and result.php callback", async () => {
+      // 1. Meta tag on homepage
+      const homeRes = renderHomePage(mockEnv, "ru");
+      const homeHtml = await homeRes.text();
+      expect(homeHtml).toContain('<meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">');
+
+      // 2. Direct verification endpoint
+      const worker = (await import("../src/index")).default;
+      const verifyReq = new Request("https://threadsviewer.online/7d97667a3e056acab9aaf653807b4a03");
+      const verifyRes = await worker.fetch(verifyReq, mockEnv, {} as any);
+      expect(verifyRes.status).toBe(200);
+      expect(await verifyRes.text()).toBe("7d97667a3e056acab9aaf653807b4a03");
+
+      // 3. result.php GET ping
+      const pingReq = new Request("https://threadsviewer.online/result.php");
+      const pingRes = await worker.fetch(pingReq, mockEnv, {} as any);
+      expect(pingRes.status).toBe(200);
+      expect(await pingRes.text()).toBe("OK");
+
+      // 4. result.php POST payment callback
+      const postReq = new Request("https://threadsviewer.online/result.php", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "ORDER_ID=12345_30&AMOUNT=500&IN_AMOUNT=500&DATA=uid_99999",
+      });
+      const postRes = await worker.fetch(postReq, mockEnv, {} as any);
+      expect(postRes.status).toBe(200);
+      expect(await postRes.text()).toBe("OK");
+
+      // 5. Homepage payment success banner
+      const successHome = renderHomePage(mockEnv, "ru", false, "RU", "https://threadsviewer.online", "success");
+      const successHtml = await successHome.text();
+      expect(successHtml).toContain("Оплата успешно завершена!");
+    });
   });
 });

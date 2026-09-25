@@ -87,13 +87,117 @@ async function notifyError(env: Env, error: unknown) {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const lowerPath = url.pathname.toLowerCase();
+
+    // ==========================================
+    // ВЕРИФИКАЦИЯ МЕРЧАНТА / КАССЫ (ФАЙЛОВАЯ)
+    // ==========================================
+    if (
+      lowerPath === "/7d97667a3e056acab9aaf653807b4a03" ||
+      lowerPath === "/7d97667a3e056acab9aaf653807b4a03.txt" ||
+      lowerPath === "/7d97667a3e056acab9aaf653807b4a03.html"
+    ) {
+      return new Response("7d97667a3e056acab9aaf653807b4a03", {
+        status: 200,
+        headers: { "content-type": "text/plain; charset=UTF-8" },
+      });
+    }
+
+    // ==========================================
+    // ПЛАТЕЖНЫЕ ОПОВЕЩЕНИЯ (Kassa / Webhook / result.php)
+    // ==========================================
+    if (lowerPath === "/result.php" || lowerPath === "/api/payment/callback") {
+      try {
+        const clientIp = request.headers.get("cf-connecting-ip") || "";
+        const params: Record<string, any> = {};
+        for (const [k, v] of url.searchParams.entries()) {
+          params[k.toLowerCase()] = v;
+        }
+
+        if (request.method === "POST") {
+          const contentType = request.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const json = await request.json<Record<string, any>>().catch(() => ({}));
+            if (json && typeof json === "object") {
+              for (const [k, v] of Object.entries(json)) {
+                params[k.toLowerCase()] = v;
+              }
+            }
+          } else if (
+            contentType.includes("application/x-www-form-urlencoded") ||
+            contentType.includes("multipart/form-data")
+          ) {
+            const formData = await request.formData().catch(() => null);
+            if (formData) {
+              for (const [k, v] of formData.entries()) {
+                params[k.toLowerCase()] = typeof v === "string" ? v : v.name;
+              }
+            }
+          } else {
+            const text = await request.text().catch(() => "");
+            if (text) {
+              try {
+                const json = JSON.parse(text) as Record<string, any>;
+                if (json && typeof json === "object") {
+                  for (const [k, v] of Object.entries(json)) {
+                    params[k.toLowerCase()] = v;
+                  }
+                }
+              } catch {
+                const searchParams = new URLSearchParams(text);
+                for (const [k, v] of searchParams.entries()) {
+                  params[k.toLowerCase()] = v;
+                }
+              }
+            }
+          }
+        }
+
+        console.log(`[Payment Webhook] IP: ${clientIp}, method: ${request.method}, params:`, JSON.stringify(params));
+
+        // Если передан идентификатор пользователя (uid) через data или order_id
+        const rawData = String(params.data || params.custom || "");
+        const rawOrder = String(params.order_id || params.orderid || "");
+        const amount = Number(params.amount || params.in_amount || 0);
+
+        let uid = 0;
+        let days = 30;
+
+        const uidMatch = rawData.match(/uid[:_]?(\d+)/i) || rawOrder.match(/^(\d+)(?:_(\d+))?$/);
+        if (uidMatch) {
+          uid = parseInt(uidMatch[1], 10);
+          if (uidMatch[2]) days = parseInt(uidMatch[2], 10);
+        }
+
+        if (uid > 0 && env.DB && typeof env.DB.prepare === "function") {
+          const db = new Database(env);
+          await db.activate(uid, "kassa", amount, days);
+          console.log(`[Payment Webhook] Activated subscription for user ${uid}, days: ${days}, amount: ${amount}`);
+          if (env.TELEGRAM_TOKEN) {
+            try {
+              const tg = new Telegram(env.TELEGRAM_TOKEN);
+              await tg.sendMessage(uid, `🎉 <b>Оплата успешно получена!</b>\n\nПодписка активирована на ${days} дн.`);
+            } catch (e) {
+              console.error("[Payment Webhook] Failed to notify user:", e);
+            }
+          }
+        }
+
+        return new Response("OK", {
+          status: 200,
+          headers: { "content-type": "text/plain; charset=UTF-8" },
+        });
+      } catch (err) {
+        console.error("[Payment Webhook] Error processing result.php:", err);
+        return new Response("OK", { status: 200, headers: { "content-type": "text/plain; charset=UTF-8" } });
+      }
+    }
 
     // ==========================================
     // ФИЛЬТРАЦИЯ БОТ-СКАНЕРОВ (WordPress, PHP, .env и т.д.)
     // ==========================================
-    const lowerPath = url.pathname.toLowerCase();
     if (
-      lowerPath.endsWith(".php") ||
+      (lowerPath.endsWith(".php") && lowerPath !== "/result.php") ||
       lowerPath.endsWith(".asp") ||
       lowerPath.endsWith(".aspx") ||
       lowerPath.endsWith(".jsp") ||
@@ -242,15 +346,20 @@ export default {
     // Главная страница (включая языковые маршруты /ru, /ru/, /en, /en/)
     if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/ru" || url.pathname === "/ru/" || url.pathname === "/en" || url.pathname === "/en/") {
       const pageLang = url.pathname.startsWith("/en") ? "en" : (url.pathname.startsWith("/ru") ? "ru" : lang);
-      const edgeHit = await matchEdgeCache(request);
-      if (edgeHit) return edgeHit;
+      const paymentParam = url.searchParams.get("payment");
+      const paymentStatus = paymentParam === "success" ? "success" : (paymentParam === "fail" || paymentParam === "cancel" ? "fail" : null);
+
+      if (!paymentStatus) {
+        const edgeHit = await matchEdgeCache(request);
+        if (edgeHit) return edgeHit;
+      }
 
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
-      let res = renderHomePage(env, pageLang, isPremium, country, url.origin);
+      let res = renderHomePage(env, pageLang, isPremium, country, url.origin, paymentStatus);
       if (newAuthCookie) {
         res = new Response(res.body, res);
         res.headers.append("Set-Cookie", newAuthCookie);
-      } else if (!isPremium) {
+      } else if (!isPremium && !paymentStatus) {
         putEdgeCache(request, res, ctx, 300);
       }
       return res;
