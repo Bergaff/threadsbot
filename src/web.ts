@@ -1585,7 +1585,7 @@ const I18N = {
     support_sending: "Отправка...",
     support_success: "Спасибо! Ваше сообщение отправлено администратору.",
     support_error: "Не удалось отправить сообщение. Пожалуйста, попробуйте позже.",
-    tos: "Условия и лимиты",
+    tos: "Условия и тарифы",
     privacy: "Политика конфиденциальности",
     footer_text: "Threads Viewer. Независимый сервис. Не аффилирован с Meta Platforms Inc.",
     other_lang: "EN",
@@ -1653,7 +1653,7 @@ const I18N = {
     support_sending: "Sending...",
     support_success: "Thank you! Your message has been sent to the admin.",
     support_error: "Failed to send message. Please try again later.",
-    tos: "Terms & Limits",
+    tos: "Terms & Tariffs",
     privacy: "Privacy Policy",
     footer_text: "Threads Viewer. Independent service. Not affiliated with Meta Platforms Inc.",
     other_lang: "RU",
@@ -1838,7 +1838,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr28-2026-09-22-ux";
+  const ver = env.VERSION || "pr29-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2308,9 +2308,9 @@ export function renderProfilePage(
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${canonicalUrl}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr28-2026-09-22-ux')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr28-2026-09-22-ux')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr28-2026-09-22-ux')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr29-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr29-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr29-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2970,16 +2970,31 @@ export function renderTermsPage(lang: Lang = "ru"): Response {
     <p>- To safeguard server capacity and maintain fast response times, an automated rate limit applies to automated scraper tools (maximum 20 new uncached profile lookups per 5 minutes per IP address).</p>
     <p>- Previously requested profiles are stored in Cloudflare Edge distributed cache and served with zero delay without consuming scraper resources.</p>
 
-    <h2>4. Advertising and Ad-Free Premium Mode</h2>
-    <p>- To fund server operations and bandwidth costs, the website displays partner promotional units and sponsored banners.</p>
-    <p>- Users who wish to browse without ads can activate an ad-free pass via our Telegram bot (@threadsreaderbot) and connect their session using the /web command.</p>
-    <p>- Verified Telegram bot subscribers also receive access to real-time author tracking with instant message delivery in Telegram.</p>
+    <h2>4. Digital Goods, Premium Services & Tariffs</h2>
+    <p>The Service offers digital access subscriptions with expanded capabilities:</p>
+    <p>- Complete ad removal across the Threads Viewer website;</p>
+    <p>- Real-time anonymous author tracking with instant delivery to Telegram;</p>
+    <p>- Unrestricted browsing of deep comment threads and high-resolution media.</p>
+    <p><b>Subscription Plans & Pricing:</b></p>
+    <p>- Trial Plan (7 days access): 49 RUB (or 49 Telegram Stars / 1.0 USDT);</p>
+    <p>- Standard Plan (30 days access): 149 RUB (or 149 Telegram Stars / 2.5 USDT).</p>
+    <p>Payment methods: Bank cards (MIR, Visa, Mastercard), Faster Payments System (SBP), Telegram Stars, Cryptocurrency. All transactions are securely processed via certified payment gateways.</p>
 
-    <h2>5. Disclaimer of Warranties</h2>
+    <h2>5. Order Fulfillment & Delivery Policy</h2>
+    <p>All services provided by the Service are entirely digital. Service activation (digital delivery) occurs immediately and automatically upon confirmation of successful transaction by the payment provider. No physical shipment is required.</p>
+
+    <h2>6. Refund Policy</h2>
+    <p>- If the Service is unavailable due to technical failures on our side, or in case of erroneous duplicate billing, users are entitled to a full refund within 14 calendar days from the transaction date.</p>
+    <p>- To request a refund, contact customer support via email at support@threadsviewer.online or via Telegram at @threadsreaderbot with your Order ID, payment date, and amount.</p>
+    <p>- Refund requests are processed within 24 hours. Approved refunds are credited back to the original payment method within 1-5 business days depending on the issuing bank.</p>
+
+    <h2>7. Disclaimer of Warranties</h2>
     <p>The Service is provided on an "as is" and "as available" basis without warranties of any kind. We do not guarantee uninterrupted uptime of upstream network resources and assume no liability for third-party public content retrieved from the Threads platform.</p>
 
-    <h2>6. Support and Contacts</h2>
-    <p>For questions regarding terms of use, feedback, technical suggestions, or copyright matters, please reach out via our support channel in Telegram: @threadsreaderbot.</p>
+    <h2>8. Support and Contacts</h2>
+    <p>Customer Support: support@threadsviewer.online</p>
+    <p>Telegram Support: @threadsreaderbot</p>
+    <p>Support Hours: Daily, 09:00 - 22:00 MSK.</p>
   ` : `
     <h1>Пользовательское соглашение и лимиты сервиса</h1>
     <p class="terms-subtitle">${date}</p>
@@ -2995,16 +3010,31 @@ export function renderTermsPage(lang: Lang = "ru"): Response {
     <p>- В целях защиты инфраструктуры от спам-атак и автоматических парсеров действует защитный фильтр частоты запросов (Rate Limit): не более 20 запросов к новым (ранее не сохраненным в кеше) профилям за 5 минут с одного IP-адреса.</p>
     <p>- Ранее открытые профили сохраняются в распределенном кеше Cloudflare Edge и отдаются мгновенно без каких-либо ограничений.</p>
 
-    <h2>4. Реклама и режим без рекламы (Премиум)</h2>
-    <p>- Для финансирования серверной инфраструктуры и прокси-соединений на страницах сайта могут размещаться партнерские рекламные блоки.</p>
-    <p>- Пользователи могут отключить всю рекламу на сайте: для этого достаточно оформить подписку в Telegram-боте (@threadsreaderbot) и перейти на сайт по персональной ссылке через команду /web.</p>
-    <p>- Подписчикам в Telegram-боте также доступен анонимный мониторинг авторов (уведомления о новых постах прямо в Telegram) и режим скриншотов.</p>
+    <h2>4. Описание цифровых услуг и тарифы</h2>
+    <p>Сервис предоставляет цифровую платную подписку с расширенными возможностями:</p>
+    <p>- Полное отключение рекламы на веб-сайте Threads Viewer;</p>
+    <p>- Анонимный мониторинг авторов Threads в реальном времени с доставкой постов в Telegram;</p>
+    <p>- Просмотр всех веток комментариев и медиафайлов без ограничений.</p>
+    <p><b>Тарифные планы и стоимость:</b></p>
+    <p>- Тариф "Пробный" (7 дней доступа): 49 руб. (или 49 Telegram Stars / 1.0 USDT);</p>
+    <p>- Тариф "Стандартный" (30 дней доступа): 149 руб. (или 149 Telegram Stars / 2.5 USDT).</p>
+    <p>Способы оплаты: Банковские карты (МИР, Visa, Mastercard), СБП (Система быстрых платежей), Telegram Stars, криптовалюта. Все расчеты производятся через защищенные шлюзы сертифицированных платёжных операторов.</p>
 
-    <h2>5. Отказ от гарантий</h2>
+    <h2>5. Порядок оформления и доставки цифровых услуг</h2>
+    <p>Оказываемые услуги носят исключительно цифровой характер. Предоставление доступа (доставка услуги) происходит мгновенно в автоматическом режиме сразу после подтверждения успешной оплаты банком или платёжным шлюзом. Никакой физической доставки не требуется.</p>
+
+    <h2>6. Условия и порядок возврата денежных средств (Refund Policy)</h2>
+    <p>- В случае технических сбоев на стороне Сервиса, препятствующих его использованию, либо при ошибочном списании средств, Пользователь имеет право на полный возврат в течение 14 календарных дней с момента оплаты.</p>
+    <p>- Для оформления возврата Пользователь направляет обращение в службу поддержки по электронной почте support@threadsviewer.online или в Telegram: @threadsreaderbot с указанием номера заказа (Order ID), даты и суммы оплаты.</p>
+    <p>- Срок рассмотрения заявления - не более 24 часов. Возврат средств производится на тот же платёжный инструмент (банковскую карту, кошелек), с которого была совершена оплата, в срок от 1 до 5 рабочих дней (в зависимости от банка-эмитента карты).</p>
+
+    <h2>7. Отказ от гарантий</h2>
     <p>Сервис предоставляется по принципу "как есть" (as is). Администрация не гарантирует непрерывную доступность внешних серверов и не несет ответственности за материалы третьих лиц, опубликованные в открытом доступе на платформе Threads.</p>
 
-    <h2>6. Поддержка и обратная связь</h2>
-    <p>По всем вопросам работы сервиса, предложениям по улучшению или обращениям правообладателей используйте службу поддержки в Telegram: @threadsreaderbot.</p>
+    <h2>8. Контакты и служба поддержки</h2>
+    <p>Электронная почта поддержки: support@threadsviewer.online</p>
+    <p>Telegram-поддержка: @threadsreaderbot</p>
+    <p>Режим работы поддержки: ежедневно, с 09:00 до 22:00 МСК.</p>
   `;
 
   const html = `<!DOCTYPE html>
@@ -3080,7 +3110,7 @@ export function renderPrivacyPage(lang: Lang = "ru"): Response {
     <p>All data transit between the user device and the Service is encrypted using modern TLS and HTTPS protocols. Edge caching nodes store publicly available responses temporarily to minimize upstream server load.</p>
 
     <h2>7. Inquiries and Contact</h2>
-    <p>For questions regarding this policy, technical inquiries, or content issues, please contact our support desk via the official Telegram bot: @threadsreaderbot.</p>
+    <p>For questions regarding this policy, data processing inquiries, or content issues, please contact our support desk via email at support@threadsviewer.online or via the official Telegram bot: @threadsreaderbot.</p>
   ` : `
     <h1>Политика конфиденциальности и обработки данных</h1>
     <p class="terms-subtitle">${date}</p>
@@ -3117,7 +3147,7 @@ export function renderPrivacyPage(lang: Lang = "ru"): Response {
     <p>Вся передача данных между устройством пользователя и Сервисом защищена современными протоколами шифрования HTTPS и TLS. Обработка запросов осуществляется с применением распределенной инфраструктуры Cloudflare Edge.</p>
 
     <h2>7. Контакты и обратная связь</h2>
-    <p>По любым вопросам, связанным с настоящей Политикой, а также по вопросам функционирования сервиса, вы можете обратиться через службу поддержки в официальном Telegram-боте: @threadsreaderbot.</p>
+    <p>По любым вопросам, связанным с настоящей Политикой, а также по вопросам функционирования сервиса, вы можете обратиться в службу поддержки по электронной почте support@threadsviewer.online или через официальный Telegram-бот: @threadsreaderbot.</p>
   `;
 
   const html = `<!DOCTYPE html>
