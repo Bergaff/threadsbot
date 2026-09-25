@@ -623,6 +623,15 @@ describe("Web Viewer SSR & Routing", () => {
       expect(profileHtml).toContain('"@type": "ProfilePage"');
       expect(profileHtml).toContain('"@type": "BreadcrumbList"');
       expect(profileHtml).toContain("@alina.kuzina");
+      expect(profileHtml).toContain('hreflang="ru"');
+      expect(profileHtml).toContain('hreflang="en"');
+
+      // 8. Hreflang on homepage & English SEO title
+      expect(homeHtml).toContain('hreflang="ru"');
+      expect(homeHtml).toContain('hreflang="en"');
+      const enHome = renderHomePage(mockEnv, "en");
+      const enHtml = await enHome.text();
+      expect(enHtml).toContain("Anonymous Threads Viewer");
     });
   });
 });

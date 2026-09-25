@@ -367,12 +367,12 @@ export default {
 
     // Служебные страницы и SEO
     if (url.pathname === "/terms") {
-      const res = renderTermsPage(lang);
+      const res = renderTermsPage(lang, url.origin);
       putEdgeCache(request, res, ctx, 86400);
       return res;
     }
     if (url.pathname === "/privacy") {
-      const res = renderPrivacyPage(lang);
+      const res = renderPrivacyPage(lang, url.origin);
       putEdgeCache(request, res, ctx, 86400);
       return res;
     }

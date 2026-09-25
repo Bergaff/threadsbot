@@ -1686,14 +1686,14 @@ const I18N = {
     other_lang_code: "en",
   },
   en: {
-    home_title: "Threads Viewer - View & Read Threads Online Without VPN",
-    home_desc: "Browse Threads profiles, posts, replies, and photos anonymously without VPN or account. Fast, ad-free web reader for Threads.",
-    keywords: "threads viewer, read threads without account, view threads without login, threads reader online, threads anonymous viewer, threads web, browse threads",
+    home_title: "Threads Viewer - Anonymous Threads Viewer & Reader Online",
+    home_desc: "Anonymous Threads viewer: browse public Threads profiles, posts, replies, and photos without account or VPN. Fast, anonymous web reader for Threads.",
+    keywords: "anonymous threads viewer, thread anonymous viewer, threads viewer, read threads without account, view threads without login, threads reader online, threads anonymous viewer, threads web, browse threads",
     search_placeholder: "Search @username...",
     hero_search_placeholder: "Enter @username or threads.com/@...",
-    hero_tag: "Anonymous web mirror",
-    hero_title: "Read Threads without VPN",
-    hero_subtitle: "Enter an author's handle or thread link to view posts, photos, and comments directly in your browser.",
+    hero_tag: "Anonymous web viewer",
+    hero_title: "Anonymous Threads Viewer - Read Threads without VPN",
+    hero_subtitle: "View and read public Threads profiles, posts, and replies online without account or VPN.",
     open_btn: "Open",
     example_hint: 'For example, <span id="exampleZuck" class="blue-example-link" onclick="fillSearch(\'zuck\')">zuck</span>',
     tg_badge: "Telegram Bot Without VPN",
@@ -1943,7 +1943,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr30-2026-09-22-ux";
+  const ver = env.VERSION || "pr31-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1959,6 +1959,9 @@ export function renderHomePage(
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${homeCanonical}">
+  <link rel="alternate" hreflang="ru" href="${origin}/ru/">
+  <link rel="alternate" hreflang="en" href="${origin}/en/">
+  <link rel="alternate" hreflang="x-default" href="${origin}/">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(ver)}">
   <link rel="alternate icon" href="/favicon.ico?v=${esc(ver)}">
   <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(ver)}">
@@ -2487,9 +2490,12 @@ export function renderProfilePage(
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${canonicalUrl}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr30-2026-09-22-ux')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr30-2026-09-22-ux')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr30-2026-09-22-ux')}">
+  <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
+  <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
+  <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr31-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr31-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr31-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3166,11 +3172,12 @@ export function renderProfilePage(
   });
 }
 
-export function renderTermsPage(lang: Lang = "ru"): Response {
+export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsviewer.online"): Response {
   const isEn = lang === "en";
   const title = isEn ? "Terms of Service & Usage Limits" : "Пользовательское соглашение и лимиты сервиса";
   const date = isEn ? "Last updated: 2026-09-22" : "Дата обновления: 22 сентября 2026 г.";
   const backBtn = isEn ? "Back to Home" : "Вернуться на главную";
+  const canonicalUrl = `${origin}/terms${isEn ? '?lang=en' : ''}`;
 
   const content = isEn ? `
     <h1>Terms of Service & Usage Limits</h1>
@@ -3261,6 +3268,10 @@ export function renderTermsPage(lang: Lang = "ru"): Response {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
+  <link rel="canonical" href="${canonicalUrl}">
+  <link rel="alternate" hreflang="ru" href="${origin}/terms?lang=ru">
+  <link rel="alternate" hreflang="en" href="${origin}/terms?lang=en">
+  <link rel="alternate" hreflang="x-default" href="${origin}/terms">
   <title>${title} - Threads Viewer</title>
   <script>
     (function(){
@@ -3285,11 +3296,12 @@ export function renderTermsPage(lang: Lang = "ru"): Response {
   return new Response(html, { headers: { "content-type": "text/html; charset=UTF-8" } });
 }
 
-export function renderPrivacyPage(lang: Lang = "ru"): Response {
+export function renderPrivacyPage(lang: Lang = "ru", origin = "https://threadsviewer.online"): Response {
   const isEn = lang === "en";
   const title = isEn ? "Privacy Policy" : "Политика конфиденциальности и обработки данных";
   const date = isEn ? "Last updated: 2026-09-22" : "Дата обновления: 22 сентября 2026 г.";
   const backBtn = isEn ? "Back to Home" : "Вернуться на главную";
+  const canonicalUrl = `${origin}/privacy${isEn ? '?lang=en' : ''}`;
 
   const content = isEn ? `
     <h1>Privacy Policy</h1>
@@ -3374,6 +3386,10 @@ export function renderPrivacyPage(lang: Lang = "ru"): Response {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
+  <link rel="canonical" href="${canonicalUrl}">
+  <link rel="alternate" hreflang="ru" href="${origin}/privacy?lang=ru">
+  <link rel="alternate" hreflang="en" href="${origin}/privacy?lang=en">
+  <link rel="alternate" hreflang="x-default" href="${origin}/privacy">
   <title>${title} - Threads Viewer</title>
   <script>
     (function(){
