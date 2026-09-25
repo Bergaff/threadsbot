@@ -611,6 +611,18 @@ describe("Web Viewer SSR & Routing", () => {
       const successHome = renderHomePage(mockEnv, "ru", false, "RU", "https://threadsviewer.online", "success");
       const successHtml = await successHome.text();
       expect(successHtml).toContain("Оплата успешно завершена!");
+
+      // 6. Homepage FAQ block & FAQPage Schema.org markup
+      expect(homeHtml).toContain("faq-card");
+      expect(homeHtml).toContain("Часто задаваемые вопросы");
+      expect(homeHtml).toContain('"@type": "FAQPage"');
+
+      // 7. ProfilePage & BreadcrumbList Schema.org markup
+      const profileRes = renderProfilePage(mockEnv, "alina.kuzina", null, null, "ru");
+      const profileHtml = await profileRes.text();
+      expect(profileHtml).toContain('"@type": "ProfilePage"');
+      expect(profileHtml).toContain('"@type": "BreadcrumbList"');
+      expect(profileHtml).toContain("@alina.kuzina");
     });
   });
 });

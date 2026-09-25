@@ -6,12 +6,18 @@ export type Lang = "ru" | "en";
 export const POPULAR_CREATORS = [
   { username: "durov", label_ru: "Павел Дуров", label_en: "Pavel Durov" },
   { username: "zuck", label_ru: "Марк Цукерберг", label_en: "Mark Zuckerberg" },
+  { username: "mkbhd", label_ru: "Marques Brownlee", label_en: "MKBHD" },
+  { username: "alina.kuzina", label_ru: "Алина Кузина", label_en: "Alina Kuzina" },
+  { username: "yaz.anton", label_ru: "Антон Яз", label_en: "Anton Yaz" },
+  { username: "hhressko", label_ru: "Hhressko", label_en: "Hhressko" },
+  { username: "temalebedev", label_ru: "Артемий Лебедев", label_en: "Artemy Lebedev" },
+  { username: "wylsacom", label_ru: "Wylsacom", label_en: "Wylsacom" },
   { username: "mosseri", label_ru: "Адам Моссери", label_en: "Adam Mosseri" },
   { username: "mrbeast", label_ru: "MrBeast", label_en: "MrBeast" },
   { username: "openai", label_ru: "OpenAI", label_en: "OpenAI" },
   { username: "techcrunch", label_ru: "TechCrunch", label_en: "TechCrunch" },
-  { username: "verge", label_ru: "The Verge", label_en: "The Verge" },
-  { username: "mkbhd", label_ru: "Marques Brownlee", label_en: "MKBHD" },
+  { username: "leomessi", label_ru: "Leo Messi", label_en: "Leo Messi" },
+  { username: "shakira", label_ru: "Shakira", label_en: "Shakira" },
 ];
 
 export function detectLanguage(request: Request): Lang {
@@ -1050,6 +1056,58 @@ const COMMON_STYLES = `
     background: #2b1111;
   }
 
+  /* FAQ Section */
+  .faq-card {
+    max-width: 620px;
+    margin: 24px auto 0;
+    padding: 20px 24px;
+    background: #141414;
+    border: 1px solid #282828;
+    border-radius: 0;
+    text-align: left;
+    box-shadow: none;
+  }
+  .faq-main-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 16px;
+    letter-spacing: -0.2px;
+  }
+  .faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .faq-item {
+    background: #181818;
+    border: 1px solid #262626;
+    border-radius: 0;
+    padding: 12px 14px;
+  }
+  .faq-item[open] {
+    border-color: #3b82f6;
+  }
+  .faq-question {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #eeeeee;
+    cursor: pointer;
+    outline: none;
+    user-select: none;
+  }
+  .faq-question:hover {
+    color: #3b82f6;
+  }
+  .faq-answer {
+    margin-top: 10px;
+    font-size: 0.86rem;
+    line-height: 1.55;
+    color: #aaaaaa;
+    border-top: 1px solid #252525;
+    padding-top: 8px;
+  }
+
   /* Toast */
   .toast-box {
     position: fixed;
@@ -1427,6 +1485,31 @@ const COMMON_STYLES = `
     color: #201c17;
   }
 
+  html[data-theme="light"] .faq-card {
+    background: #e6ded0;
+    border-color: #b5ab99;
+  }
+  html[data-theme="light"] .faq-main-title {
+    color: #1e1913;
+  }
+  html[data-theme="light"] .faq-item {
+    background: #ded5c6;
+    border-color: #b8ad9b;
+  }
+  html[data-theme="light"] .faq-item[open] {
+    border-color: #1a56a6;
+  }
+  html[data-theme="light"] .faq-question {
+    color: #2e2820;
+  }
+  html[data-theme="light"] .faq-question:hover {
+    color: #1a56a6;
+  }
+  html[data-theme="light"] .faq-answer {
+    color: #554d41;
+    border-top-color: #c4b9a7;
+  }
+
   /* Cookie banner */
   .cookie-banner {
     position: fixed;
@@ -1585,6 +1668,17 @@ const I18N = {
     support_sending: "Отправка...",
     support_success: "Спасибо! Ваше сообщение отправлено администратору.",
     support_error: "Не удалось отправить сообщение. Пожалуйста, попробуйте позже.",
+    faq_main_title: "Часто задаваемые вопросы о Threads Viewer",
+    faq_q1: "Как смотреть и читать Threads без VPN?",
+    faq_a1: "Сервис Threads Viewer использует распределенную сеть серверов за пределами региональных ограничений. Сервер сам запрашивает открытые данные из Threads и передает их вам в чистом виде. Вы можете читать посты, смотреть фото и комментарии прямо в обычном браузере на смартфоне или компьютере без установки VPN-приложений.",
+    faq_q2: "Нужна ли регистрация или авторизация через Instagram?",
+    faq_a2: "Нет, регистрация и вход в аккаунт не требуются. Вы можете просматривать любые общедоступные профили и треды полностью анонимно. Ваша личная информация нигде не запрашивается и не сохраняется.",
+    faq_q3: "Можно ли смотреть видеозаписи и ветки комментариев?",
+    faq_a3: "Да, ридер отображает полные тексты публикаций, прикрепленные фотогалереи, видеоролики и ветки комментариев пользователей под каждым постом.",
+    faq_q4: "Как работает официальный Telegram-бот?",
+    faq_a4: "Наш Telegram-бот @threadsreaderbot позволяет читать треды прямо в мессенджере. Вы можете отправить боту никнейм автора (например, @zuck) и получать свежие посты. Кроме того, в боте доступна функция анонимного мониторинга: бот уведомит вас о публикации новых тредов интересующих вас авторов.",
+    faq_q5: "Как отключить рекламу на сайте?",
+    faq_a5: "Для отключения рекламных блоков достаточно оформить подписку в нашем Telegram-боте через команду /subscribe и перейти на сайт по персональной ссылке из команды /web.",
     tos: "Условия и тарифы",
     privacy: "Политика конфиденциальности",
     footer_text: "Threads Viewer. Независимый сервис. Не аффилирован с Meta Platforms Inc.",
@@ -1653,6 +1747,17 @@ const I18N = {
     support_sending: "Sending...",
     support_success: "Thank you! Your message has been sent to the admin.",
     support_error: "Failed to send message. Please try again later.",
+    faq_main_title: "Frequently Asked Questions",
+    faq_q1: "How to read Threads without VPN?",
+    faq_a1: "Threads Viewer operates on distributed edge servers. Our service fetches publicly available Threads content and delivers it directly to your browser. You can browse posts, photos, and replies on mobile or desktop without configuring VPN software.",
+    faq_q2: "Do I need an account or Instagram login?",
+    faq_a2: "No, no account or registration is required. You can browse public profiles and threads completely anonymously. We do not ask for or store any personal credentials.",
+    faq_q3: "Can I view full comment threads and media?",
+    faq_a3: "Yes, the viewer renders full post texts, image carousels, embedded videos, and complete user discussion threads beneath each post.",
+    faq_q4: "How does the Telegram bot work?",
+    faq_a4: "Our Telegram bot @threadsreaderbot allows you to read Threads directly inside Telegram. Send any username (e.g., @zuck) to get posts. You can also enable anonymous creator monitoring to receive instant push alerts when new posts are published.",
+    faq_q5: "How to browse without ads?",
+    faq_a5: "To disable all sponsor units, activate a subscription via our Telegram bot using /subscribe and open your personal ad-free link using the /web command.",
     tos: "Terms & Tariffs",
     privacy: "Privacy Policy",
     footer_text: "Threads Viewer. Independent service. Not affiliated with Meta Platforms Inc.",
@@ -1838,7 +1943,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr29-2026-09-22-ux";
+  const ver = env.VERSION || "pr30-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1870,18 +1975,66 @@ export function renderHomePage(
   <meta name="twitter:description" content="${esc(t.home_desc)}">
   <meta name="twitter:image" content="${origin}/og-image.svg?v=${esc(ver)}">
   <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    "name": "Threads Viewer",
-    "url": "${origin}/",
-    "description": "${esc(t.home_desc)}",
-    "potentialAction": {
-      "@type": "SearchAction",
-      "target": "${origin}/@{search_term_string}",
-      "query-input": "required name=search_term_string"
+  [
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Threads Viewer",
+      "url": "${origin}/",
+      "description": "${esc(t.home_desc)}",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "${origin}/@{search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "${esc(t.faq_q1)}",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "${esc(t.faq_a1)}"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "${esc(t.faq_q2)}",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "${esc(t.faq_a2)}"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "${esc(t.faq_q3)}",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "${esc(t.faq_a3)}"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "${esc(t.faq_q4)}",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "${esc(t.faq_a4)}"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "${esc(t.faq_q5)}",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "${esc(t.faq_a5)}"
+          }
+        }
+      ]
     }
-  }
+  ]
   </script>
   <script>
     (function(){
@@ -1960,6 +2113,32 @@ export function renderHomePage(
     </div>
 
     ${renderSponsorSlot(env, lang, isPremium, country)}
+
+    <div class="faq-card">
+      <h2 class="faq-main-title">${t.faq_main_title}</h2>
+      <div class="faq-list">
+        <details class="faq-item" open>
+          <summary class="faq-question">${t.faq_q1}</summary>
+          <div class="faq-answer">${t.faq_a1}</div>
+        </details>
+        <details class="faq-item">
+          <summary class="faq-question">${t.faq_q2}</summary>
+          <div class="faq-answer">${t.faq_a2}</div>
+        </details>
+        <details class="faq-item">
+          <summary class="faq-question">${t.faq_q3}</summary>
+          <div class="faq-answer">${t.faq_a3}</div>
+        </details>
+        <details class="faq-item">
+          <summary class="faq-question">${t.faq_q4}</summary>
+          <div class="faq-answer">${t.faq_a4}</div>
+        </details>
+        <details class="faq-item">
+          <summary class="faq-question">${t.faq_q5}</summary>
+          <div class="faq-answer">${t.faq_a5}</div>
+        </details>
+      </div>
+    </div>
 
     ${renderSupportCard(lang)}
   </main>
@@ -2308,9 +2487,9 @@ export function renderProfilePage(
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${canonicalUrl}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr29-2026-09-22-ux')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr29-2026-09-22-ux')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr29-2026-09-22-ux')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr30-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr30-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr30-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2321,6 +2500,44 @@ export function renderProfilePage(
   <meta name="twitter:title" content="${esc(ogTitle)}">
   <meta name="twitter:description" content="${ogDesc}">
   ${ogImage ? `<meta name="twitter:image" content="${esc(ogImage)}">` : ''}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "ProfilePage",
+        "name": "@${esc(cleanUser)} in Threads",
+        "url": "${canonicalUrl}",
+        "description": "${esc(ogDesc)}",
+        "mainEntity": {
+          "@type": "Person",
+          "name": "${esc(profile.displayName || cleanUser)}",
+          "alternateName": "@${esc(cleanUser)}",
+          "identifier": "${esc(cleanUser)}",
+          "image": "${esc(profile.avatar || '')}",
+          "description": "${esc(profile.bio || '')}"
+        }
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Threads Viewer",
+            "item": "${origin}/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "@${esc(cleanUser)}",
+            "item": "${canonicalUrl}"
+          }
+        ]
+      }
+    ]
+  }
+  </script>
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');

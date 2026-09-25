@@ -400,7 +400,8 @@ export default {
       const defaultProfiles = [
         "durov", "mosseri", "zuck", "mrbeast", "openai", "techcrunch",
         "temalebedev", "wylsacom", "cristiano", "leomessi", "selenagomez",
-        "kimkardashian", "billgates", "shakira", "nasa", "apple", "netflix"
+        "kimkardashian", "billgates", "shakira", "nasa", "apple", "netflix",
+        "mkbhd", "alina.kuzina", "yaz.anton", "hhressko"
       ];
       const combined = Array.from(new Set([...defaultProfiles, ...extraUsers]));
       const res = renderSitemap(url.origin, combined);
