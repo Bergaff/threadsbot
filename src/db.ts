@@ -260,5 +260,225 @@ export class Database {
     await this.db.prepare("DELETE FROM user_events WHERE event_type='system_log'").run();
   }
 
-  cleanup() { return this.db.batch([this.db.prepare("DELETE FROM request_log WHERE timestamp<?").bind(since(2*86_400_000)),this.db.prepare("DELETE FROM cache WHERE cached_at<?").bind(since(LIMITS.cacheMinutes*60_000)),this.db.prepare("DELETE FROM bot_state WHERE updated_at<? AND state_key IN ('waiting_support','admin_reply')").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM processed_updates WHERE status='done' AND updated_at<?").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM user_events WHERE user_id=0 AND timestamp<?").bind(since(30*86_400_000))]); }
+  async weeklyStats(): Promise<{
+    bot7d: number;
+    web7d: number;
+    total7d: number;
+    daily: Array<{ day: string; bot: number; web: number; total: number }>;
+  }> {
+    const seven = since(7 * 86_400_000);
+    const excluded = excludedIds(this.env);
+    const marks = excluded.map(() => "?").join(",");
+    const clause = ` AND user_id<>0${excluded.length ? ` AND user_id NOT IN (${marks})` : ""}`;
+
+    try {
+      const [botRes, webRes, dailyRes] = await Promise.all([
+        this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='request' AND timestamp>?${clause}`).bind(seven, ...excluded).first<{ c: number }>(),
+        this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type IN ('web_view','web_api','web_comments','web_post_view') AND timestamp>?`).bind(seven).first<{ c: number }>(),
+        this.db.prepare(
+          `SELECT substr(timestamp, 1, 10) as day,
+                  COUNT(CASE WHEN event_type='request' THEN 1 END) as bot,
+                  COUNT(CASE WHEN event_type IN ('web_view','web_api','web_comments','web_post_view') THEN 1 END) as web,
+                  COUNT(*) as total
+           FROM user_events
+           WHERE event_type IN ('request','web_view','web_api','web_comments','web_post_view') AND timestamp>?
+           GROUP BY substr(timestamp, 1, 10)
+           ORDER BY day DESC
+           LIMIT 7`
+        ).bind(seven).all<{ day: string; bot: number; web: number; total: number }>(),
+      ]);
+
+      const bot7d = Number(botRes?.c || 0);
+      const web7d = Number(webRes?.c || 0);
+      const daily = (dailyRes?.results || []).map(d => ({
+        day: String(d.day || ""),
+        bot: Number(d.bot || 0),
+        web: Number(d.web || 0),
+        total: Number(d.total || 0),
+      }));
+
+      return { bot7d, web7d, total7d: bot7d + web7d, daily };
+    } catch {
+      return { bot7d: 0, web7d: 0, total7d: 0, daily: [] };
+    }
+  }
+
+  async botLatencyStats(): Promise<{
+    avg24h: number;
+    min24h: number;
+    max24h: number;
+    count24h: number;
+    avg7d: number;
+    min7d: number;
+    max7d: number;
+    count7d: number;
+  }> {
+    const one = since(86_400_000);
+    const seven = since(7 * 86_400_000);
+    try {
+      const [r24, r7] = await Promise.all([
+        this.db.prepare(
+          `SELECT AVG(CAST(event_data AS REAL)) a, MIN(CAST(event_data AS REAL)) mn, MAX(CAST(event_data AS REAL)) mx, COUNT(*) c
+           FROM user_events WHERE event_type='bot_latency' AND timestamp>?`
+        ).bind(one).first<{ a?: number; mn?: number; mx?: number; c?: number }>(),
+        this.db.prepare(
+          `SELECT AVG(CAST(event_data AS REAL)) a, MIN(CAST(event_data AS REAL)) mn, MAX(CAST(event_data AS REAL)) mx, COUNT(*) c
+           FROM user_events WHERE event_type='bot_latency' AND timestamp>?`
+        ).bind(seven).first<{ a?: number; mn?: number; mx?: number; c?: number }>(),
+      ]);
+
+      return {
+        avg24h: r24?.a ? Math.round((Number(r24.a) / 1000) * 10) / 10 : 0,
+        min24h: r24?.mn ? Math.round((Number(r24.mn) / 1000) * 10) / 10 : 0,
+        max24h: r24?.mx ? Math.round((Number(r24.mx) / 1000) * 10) / 10 : 0,
+        count24h: Number(r24?.c || 0),
+        avg7d: r7?.a ? Math.round((Number(r7.a) / 1000) * 10) / 10 : 0,
+        min7d: r7?.mn ? Math.round((Number(r7.mn) / 1000) * 10) / 10 : 0,
+        max7d: r7?.mx ? Math.round((Number(r7.mx) / 1000) * 10) / 10 : 0,
+        count7d: Number(r7?.c || 0),
+      };
+    } catch {
+      return { avg24h: 0, min24h: 0, max24h: 0, count24h: 0, avg7d: 0, min7d: 0, max7d: 0, count7d: 0 };
+    }
+  }
+
+  async visitorCountries(): Promise<{
+    top24h: Array<{ country: string; count: number; percent: number }>;
+    top7d: Array<{ country: string; count: number; percent: number }>;
+    total24h: number;
+    total7d: number;
+  }> {
+    const one = since(86_400_000);
+    const seven = since(7 * 86_400_000);
+
+    try {
+      const [res24, res7] = await Promise.all([
+        this.db.prepare(
+          `SELECT event_data as country, COUNT(*) as c
+           FROM user_events
+           WHERE event_type='web_country' AND timestamp>?
+           GROUP BY event_data
+           ORDER BY c DESC
+           LIMIT 12`
+        ).bind(one).all<{ country: string; c: number }>(),
+        this.db.prepare(
+          `SELECT event_data as country, COUNT(*) as c
+           FROM user_events
+           WHERE event_type='web_country' AND timestamp>?
+           GROUP BY event_data
+           ORDER BY c DESC
+           LIMIT 12`
+        ).bind(seven).all<{ country: string; c: number }>(),
+      ]);
+
+      const list24 = (res24?.results || []).map(r => ({ country: String(r.country || "XX").toUpperCase(), count: Number(r.c || 0) }));
+      const list7 = (res7?.results || []).map(r => ({ country: String(r.country || "XX").toUpperCase(), count: Number(r.c || 0) }));
+
+      const total24h = list24.reduce((s, x) => s + x.count, 0);
+      const total7d = list7.reduce((s, x) => s + x.count, 0);
+
+      const top24h = list24.map(x => ({ ...x, percent: total24h > 0 ? Math.round((x.count / total24h) * 100) : 0 }));
+      const top7d = list7.map(x => ({ ...x, percent: total7d > 0 ? Math.round((x.count / total7d) * 100) : 0 }));
+
+      return { top24h, top7d, total24h, total7d };
+    } catch {
+      return { top24h: [], top7d: [], total24h: 0, total7d: 0 };
+    }
+  }
+
+  async repeatRequestStats(): Promise<{
+    totalUsers: number;
+    repeatUsers: number;
+    singleUsers: number;
+    repeatPercent: number;
+    immediate: number;      // <= 2 мин (< 120 сек)
+    withinHour: number;     // 2 - 60 мин
+    withinDay: number;      // 1 - 24 ч
+    laterDays: number;      // > 24 ч
+    immediatePct: number;
+    withinHourPct: number;
+    withinDayPct: number;
+    laterDaysPct: number;
+  }> {
+    try {
+      const q = `
+        WITH user_reqs AS (
+          SELECT user_id, timestamp,
+                 ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY timestamp ASC) as rn
+          FROM user_events
+          WHERE event_type='request' AND user_id > 0
+        ),
+        pairs AS (
+          SELECT r1.user_id,
+                 (julianday(r2.timestamp) - julianday(r1.timestamp)) * 86400 as diff_sec
+          FROM user_reqs r1
+          JOIN user_reqs r2 ON r1.user_id = r2.user_id AND r2.rn = 2
+          WHERE r1.rn = 1
+        )
+        SELECT 
+          (SELECT COUNT(DISTINCT user_id) FROM user_events WHERE event_type='request' AND user_id > 0) as total_users,
+          COUNT(*) as repeat_users,
+          COUNT(CASE WHEN diff_sec <= 120 THEN 1 END) as immediate,
+          COUNT(CASE WHEN diff_sec > 120 AND diff_sec <= 3600 THEN 1 END) as within_hour,
+          COUNT(CASE WHEN diff_sec > 3600 AND diff_sec <= 86400 THEN 1 END) as within_day,
+          COUNT(CASE WHEN diff_sec > 86400 THEN 1 END) as later_days
+        FROM pairs;
+      `;
+      const row = await this.db.prepare(q).first<{
+        total_users?: number;
+        repeat_users?: number;
+        immediate?: number;
+        within_hour?: number;
+        within_day?: number;
+        later_days?: number;
+      }>();
+
+      const totalUsers = Number(row?.total_users || 0);
+      const repeatUsers = Number(row?.repeat_users || 0);
+      const singleUsers = Math.max(0, totalUsers - repeatUsers);
+      const repeatPercent = totalUsers > 0 ? Math.round((repeatUsers / totalUsers) * 100) : 0;
+
+      const immediate = Number(row?.immediate || 0);
+      const withinHour = Number(row?.within_hour || 0);
+      const withinDay = Number(row?.within_day || 0);
+      const laterDays = Number(row?.later_days || 0);
+
+      const immediatePct = repeatUsers > 0 ? Math.round((immediate / repeatUsers) * 100) : 0;
+      const withinHourPct = repeatUsers > 0 ? Math.round((withinHour / repeatUsers) * 100) : 0;
+      const withinDayPct = repeatUsers > 0 ? Math.round((withinDay / repeatUsers) * 100) : 0;
+      const laterDaysPct = repeatUsers > 0 ? Math.round((laterDays / repeatUsers) * 100) : 0;
+
+      return {
+        totalUsers,
+        repeatUsers,
+        singleUsers,
+        repeatPercent,
+        immediate,
+        withinHour,
+        withinDay,
+        laterDays,
+        immediatePct,
+        withinHourPct,
+        withinDayPct,
+        laterDaysPct,
+      };
+    } catch {
+      return {
+        totalUsers: 0,
+        repeatUsers: 0,
+        singleUsers: 0,
+        repeatPercent: 0,
+        immediate: 0,
+        withinHour: 0,
+        withinDay: 0,
+        laterDays: 0,
+        immediatePct: 0,
+        withinHourPct: 0,
+        withinDayPct: 0,
+        laterDaysPct: 0,
+      };
+    }
+  }
+
+  cleanup() { return this.db.batch([this.db.prepare("DELETE FROM request_log WHERE timestamp<?").bind(since(14*86_400_000)),this.db.prepare("DELETE FROM cache WHERE cached_at<?").bind(since(LIMITS.cacheMinutes*60_000)),this.db.prepare("DELETE FROM bot_state WHERE updated_at<? AND state_key IN ('waiting_support','admin_reply')").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM processed_updates WHERE status='done' AND updated_at<?").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM user_events WHERE user_id=0 AND timestamp<?").bind(since(30*86_400_000))]); }
 }

@@ -19,6 +19,7 @@ import {
   renderSitemap,
   renderTermsPage,
 } from "./web";
+import { createJhpayPayment } from "./payment";
 
 /**
  * Быстрые апдейты обрабатываются прямо в fetch() (через ctx.waitUntil, чтобы Telegram
@@ -221,6 +222,57 @@ export default {
     }
 
     // ==========================================
+    // ОНЛАЙН-ОПЛАТА ПОДПИСКИ (JhPay / СБП / Карты РФ)
+    // ==========================================
+    if (lowerPath === "/pay" || lowerPath === "/buy" || lowerPath === "/order") {
+      const planStr = url.searchParams.get("plan") || "7";
+      const isTest = url.searchParams.get("test") === "1";
+      const days = planStr === "30" ? 30 : 7;
+      const amount = isTest ? 10 : (days === 30 ? 149 : 49);
+      const uidParam = url.searchParams.get("uid");
+      const uid = uidParam ? parseInt(uidParam, 10) : 0;
+
+      const payment = await createJhpayPayment(env, {
+        uid: isNaN(uid) ? 0 : uid,
+        days,
+        amount,
+        description: `Threads Viewer ${days} дней (без рекламы)`
+      });
+
+      if (payment.ok && payment.formUrl) {
+        return Response.redirect(payment.formUrl, 302);
+      }
+
+      return new Response(
+        `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Оплата подписки - Threads Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; background: #131722; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }
+    .card { background: #1e293b; border: 1px solid #3b82f6; padding: 24px; max-width: 440px; text-align: center; }
+    h1 { font-size: 1.25rem; margin-top: 0; }
+    p { color: #cbd5e1; font-size: 0.9rem; line-height: 1.5; }
+    .btn { display: inline-block; background: #2563eb; color: #fff; padding: 10px 18px; text-decoration: none; font-weight: 700; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Оплата подписки</h1>
+    <p>Не удалось подключиться к платёжному шлюзу (${esc(payment.error || "ошибка соединения")}).</p>
+    <p>Вы можете оформить подписку через нашего Telegram-бота @${esc(env.BOT_USERNAME || 'threadsreaderbot')} (команда /subscribe).</p>
+    <a href="https://t.me/${esc(env.BOT_USERNAME || 'threadsreaderbot')}?start=web_adfree" class="btn">Оплатить в Telegram</a>
+    <div style="margin-top: 14px;"><a href="/" style="color:#93c5fd;font-size:0.82rem;">Вернуться на сайт</a></div>
+  </div>
+</body>
+</html>`,
+        { status: 502, headers: { "content-type": "text/html; charset=UTF-8" } }
+      );
+    }
+
+    // ==========================================
     // ТЕЛЕГРАМ БОТ И СИСТЕМНЫЕ ЭНДПОИНТЫ
     // ==========================================
     if (url.pathname === "/health") {
@@ -355,6 +407,11 @@ export default {
       }
 
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
+      const isAdmin = verifyAdmin(request, env);
+      if (!isAdmin) {
+        const db = new Database(env);
+        ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+      }
       let res = renderHomePage(env, pageLang, isPremium, country, url.origin, paymentStatus);
       if (newAuthCookie) {
         res = new Response(res.body, res);
@@ -489,6 +546,7 @@ export default {
       const isAdmin = verifyAdmin(request, env);
       if (!isAdmin) {
         ctx.waitUntil(db.logEvent(0, "web_post_view", `${username}:${targetPostId}`).catch(() => {}));
+        ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
       }
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
       ctx.waitUntil(logSystem(env, "info", "web", `[WEB_POST_VIEW] Переход на @${username}/post/${targetPostId} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
@@ -517,6 +575,7 @@ export default {
       const isAdmin = verifyAdmin(request, env);
       if (!isAdmin) {
         ctx.waitUntil(db.logEvent(0, "web_view", username).catch(() => {}));
+        ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
       }
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
       ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
@@ -537,7 +596,7 @@ export default {
     // Прямой переход по никнейму без префикса (например, /zuck -> 301 редирект на /@zuck)
     const directUserMatch = url.pathname.match(/^\/([A-Za-z0-9._]{1,40})\/?$/);
     const reservedWords = new Set([
-      "admin", "api", "terms", "privacy", "robots.txt", "sitemap.xml",
+      "admin", "api", "pay", "buy", "order", "terms", "privacy", "robots.txt", "sitemap.xml",
       "favicon.ico", "favicon.svg", "apple-touch-icon.png", "og-image.svg", "og-image.png",
       "ru", "en", "index.html", "health", "setup-webhook", "telegram",
       "feed", "rss", "atom", "xmlrpc", "ads.txt"
@@ -567,6 +626,7 @@ export default {
       const isAdmin = verifyAdmin(request, env);
       if (!isAdmin) {
         ctx.waitUntil(db.logEvent(0, "web_api", username).catch(() => {}));
+        ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
       }
       await logSystem(env, "info", "api", `[API_REQ] Запрос профиля /api/profile/${username} (admin: ${isAdmin})`);
 

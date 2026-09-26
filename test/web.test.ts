@@ -632,6 +632,28 @@ describe("Web Viewer SSR & Routing", () => {
       const enHome = renderHomePage(mockEnv, "en");
       const enHtml = await enHome.text();
       expect(enHtml).toContain("Anonymous Threads Viewer");
+
+      // 9. Payment links in terms and pay endpoint redirect
+      const termsRes = renderTermsPage("ru", "https://threadsviewer.online");
+      const termsHtml = await termsRes.text();
+      expect(termsHtml).toContain('/pay?plan=7');
+      expect(termsHtml).toContain('/pay?plan=30');
+
+      const payReq = new Request("https://threadsviewer.online/pay?plan=7");
+      const origFetch = globalThis.fetch;
+      globalThis.fetch = (async (url: any, init?: any) => {
+        if (String(url).includes("pay.jhpay.online")) {
+          return new Response(JSON.stringify({ ok: true, formUrl: "https://pay.jhpay.online/order/test12345" }));
+        }
+        return origFetch(url, init);
+      }) as any;
+      try {
+        const payRes = await worker.fetch(payReq, mockEnv, {} as any);
+        expect(payRes.status).toBe(302);
+        expect(payRes.headers.get("Location")).toBe("https://pay.jhpay.online/order/test12345");
+      } finally {
+        globalThis.fetch = origFetch;
+      }
     });
   });
 });

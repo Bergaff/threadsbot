@@ -236,13 +236,13 @@ const COMMON_STYLES = `
     padding: 16px 18px;
     margin: 18px 0;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
     box-shadow: none;
   }
   .tg-callout-left {
-    flex: 1;
+    width: 100%;
     text-align: left;
   }
   .tg-callout-badge {
@@ -258,27 +258,31 @@ const COMMON_STYLES = `
     margin-bottom: 6px;
   }
   .tg-callout-title {
-    font-size: 0.98rem;
+    font-size: 1.02rem;
     font-weight: 700;
     color: #ffffff;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
+    line-height: 1.35;
   }
   .tg-callout-desc {
-    font-size: 0.84rem;
-    color: #a0aec0;
-    line-height: 1.45;
+    font-size: 0.86rem;
+    color: #cbd5e1;
+    line-height: 1.5;
   }
   .tg-callout-btn {
     background: #2563eb;
     border: 1px solid #3b82f6;
     color: #ffffff;
-    padding: 9px 18px;
-    font-size: 0.86rem;
+    padding: 11px 18px;
+    font-size: 0.9rem;
     font-weight: 700;
-    white-space: nowrap;
+    text-align: center;
     text-decoration: none;
     border-radius: 0;
     box-shadow: none;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
   }
   .tg-callout-btn:hover {
     background: #1d4ed8;
@@ -1880,7 +1884,8 @@ function renderSponsorSlot(env: Env, lang: Lang, isPremium = false, country = ""
         <span>${sponsorTag}</span>
         <div style="display:inline-flex;align-items:center;gap:8px;">
           <a href="${esc(sponsorUrl)}" target="_blank" rel="noopener" style="color: #777; text-decoration: underline;">${sponsorAdLabel}</a>
-          <a href="${esc(adFreeUrl)}" target="_blank" rel="noopener" class="ad-free-link" title="${lang === 'en' ? 'Get ad-free browsing with Telegram bot' : 'Отключить рекламу через Telegram-бота'}">${adFreeText}</a>
+          <a href="/pay?plan=7" class="ad-free-link" style="color:#60a5fa;font-weight:700;" title="${lang === 'en' ? 'Disable ads with online card/SBP payment' : 'Отключить рекламу онлайн через СБП/Карту'}">💳 ${lang === 'en' ? 'Disable ads (49 ₽)' : 'Отключить рекламу (49 ₽)'}</a>
+          <a href="${esc(adFreeUrl)}" target="_blank" rel="noopener" class="ad-free-link" title="${lang === 'en' ? 'Get ad-free browsing with Telegram bot' : 'Отключить рекламу через Telegram-бота'}">Telegram</a>
         </div>
       </div>
       <div class="sponsor-card-inner">
@@ -1958,7 +1963,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr32-2026-09-22-ux";
+  const ver = env.VERSION || "pr33-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2508,9 +2513,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr32-2026-09-22-ux')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr32-2026-09-22-ux')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr32-2026-09-22-ux')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr33-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr33-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr33-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3215,8 +3220,8 @@ export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsview
     <p>- Real-time anonymous author tracking with instant delivery to Telegram;</p>
     <p>- Unrestricted browsing of deep comment threads and high-resolution media.</p>
     <p><b>Subscription Plans & Pricing:</b></p>
-    <p>- Trial Plan (7 days access): 49 RUB (or 49 Telegram Stars / 1.0 USDT);</p>
-    <p>- Standard Plan (30 days access): 149 RUB (or 149 Telegram Stars / 2.5 USDT).</p>
+    <p>- Trial Plan (7 days access): 49 RUB (or 49 Telegram Stars / 1.0 USDT); <a href="/pay?plan=7" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Pay 49 ₽</a></p>
+    <p>- Standard Plan (30 days access): 149 RUB (or 149 Telegram Stars / 2.5 USDT). <a href="/pay?plan=30" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Pay 149 ₽</a></p>
     <p>Payment methods: Bank cards (MIR, Visa, Mastercard), Faster Payments System (SBP), Telegram Stars, Cryptocurrency. All transactions are securely processed via certified payment gateways.</p>
 
     <h2>5. Order Fulfillment & Delivery Policy</h2>
@@ -3255,8 +3260,8 @@ export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsview
     <p>- Анонимный мониторинг авторов Threads в реальном времени с доставкой постов в Telegram;</p>
     <p>- Просмотр всех веток комментариев и медиафайлов без ограничений.</p>
     <p><b>Тарифные планы и стоимость:</b></p>
-    <p>- Тариф "Пробный" (7 дней доступа): 49 руб. (или 49 Telegram Stars / 1.0 USDT);</p>
-    <p>- Тариф "Стандартный" (30 дней доступа): 149 руб. (или 149 Telegram Stars / 2.5 USDT).</p>
+    <p>- Тариф "Пробный" (7 дней доступа): 49 руб. (или 49 Telegram Stars / 1.0 USDT); <a href="/pay?plan=7" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Оплатить 49 ₽ (СБП/Карта)</a></p>
+    <p>- Тариф "Стандартный" (30 дней доступа): 149 руб. (или 149 Telegram Stars / 2.5 USDT). <a href="/pay?plan=30" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Оплатить 149 ₽ (СБП/Карта)</a></p>
     <p>Способы оплаты: Банковские карты (МИР, Visa, Mastercard), СБП (Система быстрых платежей), Telegram Stars, криптовалюта. Все расчеты производятся через защищенные шлюзы сертифицированных платёжных операторов.</p>
 
     <h2>5. Порядок оформления и доставки цифровых услуг</h2>

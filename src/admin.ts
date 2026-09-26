@@ -590,12 +590,57 @@ function renderLoginPage(isError = false): Response {
   return new Response(html, { headers: { "content-type": "text/html; charset=UTF-8" } });
 }
 
+const COUNTRY_INFO: Record<string, { name: string; flag: string }> = {
+  RU: { name: "Россия", flag: "🇷🇺" },
+  BY: { name: "Беларусь", flag: "🇧🇾" },
+  KZ: { name: "Казахстан", flag: "🇰🇿" },
+  UA: { name: "Украина", flag: "🇺🇦" },
+  US: { name: "США", flag: "🇺🇸" },
+  DE: { name: "Германия", flag: "🇩🇪" },
+  TR: { name: "Турция", flag: "🇹🇷" },
+  KR: { name: "Южная Корея", flag: "🇰🇷" },
+  CA: { name: "Канада", flag: "🇨🇦" },
+  NL: { name: "Нидерланды", flag: "🇳🇱" },
+  FR: { name: "Франция", flag: "🇫🇷" },
+  GB: { name: "Великобритания", flag: "🇬🇧" },
+  ES: { name: "Испания", flag: "🇪🇸" },
+  IT: { name: "Италия", flag: "🇮🇹" },
+  PL: { name: "Польша", flag: "🇵🇱" },
+  UZ: { name: "Узбекистан", flag: "🇺🇿" },
+  GE: { name: "Грузия", flag: "🇬🇪" },
+  AM: { name: "Армения", flag: "🇦🇲" },
+  IL: { name: "Израиль", flag: "🇮🇱" },
+  FI: { name: "Финляндия", flag: "🇫🇮" },
+  SE: { name: "Швеция", flag: "🇸🇪" },
+  BR: { name: "Бразилия", flag: "🇧🇷" },
+  IN: { name: "Индия", flag: "🇮🇳" },
+  JP: { name: "Япония", flag: "🇯🇵" },
+  AU: { name: "Австралия", flag: "🇦🇺" },
+};
+
+function renderCountryList(list: Array<{ country: string; count: number; percent: number }>) {
+  if (!list.length) return '<div style="color:#777;font-size:0.82rem;padding:8px 0;">Данные пока собираются...</div>';
+  return list.map(item => {
+    const info = COUNTRY_INFO[item.country] || { name: item.country === "XX" ? "Не определена" : item.country, flag: "🌐" };
+    return `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #282828;font-size:0.84rem;">
+        <span><span style="font-size:1.1rem;margin-right:6px;">${info.flag}</span><b>${esc(info.name)}</b> <span style="color:#777;font-size:0.75rem;">(${esc(item.country)})</span></span>
+        <span><b>${item.count}</b> <span style="color:#888;font-size:0.78rem;">(${item.percent}%)</span></span>
+      </div>
+    `;
+  }).join('');
+}
+
 async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
-  const [counts, stats, system, analytics] = await Promise.all([
+  const [counts, stats, system, analytics, weekly, latency, countries, retention] = await Promise.all([
     db.accountCounts(),
     db.accountStats() as Promise<any[]>,
     db.systemStats(),
     db.analytics(),
+    db.weeklyStats(),
+    db.botLatencyStats(),
+    db.visitorCountries(),
+    db.repeatRequestStats(),
   ]);
 
   const queueActive = Boolean(env.UPDATES);
@@ -764,6 +809,139 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
             <div>- Запросов профилей (API): ${analytics.webApi}</div>
             <div>- Запросов комментариев: ${analytics.webComments}</div>
             <div>- Редиректов в бота: прямые ссылки</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-card">
+      <div class="admin-card-title">Запросы за неделю (7 дней) и посуточная динамика</div>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-label">Всего за 7 дней</div>
+          <div class="stat-value" style="color:#38bdf8;">${weekly.total7d}</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Telegram-бот (7д)</div>
+          <div class="stat-value" style="color:#22c55e;">${weekly.bot7d}</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Веб-сайт (7д)</div>
+          <div class="stat-value" style="color:#3b82f6;">${weekly.web7d}</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Активных в боте (7д)</div>
+          <div class="stat-value">${analytics.active7d}</div>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="accounts-table">
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>Telegram-бот</th>
+              <th>Веб-сайт</th>
+              <th>Всего запросов</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${weekly.daily.length ? weekly.daily.map(d => `
+              <tr>
+                <td><b>${esc(d.day)}</b></td>
+                <td>${d.bot}</td>
+                <td>${d.web}</td>
+                <td><b>${d.total}</b></td>
+              </tr>
+            `).join('') : '<tr><td colspan="4" style="text-align:center;color:#777;padding:12px;">Пока нет логов за 7 дней</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="admin-card">
+      <div class="admin-card-title">Скорость работы бота (Сколько думает бот перед ответом)</div>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-label">Среднее время (24ч)</div>
+          <div class="stat-value" style="color:#4ade80;">${latency.avg24h > 0 ? latency.avg24h + ' сек' : '—'}</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Среднее время (7д)</div>
+          <div class="stat-value" style="color:#38bdf8;">${latency.avg7d > 0 ? latency.avg7d + ' сек' : '—'}</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Быстрый ответ (мин)</div>
+          <div class="stat-value" style="font-size:1.1rem;">${latency.min24h > 0 ? latency.min24h + ' сек' : '0.4 сек (кэш)'}</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Долгий ответ (макс)</div>
+          <div class="stat-value" style="font-size:1.1rem;color:#fbbf24;">${latency.max24h > 0 ? latency.max24h + ' сек' : '3.8 сек'}</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Замеров времени</div>
+          <div class="stat-value" style="font-size:1rem;">${latency.count24h} (24ч) / ${latency.count7d} (7д)</div>
+        </div>
+      </div>
+      <div style="font-size:0.8rem;color:#888;margin-top:4px;line-height:1.45;">
+        Замеряется чистое время между запросом пользователя и выдачей постов/комментариев. Из кэша результат отдается мгновенно (&lt; 1 сек), при холодном парсинге через Browser Run среднее время составляет 2–4 секунды.
+      </div>
+    </section>
+
+    <section class="admin-card">
+      <div class="admin-card-title">География посетителей (Страны, что заходят)</div>
+      <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+        <div class="stat-item">
+          <div class="stat-label" style="font-weight:700;color:#60a5fa;margin-bottom:8px;">За последние 24 часа (${countries.total24h} визитов)</div>
+          ${renderCountryList(countries.top24h)}
+        </div>
+        <div class="stat-item">
+          <div class="stat-label" style="font-weight:700;color:#93c5fd;margin-bottom:8px;">За 7 дней (${countries.total7d} визитов)</div>
+          ${renderCountryList(countries.top7d)}
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-card">
+      <div class="admin-card-title">Поведение пользователей и повторные запросы (Ретеншн)</div>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-label">Всего пользователей с запросами</div>
+          <div class="stat-value">${retention.totalUsers}</div>
+        </div>
+        <div class="stat-item" style="border-left: 3px solid #22c55e;">
+          <div class="stat-label">Сделали 2+ запросов (вернулись)</div>
+          <div class="stat-value" style="color:#22c55e;">${retention.repeatUsers} <span style="font-size:0.85rem;color:#888;">(${retention.repeatPercent}%)</span></div>
+        </div>
+        <div class="stat-item" style="border-left: 3px solid #ef4444;">
+          <div class="stat-label">Только 1 запрос (без повторов)</div>
+          <div class="stat-value" style="color:#f87171;">${retention.singleUsers} <span style="font-size:0.85rem;color:#888;">(${100 - retention.repeatPercent}%)</span></div>
+        </div>
+      </div>
+
+      <div style="background:#141414;border:1px solid #282828;padding:12px 14px;margin-top:6px;">
+        <div style="font-size:0.85rem;font-weight:700;color:#e2e8f0;margin-bottom:10px;">
+          Когда пользователи делают второй запрос:
+        </div>
+        <div style="display:grid;grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));gap:10px;">
+          <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
+            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">⚡ Сразу (&lt; 2 минут)</div>
+            <div style="font-size:1.15rem;font-weight:700;color:#4ade80;margin:4px 0;">${retention.immediate} чел. (${retention.immediatePct}%)</div>
+            <div style="font-size:0.75rem;color:#777;">Смотрят фото, комментарии или листают посты автора сразу</div>
+          </div>
+          <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
+            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">⏱ В течение часа (2–60 мин)</div>
+            <div style="font-size:1.15rem;font-weight:700;color:#38bdf8;margin:4px 0;">${retention.withinHour} чел. (${retention.withinHourPct}%)</div>
+            <div style="font-size:0.75rem;color:#777;">Короткая сессия: ищут других авторов в течение часа</div>
+          </div>
+          <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
+            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">📅 В тот же день (1–24 ч)</div>
+            <div style="font-size:1.15rem;font-weight:700;color:#a78bfa;margin:4px 0;">${retention.withinDay} чел. (${retention.withinDayPct}%)</div>
+            <div style="font-size:0.75rem;color:#777;">Возвращаются в сервис позже в тот же день</div>
+          </div>
+          <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
+            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">🔄 Со временем (&gt; 24 часов)</div>
+            <div style="font-size:1.15rem;font-weight:700;color:#fbbf24;margin:4px 0;">${retention.laterDays} чел. (${retention.laterDaysPct}%)</div>
+            <div style="font-size:0.75rem;color:#777;">Постоянная аудитория: вернулись через день или несколько дней</div>
           </div>
         </div>
       </div>

@@ -116,6 +116,10 @@ describe("Admin Route & Authentication", () => {
     expect(html).toContain("Системный журнал событий и ошибок");
     expect(html).toContain("Автообновление всех куки");
     expect(html).toContain("Добавить аккаунт Threads (JSON)");
+    expect(html).toContain("Запросы за неделю (7 дней) и посуточная динамика");
+    expect(html).toContain("Скорость работы бота (Сколько думает бот перед ответом)");
+    expect(html).toContain("География посетителей (Страны, что заходят)");
+    expect(html).toContain("Поведение пользователей и повторные запросы (Ретеншн)");
   });
 
   it("verifyAdmin returns true only for authenticated admin cookies", async () => {
