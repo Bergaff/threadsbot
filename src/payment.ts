@@ -29,8 +29,19 @@ export async function createJhpayPayment(
   const token = (env as any).RUKASSA_TOKEN || (env as any).JHPAY_TOKEN || "940e2c5aec5bf97eab483ac86c07c0db";
   const days = options.days || 7;
   const currency = options.currency || "RUB";
-  // Цены: 7 дней - 99 руб ($0.99), 30 дней - 129 руб ($1.49)
-  const defaultAmount = currency === "USD" ? (days === 30 ? 1.49 : 0.99) : (days === 30 ? 129 : 99);
+  // Цены: 7 дн - 99 ₽ ($0.99), 30 дн - 129 ₽ ($1.49), 90 дн - 299 ₽ ($3.49), 365 дн - 890 ₽ ($9.99)
+  let defaultAmount = 99;
+  if (currency === "USD") {
+    if (days >= 365) defaultAmount = 9.99;
+    else if (days >= 90) defaultAmount = 3.49;
+    else if (days >= 30) defaultAmount = 1.49;
+    else defaultAmount = 0.99;
+  } else {
+    if (days >= 365) defaultAmount = 890;
+    else if (days >= 90) defaultAmount = 299;
+    else if (days >= 30) defaultAmount = 129;
+    else defaultAmount = 99;
+  }
   const amount = options.amount || defaultAmount;
   const uid = options.uid || 0;
   const shopId = options.shopId || 4063;

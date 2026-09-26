@@ -625,11 +625,11 @@ describe("Web Viewer SSR & Routing", () => {
       expect(homeHtml).toContain('"@type": "FAQPage"');
 
       // 7. ProfilePage & BreadcrumbList Schema.org markup
-      const profileRes = renderProfilePage(mockEnv, "alina.kuzina", null, null, "ru");
+      const profileRes = renderProfilePage(mockEnv, "durov", null, null, "ru");
       const profileHtml = await profileRes.text();
       expect(profileHtml).toContain('"@type": "ProfilePage"');
       expect(profileHtml).toContain('"@type": "BreadcrumbList"');
-      expect(profileHtml).toContain("@alina.kuzina");
+      expect(profileHtml).toContain("@durov");
       expect(profileHtml).toContain('hreflang="ru"');
       expect(profileHtml).toContain('hreflang="en"');
 
@@ -645,15 +645,21 @@ describe("Web Viewer SSR & Routing", () => {
       const termsHtml = await termsRes.text();
       expect(termsHtml).toContain('/pay?plan=7');
       expect(termsHtml).toContain('/pay?plan=30');
+      expect(termsHtml).toContain('/pay?plan=90');
+      expect(termsHtml).toContain('/pay?plan=365');
       expect(termsHtml).toContain('99');
       expect(termsHtml).toContain('129');
+      expect(termsHtml).toContain('299');
+      expect(termsHtml).toContain('890');
 
       const termsEnRes = renderTermsPage("en", "https://threadsviewer.online");
       const termsEnHtml = await termsEnRes.text();
       expect(termsEnHtml).toContain('$0.99');
       expect(termsEnHtml).toContain('$1.49');
+      expect(termsEnHtml).toContain('$3.49');
+      expect(termsEnHtml).toContain('$9.99');
 
-      const payReq = new Request("https://threadsviewer.online/pay?plan=7");
+      const payReq = new Request("https://threadsviewer.online/pay?plan=90");
       const origFetch = globalThis.fetch;
       globalThis.fetch = (async (url: any, init?: any) => {
         if (String(url).includes("rukassa.io") || String(url).includes("jhpay.online")) {

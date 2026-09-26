@@ -80,6 +80,8 @@ export class Bot {
     await this.buttons(cid, title, kb([
       [{text: isEn ? `💳 7 days — $0.99 (Card / SBP)` : `💳 7 дней — 99 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:7"}],
       [{text: isEn ? `💳 30 days — $1.49 (Card / SBP)` : `💳 30 дней — 129 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:30"}],
+      [{text: isEn ? `💳 90 days — $3.49 (Card / SBP)` : `💳 90 дней (3 мес.) — 299 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:90"}],
+      [{text: isEn ? `💳 365 days — $9.99 (Card / SBP)` : `💳 365 дней (1 год) — 890 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:365"}],
       [{text: isEn ? `⚡ 7 days — ${LIMITS.priceStarsWeek} ⭐ (Stars)` : `⚡ 7 дней — ${LIMITS.priceStarsWeek} ⭐ (Звёзды)`, callback_data:"sub:stars:7"}],
       [{text: isEn ? `⚡ 7 days — ${LIMITS.priceCryptoUsdWeek} $ (USDT)` : `⚡ 7 дней — ${LIMITS.priceCryptoUsdWeek} $ (USDT)`, callback_data:"sub:crypto:7"}],
       [{text: isEn ? `👑 30 days — ${LIMITS.priceStarsMonth} ⭐ (Stars)` : `👑 30 дней — ${LIMITS.priceStarsMonth} ⭐ (Звёзды)`, callback_data:"sub:stars:30"}],
@@ -88,10 +90,22 @@ export class Bot {
     return;
   }
   if(d==="sub:kassa" || d.startsWith("sub:kassa:")){
-    const days = d.split(":")[2] === "30" ? 30 : 7;
+    const daysRaw = parseInt(d.split(":")[2] || "7", 10);
+    const days = [7, 30, 90, 365].includes(daysRaw) ? daysRaw : 7;
     const lang = await this.lang(uid);
     const isEn = lang === "en";
-    const amount = isEn ? (days === 30 ? 1.49 : 0.99) : (days === 30 ? 129 : 99);
+    let amount = 99;
+    if (isEn) {
+      if (days >= 365) amount = 9.99;
+      else if (days >= 90) amount = 3.49;
+      else if (days >= 30) amount = 1.49;
+      else amount = 0.99;
+    } else {
+      if (days >= 365) amount = 890;
+      else if (days >= 90) amount = 299;
+      else if (days >= 30) amount = 129;
+      else amount = 99;
+    }
     const currency = isEn ? "USD" : "RUB";
     const payment = await createJhpayPayment(this.env, { uid, days, amount, currency });
     if (payment.ok && payment.formUrl) {

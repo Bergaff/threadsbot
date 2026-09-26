@@ -242,9 +242,21 @@ export default {
       const isTest = url.searchParams.get("test") === "1";
       const reqLang = detectLanguage(request);
       const isUsd = url.searchParams.get("currency") === "USD" || url.searchParams.get("lang") === "en" || reqLang === "en";
-      const days = planStr === "30" ? 30 : 7;
+      const days = planStr === "365" ? 365 : planStr === "90" ? 90 : planStr === "30" ? 30 : 7;
       const customAmount = parseFloat(url.searchParams.get("amount") || "");
-      const amount = isTest ? (isUsd ? 0.1 : 10) : (!isNaN(customAmount) && customAmount > 0 ? customAmount : (isUsd ? (days === 30 ? 1.49 : 0.99) : (days === 30 ? 129 : 99)));
+      let defaultAmount = 99;
+      if (isUsd) {
+        if (days >= 365) defaultAmount = 9.99;
+        else if (days >= 90) defaultAmount = 3.49;
+        else if (days >= 30) defaultAmount = 1.49;
+        else defaultAmount = 0.99;
+      } else {
+        if (days >= 365) defaultAmount = 890;
+        else if (days >= 90) defaultAmount = 299;
+        else if (days >= 30) defaultAmount = 129;
+        else defaultAmount = 99;
+      }
+      const amount = isTest ? (isUsd ? 0.1 : 10) : (!isNaN(customAmount) && customAmount > 0 ? customAmount : defaultAmount);
       const currency = isUsd ? "USD" : "RUB";
       const uidParam = url.searchParams.get("uid");
       const uid = uidParam ? parseInt(uidParam, 10) : 0;
@@ -492,7 +504,7 @@ export default {
         "durov", "mosseri", "zuck", "mrbeast", "openai", "techcrunch",
         "temalebedev", "wylsacom", "cristiano", "leomessi", "selenagomez",
         "kimkardashian", "billgates", "shakira", "nasa", "apple", "netflix",
-        "mkbhd", "alina.kuzina", "yaz.anton", "hhressko"
+        "mkbhd"
       ];
       const combined = Array.from(new Set([...defaultProfiles, ...extraUsers]));
       const res = renderSitemap(url.origin, combined);
