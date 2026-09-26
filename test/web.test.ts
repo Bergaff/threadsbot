@@ -642,15 +642,15 @@ describe("Web Viewer SSR & Routing", () => {
       const payReq = new Request("https://threadsviewer.online/pay?plan=7");
       const origFetch = globalThis.fetch;
       globalThis.fetch = (async (url: any, init?: any) => {
-        if (String(url).includes("pay.jhpay.online")) {
-          return new Response(JSON.stringify({ ok: true, formUrl: "https://pay.jhpay.online/order/test12345" }));
+        if (String(url).includes("jhpay.online")) {
+          return new Response(JSON.stringify({ ok: true, formUrl: "https://jhpay.online/order/test12345" }));
         }
         return origFetch(url, init);
       }) as any;
       try {
         const payRes = await worker.fetch(payReq, mockEnv, {} as any);
         expect(payRes.status).toBe(302);
-        expect(payRes.headers.get("Location")).toBe("https://pay.jhpay.online/order/test12345");
+        expect(payRes.headers.get("Location")).toBe("https://jhpay.online/order/test12345");
       } finally {
         globalThis.fetch = origFetch;
       }

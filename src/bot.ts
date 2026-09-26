@@ -78,8 +78,8 @@ export class Bot {
     const isEn = lang==="en";
     const title = isEn ? "Choose your subscription plan:" : "Выберите подходящий тариф:";
     await this.buttons(cid, title, kb([
-      [{text: isEn ? `💳 7 days — 49 ₽ (Card / SBP)` : `💳 7 дней — 49 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:7"}],
-      [{text: isEn ? `💳 30 days — 149 ₽ (Card / SBP)` : `💳 30 дней — 149 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:30"}],
+      [{text: isEn ? `💳 7 days — 39 ₽ (Card / SBP)` : `💳 7 дней — 39 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:7"}],
+      [{text: isEn ? `💳 30 days — 99 ₽ (Card / SBP)` : `💳 30 дней — 99 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:30"}],
       [{text: isEn ? `⚡ 7 days — ${LIMITS.priceStarsWeek} ⭐ (Stars)` : `⚡ 7 дней — ${LIMITS.priceStarsWeek} ⭐ (Звёзды)`, callback_data:"sub:stars:7"}],
       [{text: isEn ? `⚡ 7 days — ${LIMITS.priceCryptoUsdWeek} $ (USDT)` : `⚡ 7 дней — ${LIMITS.priceCryptoUsdWeek} $ (USDT)`, callback_data:"sub:crypto:7"}],
       [{text: isEn ? `👑 30 days — ${LIMITS.priceStarsMonth} ⭐ (Stars)` : `👑 30 дней — ${LIMITS.priceStarsMonth} ⭐ (Звёзды)`, callback_data:"sub:stars:30"}],
@@ -89,7 +89,7 @@ export class Bot {
   }
   if(d==="sub:kassa" || d.startsWith("sub:kassa:")){
     const days = d.split(":")[2] === "30" ? 30 : 7;
-    const amount = days === 30 ? 149 : 49;
+    const amount = days === 30 ? 99 : 39;
     const lang = await this.lang(uid);
     const isEn = lang === "en";
     const payment = await createJhpayPayment(this.env, { uid, days, amount });

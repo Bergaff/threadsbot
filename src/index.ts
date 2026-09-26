@@ -228,7 +228,8 @@ export default {
       const planStr = url.searchParams.get("plan") || "7";
       const isTest = url.searchParams.get("test") === "1";
       const days = planStr === "30" ? 30 : 7;
-      const amount = isTest ? 10 : (days === 30 ? 149 : 49);
+      const customAmount = parseInt(url.searchParams.get("amount") || "", 10);
+      const amount = isTest ? 10 : (!isNaN(customAmount) && customAmount > 0 ? customAmount : (days === 30 ? 99 : 39));
       const uidParam = url.searchParams.get("uid");
       const uid = uidParam ? parseInt(uidParam, 10) : 0;
 
@@ -243,6 +244,10 @@ export default {
         return Response.redirect(payment.formUrl, 302);
       }
 
+      const attemptsDetail = (payment.attempts || [])
+        .map(a => `<li><code>${esc(a.url)}</code> &rarr; HTTP ${a.status} (${esc(a.text.slice(0, 80))})</li>`)
+        .join("");
+
       return new Response(
         `<!DOCTYPE html>
 <html lang="ru">
@@ -252,19 +257,31 @@ export default {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; background: #131722; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }
-    .card { background: #1e293b; border: 1px solid #3b82f6; padding: 24px; max-width: 440px; text-align: center; }
-    h1 { font-size: 1.25rem; margin-top: 0; }
-    p { color: #cbd5e1; font-size: 0.9rem; line-height: 1.5; }
-    .btn { display: inline-block; background: #2563eb; color: #fff; padding: 10px 18px; text-decoration: none; font-weight: 700; margin-top: 14px; }
+    .card { background: #1e293b; border: 1px solid #3b82f6; padding: 24px; max-width: 520px; text-align: left; }
+    h1 { font-size: 1.25rem; margin-top: 0; color: #fff; }
+    p { color: #cbd5e1; font-size: 0.9rem; line-height: 1.5; margin: 8px 0; }
+    .btn { display: inline-block; background: #2563eb; color: #fff; padding: 10px 18px; text-decoration: none; font-weight: 700; margin-top: 14px; text-align: center; }
+    .diag-box { background: #0f172a; border: 1px solid #334155; padding: 10px; font-size: 0.76rem; color: #94a3b8; margin: 12px 0; word-break: break-all; }
+    .diag-box ul { margin: 4px 0 0 18px; padding: 0; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>Оплата подписки</h1>
-    <p>Не удалось подключиться к платёжному шлюзу (${esc(payment.error || "ошибка соединения")}).</p>
-    <p>Вы можете оформить подписку через нашего Telegram-бота @${esc(env.BOT_USERNAME || 'threadsreaderbot')} (команда /subscribe).</p>
-    <a href="https://t.me/${esc(env.BOT_USERNAME || 'threadsreaderbot')}?start=web_adfree" class="btn">Оплатить в Telegram</a>
-    <div style="margin-top: 14px;"><a href="/" style="color:#93c5fd;font-size:0.82rem;">Вернуться на сайт</a></div>
+    <h1>Оплата подписки (${amount} ₽ за ${days} дн.)</h1>
+    <p><b>Шлюз JHPay временно не отдал ссылку:</b> ${esc(payment.error || "ошибка подключения")}</p>
+    
+    <div class="diag-box">
+      <b>Результаты проверки адресов шлюза:</b>
+      <ul>${attemptsDetail || "<li>Нет данных о попытках</li>"}</ul>
+    </div>
+
+    <p>Вы можете моментально оформить подписку через нашего Telegram-бота <b>@${esc(env.BOT_USERNAME || 'threadsreaderbot')}</b> (команда <code>/subscribe</code>) — там доступны Telegram Stars, СБП и Crypto.</p>
+    
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
+      <a href="https://t.me/${esc(env.BOT_USERNAME || 'threadsreaderbot')}?start=web_adfree" class="btn">Оплатить в Telegram</a>
+      <a href="/pay?plan=${days}" class="btn" style="background:#334155;">Повторить попытку</a>
+    </div>
+    <div style="margin-top: 16px;"><a href="/" style="color:#93c5fd;font-size:0.82rem;">Вернуться на сайт</a></div>
   </div>
 </body>
 </html>`,
