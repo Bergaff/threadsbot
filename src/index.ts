@@ -164,10 +164,23 @@ export default {
         let uid = 0;
         let days = 30;
 
-        const uidMatch = rawData.match(/uid[:_]?(\d+)/i) || rawOrder.match(/^(\d+)(?:_(\d+))?$/);
-        if (uidMatch) {
-          uid = parseInt(uidMatch[1], 10);
-          if (uidMatch[2]) days = parseInt(uidMatch[2], 10);
+        try {
+          const cleanJson = rawData.replaceAll("&quot;", '"').replaceAll("&amp;", "&");
+          const parsed = JSON.parse(cleanJson);
+          if (parsed && typeof parsed === "object") {
+            if (parsed.uid) uid = parseInt(parsed.uid, 10);
+            if (parsed.days) days = parseInt(parsed.days, 10);
+          }
+        } catch {
+          // Fallback parsing below
+        }
+
+        if (!uid) {
+          const uidMatch = rawData.match(/["']?uid["']?[:_]?(\d+)/i) || rawOrder.match(/^(\d+)(?:_(\d+))?$/);
+          if (uidMatch) {
+            uid = parseInt(uidMatch[1], 10);
+            if (uidMatch[2]) days = parseInt(uidMatch[2], 10);
+          }
         }
 
         if (uid > 0 && env.DB && typeof env.DB.prepare === "function") {
@@ -222,14 +235,17 @@ export default {
     }
 
     // ==========================================
-    // ОНЛАЙН-ОПЛАТА ПОДПИСКИ (JhPay / СБП / Карты РФ)
+    // ОНЛАЙН-ОПЛАТА ПОДПИСКИ (RuKassa / СБП / Карты РФ / Крипта)
     // ==========================================
     if (lowerPath === "/pay" || lowerPath === "/buy" || lowerPath === "/order") {
       const planStr = url.searchParams.get("plan") || "7";
       const isTest = url.searchParams.get("test") === "1";
+      const reqLang = detectLanguage(request);
+      const isUsd = url.searchParams.get("currency") === "USD" || url.searchParams.get("lang") === "en" || reqLang === "en";
       const days = planStr === "30" ? 30 : 7;
-      const customAmount = parseInt(url.searchParams.get("amount") || "", 10);
-      const amount = isTest ? 10 : (!isNaN(customAmount) && customAmount > 0 ? customAmount : (days === 30 ? 99 : 39));
+      const customAmount = parseFloat(url.searchParams.get("amount") || "");
+      const amount = isTest ? (isUsd ? 0.1 : 10) : (!isNaN(customAmount) && customAmount > 0 ? customAmount : (isUsd ? (days === 30 ? 1.49 : 0.99) : (days === 30 ? 129 : 99)));
+      const currency = isUsd ? "USD" : "RUB";
       const uidParam = url.searchParams.get("uid");
       const uid = uidParam ? parseInt(uidParam, 10) : 0;
 
@@ -237,7 +253,8 @@ export default {
         uid: isNaN(uid) ? 0 : uid,
         days,
         amount,
-        description: `Threads Viewer ${days} дней (без рекламы)`
+        currency,
+        description: `Threads Viewer ${days} days (${currency === 'USD' ? '$' + amount : amount + ' ₽'})`
       });
 
       if (payment.ok && payment.formUrl) {
@@ -267,8 +284,8 @@ export default {
 </head>
 <body>
   <div class="card">
-    <h1>Оплата подписки (${amount} ₽ за ${days} дн.)</h1>
-    <p><b>Шлюз JHPay временно не отдал ссылку:</b> ${esc(payment.error || "ошибка подключения")}</p>
+    <h1>Оплата подписки (${currency === "USD" ? "$" + amount : amount + " ₽"} за ${days} дн.)</h1>
+    <p><b>Шлюз RuKassa временно не отдал ссылку:</b> ${esc(payment.error || "ошибка подключения")}</p>
     
     <div class="diag-box">
       <b>Результаты проверки адресов шлюза:</b>

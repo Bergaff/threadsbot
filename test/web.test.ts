@@ -597,11 +597,18 @@ describe("Web Viewer SSR & Routing", () => {
       expect(pingRes.status).toBe(200);
       expect(await pingRes.text()).toBe("OK");
 
-      // 4. result.php POST payment callback
+      // 4. result.php POST payment callback (RuKassa JSON format)
       const postReq = new Request("https://threadsviewer.online/result.php", {
         method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: "ORDER_ID=12345_30&AMOUNT=500&IN_AMOUNT=500&DATA=uid_99999",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: 123456,
+          order_id: 998877,
+          amount: 99,
+          in_amount: 99,
+          data: JSON.stringify({ uid: 99999, days: 7 }),
+          status: "PAID"
+        }),
       });
       const postRes = await worker.fetch(postReq, mockEnv, {} as any);
       expect(postRes.status).toBe(200);
@@ -638,19 +645,26 @@ describe("Web Viewer SSR & Routing", () => {
       const termsHtml = await termsRes.text();
       expect(termsHtml).toContain('/pay?plan=7');
       expect(termsHtml).toContain('/pay?plan=30');
+      expect(termsHtml).toContain('99');
+      expect(termsHtml).toContain('129');
+
+      const termsEnRes = renderTermsPage("en", "https://threadsviewer.online");
+      const termsEnHtml = await termsEnRes.text();
+      expect(termsEnHtml).toContain('$0.99');
+      expect(termsEnHtml).toContain('$1.49');
 
       const payReq = new Request("https://threadsviewer.online/pay?plan=7");
       const origFetch = globalThis.fetch;
       globalThis.fetch = (async (url: any, init?: any) => {
-        if (String(url).includes("jhpay.online")) {
-          return new Response(JSON.stringify({ ok: true, formUrl: "https://jhpay.online/order/test12345" }));
+        if (String(url).includes("rukassa.io") || String(url).includes("jhpay.online")) {
+          return new Response(JSON.stringify({ ok: true, url: "https://pay.rukassa.io/order/test12345", formUrl: "https://pay.rukassa.io/order/test12345" }));
         }
         return origFetch(url, init);
       }) as any;
       try {
         const payRes = await worker.fetch(payReq, mockEnv, {} as any);
         expect(payRes.status).toBe(302);
-        expect(payRes.headers.get("Location")).toBe("https://jhpay.online/order/test12345");
+        expect(payRes.headers.get("Location")).toBe("https://pay.rukassa.io/order/test12345");
       } finally {
         globalThis.fetch = origFetch;
       }

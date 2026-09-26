@@ -78,8 +78,8 @@ export class Bot {
     const isEn = lang==="en";
     const title = isEn ? "Choose your subscription plan:" : "Выберите подходящий тариф:";
     await this.buttons(cid, title, kb([
-      [{text: isEn ? `💳 7 days — 39 ₽ (Card / SBP)` : `💳 7 дней — 39 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:7"}],
-      [{text: isEn ? `💳 30 days — 99 ₽ (Card / SBP)` : `💳 30 дней — 99 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:30"}],
+      [{text: isEn ? `💳 7 days — $0.99 (Card / SBP)` : `💳 7 дней — 99 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:7"}],
+      [{text: isEn ? `💳 30 days — $1.49 (Card / SBP)` : `💳 30 дней — 129 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:30"}],
       [{text: isEn ? `⚡ 7 days — ${LIMITS.priceStarsWeek} ⭐ (Stars)` : `⚡ 7 дней — ${LIMITS.priceStarsWeek} ⭐ (Звёзды)`, callback_data:"sub:stars:7"}],
       [{text: isEn ? `⚡ 7 days — ${LIMITS.priceCryptoUsdWeek} $ (USDT)` : `⚡ 7 дней — ${LIMITS.priceCryptoUsdWeek} $ (USDT)`, callback_data:"sub:crypto:7"}],
       [{text: isEn ? `👑 30 days — ${LIMITS.priceStarsMonth} ⭐ (Stars)` : `👑 30 дней — ${LIMITS.priceStarsMonth} ⭐ (Звёзды)`, callback_data:"sub:stars:30"}],
@@ -89,18 +89,20 @@ export class Bot {
   }
   if(d==="sub:kassa" || d.startsWith("sub:kassa:")){
     const days = d.split(":")[2] === "30" ? 30 : 7;
-    const amount = days === 30 ? 99 : 39;
     const lang = await this.lang(uid);
     const isEn = lang === "en";
-    const payment = await createJhpayPayment(this.env, { uid, days, amount });
+    const amount = isEn ? (days === 30 ? 1.49 : 0.99) : (days === 30 ? 129 : 99);
+    const currency = isEn ? "USD" : "RUB";
+    const payment = await createJhpayPayment(this.env, { uid, days, amount, currency });
     if (payment.ok && payment.formUrl) {
+      const priceLabel = isEn ? `$${amount}` : `${amount} ₽`;
       await this.buttons(
         cid,
-        `💳 <b>${isEn ? "Payment via Russian Card / SBP" : "Оплата картой РФ / СБП"}</b>\n\n` +
+        `💳 <b>${isEn ? "Payment via Card / SBP" : "Оплата картой РФ / СБП"}</b>\n\n` +
         `${isEn ? "Period" : "Срок"}: <b>${days} ${text("days", lang)}</b>\n` +
-        `${isEn ? "Amount" : "Сумма"}: <b>${amount} ₽</b>\n\n` +
+        `${isEn ? "Amount" : "Сумма"}: <b>${priceLabel}</b>\n\n` +
         `${isEn ? "Click the button below to pay online. Subscription activates automatically after payment!" : "Нажмите кнопку ниже для перехода к оплате. Подписка активируется автоматически сразу после оплаты!"}`,
-        kb([[{ text: isEn ? `👉 Pay ${amount} ₽ (Card/SBP)` : `👉 Оплатить ${amount} ₽ (СБП/Карта)`, url: payment.formUrl }]])
+        kb([[{ text: isEn ? `👉 Pay ${priceLabel}` : `👉 Оплатить ${priceLabel} (СБП/Карта)`, url: payment.formUrl }]])
       );
     } else {
       await this.tg.sendMessage(cid, `⚠️ Не удалось сформировать ссылку на оплату (${payment.error || "ошибка шлюза"}). Вы можете оплатить через Stars или USDT.`);
