@@ -51,4 +51,17 @@ head_sampling_rate = 1
 ADMIN_IDS = "369330135,657708753"
 STATS_EXCLUDE_IDS = "369330135,657708753"
 BASE_URL = "https://www.threads.com"
-VERSION = "pr5-2026-08-21-ux"
+SITE_URL = "https://threadsviewer.online"
+SITE_DOMAIN = "threadsviewer.online"
+VERSION = "pr37-2026-09-22-ux"
+BOT_USERNAME = "threadsreaderbot"
+JHPAY_TOKEN = "940e2c5aec5bf97eab483ac86c07c0db"
+
+# Custom domain
+[[routes]]
+pattern = "threadsviewer.online"
+custom_domain = true
+
+[[routes]]
+pattern = "www.threadsviewer.online"
+custom_domain = true

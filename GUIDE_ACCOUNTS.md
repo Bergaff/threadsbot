@@ -1,17 +1,40 @@
 # Руководство: cookies аккаунтов Threads (JSON) — перенос, самодиагностика, защита от бана
 
 Для админа Cloudflare-бота. Пошагово:
-1. Что лежит в JSON и какие бывают форматы.
-2. Как безопасно переносить аккаунты между ботами.
-3. Правила, чтобы аккаунты не банили.
-4. Как работает самодиагностика JSON в боте (и когда сработает алерт).
-5. Google Colab поячеечно: массовая загрузка, проверка, SQL, пуш в D1, экспорт обратно.
-6. Как менять код на GitHub **без мержа** в `main`.
-7. Что исправлено, чтобы сценарий «пишу имя профиля → получаю текст или фото» заработал.
+1. Веб-админка на сайте (`/admin`): управление, загрузка JSON и автопродление cookies.
+2. Что лежит в JSON и какие бывают форматы.
+3. Google Drive vs Cloudflare D1 — куда добавлять куки.
+4. Автообновление cookies (Keep-Alive): как продлевать срок сессии.
+5. Правила, чтобы аккаунты не банили.
+6. Как работает самодиагностика JSON в боте.
+7. Google Colab поячеечно: массовая загрузка, проверка, SQL, пуш в D1.
 
 ---
 
-## 1. Формат JSON
+## 0. Веб-панель администратора (`/admin`)
+
+На сайте доступна полноценная панель управления:
+* **Адрес:** `https://ваш-домен/admin` (или `http://localhost:8787/admin`)
+* **Пароль по умолчанию:** `admin` (настраивается в Cloudflare Dashboard: *Workers & Pages -> Settings -> Variables -> ADMIN_PASSWORD*).
+* **Возможности веб-админки:**
+  1. **Статистика в реальном времени:** состояние очереди Cloudflare Queue, Browser Run, число активных пользователей, запросы за 24 часа.
+  2. **Управление аккаунтами:** список всех аккаунтов, статус, число запросов/ошибок, срок жизни cookies.
+  3. **Добавление аккаунтов:** загрузка файла `.json` через кнопку или вставка текста JSON в форму прямо из браузера (без Colab и без ботов).
+  4. **Автообновление (Keep-Alive):** кнопка **«Продлить куки»** и **«Автообновление всех куки»** — браузер открывает Threads и продлевает сессию в Meta, сохраняя свежие cookies в D1.
+
+---
+
+## 1. Google Диск или Cloudflare D1?
+
+> **Важно:** Cloudflare Worker **не синхронизируется с Google Диском напрямую**. Если просто положить файл на Google Диск, бот и сайт о нем не узнают.
+
+Все cookies хранятся в базе **Cloudflare D1**. Теперь добавить аккаунт можно 2 быстрыми способами:
+1. **Через веб-админку (`/admin`):** просто перетащить файл `.json` в форму на сайте и нажать «Сохранить».
+2. **Через Telegram-бот:** прислать `.json` файл в диалог с ботом (подпись сообщения станет именем аккаунта).
+
+---
+
+## 2. Формат JSON
 
 `accounts/<имя>.json` — экспорт cookies сессии Threads. Это не просто данные,
 это ключи доступа к аккаунту. Обращаться с ними как с паролями.
@@ -125,7 +148,7 @@ npm run accounts:import -- accounts --remote
 ## 6. Как менять код на GitHub, но НЕ мержить в `main`
 
 Arena (и этот бот) работает в ветке сессии, например
-`arena/01a020b8-threadsbot`. Каждый коммит уходит **только в эту ветку**.
+`arena/01a0bf6e-threadsbot`. Каждый коммит уходит **только в эту ветку**.
 Pull Request в `main` — это предложение, а не применение.
 
 ### Что происходит
@@ -139,13 +162,13 @@ Pull Request в `main` — это предложение, а не примене
 - Локально, не трогая `main`:
   ```bash
   git fetch origin
-  git checkout arena/01a020b8-threadsbot
+  git checkout arena/01a0bf6e-threadsbot
   # смотришь файлы, тестируешь
   git checkout main   # вернуться. main как был, так и остался
   ```
 - Deploy с ветки (без мержа в main), если хочешь проверить на Worker:
   ```bash
-  git checkout arena/01a020b8-threadsbot
+  git checkout arena/01a0bf6e-threadsbot
   npx wrangler deploy
   ```
   Это выкатывает **содержимое текущей ветки**. `main` в репозитории при этом
@@ -196,15 +219,15 @@ Python-файлы (`bot.py`, `threads_check.py`) не трогались.
 2. Смена **Production branch** в Cloudflare **сама ничего не выкатывает**. Билд стартует от нового коммита или кнопки Retry build.
 3. Git Builds: Build command = `npm run build`, Deploy command = `npx wrangler deploy`.
 4. **Queues и Browser Rendering есть только на Workers Paid ($5).** На Free кнопки «Текст/Скрины» физически не могут открыть Threads: апдейт уходит в очередь, которой нет, и молча пропадает. Команды `/start` и загрузка JSON при этом могут работать.
-5. Проверка, какой код живой: в боте `/diag` (админ) или `GET /health`. Должно быть `"version": "pr5-2026-08-20-deploy"`. Если `unknown` — задеплоен старый worker.
+5. Проверка, какой код живой: в боте `/diag` (админ) или `GET /health`. Должно быть `"version": "pr12-2026-09-21-ux"`. Если `unknown` — задеплоен старый worker.
 
 ### Colab: выкатить Arena-ветку, не мержа `main`
 
 Ноутбук [`notebooks/deploy_branch_no_merge.ipynb`](notebooks/deploy_branch_no_merge.ipynb) поячеечно:
-клон `arena/01a020b8-threadsbot` → `wrangler deploy` на Worker `threadsbot`. GitHub `main` не трогается.
+клон `arena/01a0bf6e-threadsbot` → `wrangler deploy` на Worker `threadsbot`. GitHub `main` не трогается.
 
 Открыть:
-https://colab.research.google.com/github/Bergaff/threadsbot/blob/arena/01a020b8-threadsbot/notebooks/deploy_branch_no_merge.ipynb
+https://colab.research.google.com/github/Bergaff/threadsbot/blob/arena/01a0bf6e-threadsbot/notebooks/deploy_branch_no_merge.ipynb
 
 ---
 
