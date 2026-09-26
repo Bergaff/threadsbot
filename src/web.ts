@@ -1881,8 +1881,7 @@ function renderSponsorSlot(env: Env, lang: Lang, isPremium = false, country = ""
         <span>${sponsorTag}</span>
         <div style="display:inline-flex;align-items:center;gap:8px;">
           <a href="${esc(sponsorUrl)}" target="_blank" rel="noopener" style="color: #777; text-decoration: underline;">${sponsorAdLabel}</a>
-          <a href="/pay?plan=7" class="ad-free-link" style="color:#60a5fa;font-weight:700;" title="${lang === 'en' ? 'Disable ads with online card/SBP payment' : 'Отключить рекламу онлайн через СБП/Карту'}">💳 ${lang === 'en' ? 'Disable ads ($0.99)' : 'Отключить рекламу (99 ₽)'}</a>
-          <a href="${esc(adFreeUrl)}" target="_blank" rel="noopener" class="ad-free-link" title="${lang === 'en' ? 'Get ad-free browsing with Telegram bot' : 'Отключить рекламу через Telegram-бота'}">Telegram</a>
+          <a href="${esc(adFreeUrl)}" target="_blank" rel="noopener" class="ad-free-link" style="color:#60a5fa;font-weight:700;" title="${lang === 'en' ? 'Get ad-free browsing via Telegram bot' : 'Отключить рекламу через Telegram-бота'}">${lang === 'en' ? 'Disable ads' : 'Отключить рекламу'}</a>
         </div>
       </div>
       <div class="sponsor-card-inner">
@@ -1960,7 +1959,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr36-2026-09-22-ux";
+  const ver = env.VERSION || "pr37-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2510,9 +2509,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr36-2026-09-22-ux')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr36-2026-09-22-ux')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr36-2026-09-22-ux')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr37-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr37-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr37-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3217,11 +3216,11 @@ export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsview
     <p>- Real-time anonymous author tracking with instant delivery to Telegram;</p>
     <p>- Unrestricted browsing of deep comment threads and high-resolution media.</p>
     <p><b>Subscription Plans & Pricing:</b></p>
-    <p>- Trial Plan (7 days access): $0.99; <a href="/pay?plan=7&currency=USD" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Pay $0.99</a></p>
-    <p>- Standard Plan (30 days access): $1.49; <a href="/pay?plan=30&currency=USD" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Pay $1.49</a></p>
-    <p>- Quarterly Plan (90 days access): $3.49; <a href="/pay?plan=90&currency=USD" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Pay $3.49</a></p>
-    <p>- Annual Plan (365 days access): $9.99; <a href="/pay?plan=365&currency=USD" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Pay $9.99</a></p>
-    <p>Payment methods: Bank cards (MIR, Visa, Mastercard), Faster Payments System (SBP), Telegram Stars, Cryptocurrency. All transactions are securely processed via certified payment gateways.</p>
+    <p>- Trial Plan (7 days access): $0.99</p>
+    <p>- Standard Plan (30 days access): $1.49</p>
+    <p>- Quarterly Plan (90 days access): $3.49</p>
+    <p>- Annual Plan (365 days access): $9.99</p>
+    <p>Payment methods: Bank cards, Faster Payments System (SBP), Telegram Stars, Cryptocurrency. Direct online card processing is currently undergoing maintenance as we connect a new payment gateway. Subscriptions can be activated via our official Telegram bot: <a href="https://t.me/threadsreaderbot?start=web_adfree" target="_blank" rel="noopener">@threadsreaderbot</a>.</p>
 
     <h2>5. Order Fulfillment & Delivery Policy</h2>
     <p>All services provided by the Service are entirely digital. Service activation (digital delivery) occurs immediately and automatically upon confirmation of successful transaction by the payment provider. No physical shipment is required.</p>
@@ -3259,10 +3258,11 @@ export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsview
     <p>- Анонимный мониторинг авторов Threads в реальном времени с доставкой постов в Telegram;</p>
     <p>- Просмотр всех веток комментариев и медиафайлов без ограничений.</p>
     <p><b>Тарифные планы и стоимость:</b></p>
-    <p>- Тариф "Пробный" (7 дней доступа): 99 руб.; <a href="/pay?plan=7" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Оплатить 99 ₽ (СБП/Карта)</a></p>
-    <p>- Тариф "Стандартный" (30 дней доступа): 129 руб.; <a href="/pay?plan=30" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Оплатить 129 ₽ (СБП/Карта)</a></p>
-    <p>- Тариф "Квартальный" (90 дней доступа): 299 руб.; <a href="/pay?plan=90" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Оплатить 299 ₽ (СБП/Карта)</a></p>
-    <p>- Тариф "Годовой" (365 дней доступа): 890 руб.; <a href="/pay?plan=365" style="display:inline-block;background:#2563eb;color:#fff;padding:2px 8px;text-decoration:none;font-weight:700;margin-left:6px;">Оплатить 890 ₽ (СБП/Карта)</a></p>
+    <p>- Тариф "Пробный" (7 дней доступа): 99 руб.</p>
+    <p>- Тариф "Стандартный" (30 дней доступа): 129 руб.</p>
+    <p>- Тариф "Квартальный" (90 дней доступа): 299 руб.</p>
+    <p>- Тариф "Годовой" (365 дней доступа): 890 руб.</p>
+    <p>Способы оплаты: Банковские карты (МИР, Visa, Mastercard), СБП (Система быстрых платежей), Telegram Stars, криптовалюта. Прямой онлайн-эквайринг на сайте временно находится на плановом обновлении (подключение нового платёжного шлюза). Оформить подписку в данный момент можно через нашего официального Telegram-бота: <a href="https://t.me/threadsreaderbot?start=web_adfree" target="_blank" rel="noopener">@threadsreaderbot</a>.</p>
     <p>Способы оплаты: Банковские карты (МИР, Visa, Mastercard), СБП (Система быстрых платежей), Telegram Stars, криптовалюта. Все расчеты производятся через защищенные шлюзы сертифицированных платёжных операторов.</p>
 
     <h2>5. Порядок оформления и доставки цифровых услуг</h2>

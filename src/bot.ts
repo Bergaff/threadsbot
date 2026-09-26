@@ -76,12 +76,8 @@ export class Bot {
  private async callback(cb:CallbackQuery){if(!cb.data||!cb.message)return;const d=cb.data,uid=cb.from.id,cid=cb.message.chat.id;if(!d.startsWith("sub:check:")&&!d.startsWith("set_lang:"))await this.tg.answerCallbackQuery(cb.id).catch(()=>{});if(d.startsWith("set_lang:")){const lang=d.split(":")[1];await this.db.setLang(uid,languages.includes(lang as any)?lang:"en");await this.tg.answerCallbackQuery(cb.id,{text:text("language_set",lang)}).catch(()=>{});await this.tg.deleteMessage(cid,cb.message.message_id).catch(()=>{});const fake:{message_id:number;chat:{id:number};from:any}={message_id:0,chat:{id:cid},from:cb.from};await this.start(fake);return}  if(d==="sub:choose"){
     const lang=await this.lang(uid);
     const isEn = lang==="en";
-    const title = isEn ? "Choose your subscription plan:" : "Выберите подходящий тариф:";
+    const title = isEn ? "Choose your subscription plan (Telegram Stars or Crypto):" : "Выберите удобный способ оплаты (Звёзды или Криптовалюта):";
     await this.buttons(cid, title, kb([
-      [{text: isEn ? `💳 7 days — $0.99 (Card / SBP)` : `💳 7 дней — 99 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:7"}],
-      [{text: isEn ? `💳 30 days — $1.49 (Card / SBP)` : `💳 30 дней — 129 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:30"}],
-      [{text: isEn ? `💳 90 days — $3.49 (Card / SBP)` : `💳 90 дней (3 мес.) — 299 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:90"}],
-      [{text: isEn ? `💳 365 days — $9.99 (Card / SBP)` : `💳 365 дней (1 год) — 890 ₽ (Карта РФ / СБП)`, callback_data:"sub:kassa:365"}],
       [{text: isEn ? `⚡ 7 days — ${LIMITS.priceStarsWeek} ⭐ (Stars)` : `⚡ 7 дней — ${LIMITS.priceStarsWeek} ⭐ (Звёзды)`, callback_data:"sub:stars:7"}],
       [{text: isEn ? `⚡ 7 days — ${LIMITS.priceCryptoUsdWeek} $ (USDT)` : `⚡ 7 дней — ${LIMITS.priceCryptoUsdWeek} $ (USDT)`, callback_data:"sub:crypto:7"}],
       [{text: isEn ? `👑 30 days — ${LIMITS.priceStarsMonth} ⭐ (Stars)` : `👑 30 дней — ${LIMITS.priceStarsMonth} ⭐ (Звёзды)`, callback_data:"sub:stars:30"}],
@@ -90,37 +86,14 @@ export class Bot {
     return;
   }
   if(d==="sub:kassa" || d.startsWith("sub:kassa:")){
-    const daysRaw = parseInt(d.split(":")[2] || "7", 10);
-    const days = [7, 30, 90, 365].includes(daysRaw) ? daysRaw : 7;
     const lang = await this.lang(uid);
     const isEn = lang === "en";
-    let amount = 99;
-    if (isEn) {
-      if (days >= 365) amount = 9.99;
-      else if (days >= 90) amount = 3.49;
-      else if (days >= 30) amount = 1.49;
-      else amount = 0.99;
-    } else {
-      if (days >= 365) amount = 890;
-      else if (days >= 90) amount = 299;
-      else if (days >= 30) amount = 129;
-      else amount = 99;
-    }
-    const currency = isEn ? "USD" : "RUB";
-    const payment = await createJhpayPayment(this.env, { uid, days, amount, currency });
-    if (payment.ok && payment.formUrl) {
-      const priceLabel = isEn ? `$${amount}` : `${amount} ₽`;
-      await this.buttons(
-        cid,
-        `💳 <b>${isEn ? "Payment via Card / SBP" : "Оплата картой РФ / СБП"}</b>\n\n` +
-        `${isEn ? "Period" : "Срок"}: <b>${days} ${text("days", lang)}</b>\n` +
-        `${isEn ? "Amount" : "Сумма"}: <b>${priceLabel}</b>\n\n` +
-        `${isEn ? "Click the button below to pay online. Subscription activates automatically after payment!" : "Нажмите кнопку ниже для перехода к оплате. Подписка активируется автоматически сразу после оплаты!"}`,
-        kb([[{ text: isEn ? `👉 Pay ${priceLabel}` : `👉 Оплатить ${priceLabel} (СБП/Карта)`, url: payment.formUrl }]])
-      );
-    } else {
-      await this.tg.sendMessage(cid, `⚠️ Не удалось сформировать ссылку на оплату (${payment.error || "ошибка шлюза"}). Вы можете оплатить через Stars или USDT.`);
-    }
+    await this.tg.sendMessage(
+      cid,
+      isEn
+        ? "💳 Card payments are temporarily paused while we switch to a new payment provider. Please use Telegram Stars or Crypto for instant subscription activation!"
+        : "💳 Оплата картами временно приостановлена в связи с подключением новой платёжной системы. Пожалуйста, используйте Telegram Stars или криптовалюту для моментальной активации подписки!"
+    );
     return;
   }
   if(d==="sub:stars" || d.startsWith("sub:stars:")){

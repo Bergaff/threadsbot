@@ -235,86 +235,39 @@ export default {
     }
 
     // ==========================================
-    // ОНЛАЙН-ОПЛАТА ПОДПИСКИ (RuKassa / СБП / Карты РФ / Крипта)
+    // ОНЛАЙН-ОПЛАТА ПОДПИСКИ (ВРЕМЕННО НА ОБНОВЛЕНИИ)
     // ==========================================
     if (lowerPath === "/pay" || lowerPath === "/buy" || lowerPath === "/order") {
-      const planStr = url.searchParams.get("plan") || "7";
-      const isTest = url.searchParams.get("test") === "1";
-      const reqLang = detectLanguage(request);
-      const isUsd = url.searchParams.get("currency") === "USD" || url.searchParams.get("lang") === "en" || reqLang === "en";
-      const days = planStr === "365" ? 365 : planStr === "90" ? 90 : planStr === "30" ? 30 : 7;
-      const customAmount = parseFloat(url.searchParams.get("amount") || "");
-      let defaultAmount = 99;
-      if (isUsd) {
-        if (days >= 365) defaultAmount = 9.99;
-        else if (days >= 90) defaultAmount = 3.49;
-        else if (days >= 30) defaultAmount = 1.49;
-        else defaultAmount = 0.99;
-      } else {
-        if (days >= 365) defaultAmount = 890;
-        else if (days >= 90) defaultAmount = 299;
-        else if (days >= 30) defaultAmount = 129;
-        else defaultAmount = 99;
-      }
-      const amount = isTest ? (isUsd ? 0.1 : 10) : (!isNaN(customAmount) && customAmount > 0 ? customAmount : defaultAmount);
-      const currency = isUsd ? "USD" : "RUB";
-      const uidParam = url.searchParams.get("uid");
-      const uid = uidParam ? parseInt(uidParam, 10) : 0;
-
-      const payment = await createJhpayPayment(env, {
-        uid: isNaN(uid) ? 0 : uid,
-        days,
-        amount,
-        currency,
-        description: `Threads Viewer ${days} days (${currency === 'USD' ? '$' + amount : amount + ' ₽'})`
-      });
-
-      if (payment.ok && payment.formUrl) {
-        return Response.redirect(payment.formUrl, 302);
-      }
-
-      const attemptsDetail = (payment.attempts || [])
-        .map(a => `<li><code>${esc(a.url)}</code> &rarr; HTTP ${a.status} (${esc(a.text.slice(0, 80))})</li>`)
-        .join("");
-
+      const tgUsername = env.BOT_USERNAME || "threadsreaderbot";
+      const isEn = detectLanguage(request) === "en" || url.searchParams.get("lang") === "en";
       return new Response(
         `<!DOCTYPE html>
-<html lang="ru">
+<html lang="${isEn ? 'en' : 'ru'}">
 <head>
   <meta charset="utf-8">
-  <title>Оплата подписки - Threads Viewer</title>
+  <title>${isEn ? 'Subscription - Threads Viewer' : 'Оплата подписки - Threads Viewer'}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; background: #131722; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }
-    .card { background: #1e293b; border: 1px solid #3b82f6; padding: 24px; max-width: 520px; text-align: left; }
+    .card { background: #1e293b; border: 1px solid #3b82f6; padding: 28px; max-width: 520px; text-align: left; }
     h1 { font-size: 1.25rem; margin-top: 0; color: #fff; }
-    p { color: #cbd5e1; font-size: 0.9rem; line-height: 1.5; margin: 8px 0; }
-    .btn { display: inline-block; background: #2563eb; color: #fff; padding: 10px 18px; text-decoration: none; font-weight: 700; margin-top: 14px; text-align: center; }
-    .diag-box { background: #0f172a; border: 1px solid #334155; padding: 10px; font-size: 0.76rem; color: #94a3b8; margin: 12px 0; word-break: break-all; }
-    .diag-box ul { margin: 4px 0 0 18px; padding: 0; }
+    p { color: #cbd5e1; font-size: 0.92rem; line-height: 1.5; margin: 10px 0; }
+    .btn { display: inline-block; background: #2563eb; color: #fff; padding: 10px 20px; text-decoration: none; font-weight: 700; margin-top: 14px; text-align: center; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>Оплата подписки (${currency === "USD" ? "$" + amount : amount + " ₽"} за ${days} дн.)</h1>
-    <p><b>Шлюз RuKassa временно не отдал ссылку:</b> ${esc(payment.error || "ошибка подключения")}</p>
-    
-    <div class="diag-box">
-      <b>Результаты проверки адресов шлюза:</b>
-      <ul>${attemptsDetail || "<li>Нет данных о попытках</li>"}</ul>
+    <h1>${isEn ? 'Payment gateway update in progress' : 'Обновление платёжной системы'}</h1>
+    <p>${isEn ? 'Direct online card payments are temporarily paused while we connect a new payment provider.' : 'Прямая оплата картами на сайте временно приостановлена в связи с подключением новой платёжной системы.'}</p>
+    <p>${isEn ? 'You can instantly activate your subscription and ad-free access via our Telegram bot with Telegram Stars or Crypto:' : 'Вы можете моментально оформить подписку и отключить рекламу через нашего Telegram-бота с помощью Telegram Stars или криптовалюты:'}</p>
+    <div style="margin-top:16px;">
+      <a href="https://t.me/${esc(tgUsername)}?start=web_adfree" class="btn">${isEn ? 'Open Telegram Bot' : 'Перейти в Telegram-бота'}</a>
     </div>
-
-    <p>Вы можете моментально оформить подписку через нашего Telegram-бота <b>@${esc(env.BOT_USERNAME || 'threadsreaderbot')}</b> (команда <code>/subscribe</code>) — там доступны Telegram Stars, СБП и Crypto.</p>
-    
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
-      <a href="https://t.me/${esc(env.BOT_USERNAME || 'threadsreaderbot')}?start=web_adfree" class="btn">Оплатить в Telegram</a>
-      <a href="/pay?plan=${days}" class="btn" style="background:#334155;">Повторить попытку</a>
-    </div>
-    <div style="margin-top: 16px;"><a href="/" style="color:#93c5fd;font-size:0.82rem;">Вернуться на сайт</a></div>
+    <div style="margin-top: 18px;"><a href="/" style="color:#93c5fd;font-size:0.84rem;">&larr; ${isEn ? 'Back to homepage' : 'Вернуться на сайт'}</a></div>
   </div>
 </body>
 </html>`,
-        { status: 502, headers: { "content-type": "text/html; charset=UTF-8" } }
+        { status: 200, headers: { "content-type": "text/html; charset=UTF-8" } }
       );
     }
 

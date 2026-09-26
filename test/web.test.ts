@@ -640,17 +640,14 @@ describe("Web Viewer SSR & Routing", () => {
       const enHtml = await enHome.text();
       expect(enHtml).toContain("Anonymous Threads Viewer");
 
-      // 9. Payment links in terms and pay endpoint redirect
+      // 9. Pricing terms and pay endpoint maintenance notice
       const termsRes = renderTermsPage("ru", "https://threadsviewer.online");
       const termsHtml = await termsRes.text();
-      expect(termsHtml).toContain('/pay?plan=7');
-      expect(termsHtml).toContain('/pay?plan=30');
-      expect(termsHtml).toContain('/pay?plan=90');
-      expect(termsHtml).toContain('/pay?plan=365');
       expect(termsHtml).toContain('99');
       expect(termsHtml).toContain('129');
       expect(termsHtml).toContain('299');
       expect(termsHtml).toContain('890');
+      expect(termsHtml).toContain('threadsreaderbot');
 
       const termsEnRes = renderTermsPage("en", "https://threadsviewer.online");
       const termsEnHtml = await termsEnRes.text();
@@ -658,22 +655,13 @@ describe("Web Viewer SSR & Routing", () => {
       expect(termsEnHtml).toContain('$1.49');
       expect(termsEnHtml).toContain('$3.49');
       expect(termsEnHtml).toContain('$9.99');
+      expect(termsEnHtml).toContain('threadsreaderbot');
 
       const payReq = new Request("https://threadsviewer.online/pay?plan=90");
-      const origFetch = globalThis.fetch;
-      globalThis.fetch = (async (url: any, init?: any) => {
-        if (String(url).includes("rukassa.io") || String(url).includes("jhpay.online")) {
-          return new Response(JSON.stringify({ ok: true, url: "https://pay.rukassa.io/order/test12345", formUrl: "https://pay.rukassa.io/order/test12345" }));
-        }
-        return origFetch(url, init);
-      }) as any;
-      try {
-        const payRes = await worker.fetch(payReq, mockEnv, {} as any);
-        expect(payRes.status).toBe(302);
-        expect(payRes.headers.get("Location")).toBe("https://pay.rukassa.io/order/test12345");
-      } finally {
-        globalThis.fetch = origFetch;
-      }
+      const payRes = await worker.fetch(payReq, mockEnv, {} as any);
+      expect(payRes.status).toBe(200);
+      const payHtml = await payRes.text();
+      expect(payHtml).toContain("threadsreaderbot");
     });
   });
 });
