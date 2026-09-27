@@ -42,7 +42,20 @@ export class Bot {
  private languageKb(){return kb([[{text:LANGUAGE_NAMES.ru,callback_data:"set_lang:ru"},{text:LANGUAGE_NAMES.en,callback_data:"set_lang:en"}],[{text:LANGUAGE_NAMES.de,callback_data:"set_lang:de"},{text:LANGUAGE_NAMES.es,callback_data:"set_lang:es"}],[{text:LANGUAGE_NAMES.pt,callback_data:"set_lang:pt"}]])}
  private async language(m:TgMessage){await this.tg.sendMessage(m.chat.id,text("select_language",await this.lang(m.from!.id)),this.languageKb());this.removeButtons(m.chat.id).catch(()=>{})}
  private async help(m:TgMessage){let value=text("help",await this.lang(m.from!.id));if(isAdmin(this.env,m.from!.id))value+="\n\n🔐 /admin\n🧭 /diag\n📂 /accounts\n🩺 /account_check\n🗑 /account_del имя\n📦 /account_export имя\n➕ Пришли JSON файл (подпись = имя аккаунта) — добавить";await this.tg.sendMessage(m.chat.id,value);this.removeButtons(m.chat.id).catch(()=>{})}
- private async terms(m:TgMessage){await this.tg.sendMessage(m.chat.id,text("terms",await this.lang(m.from!.id)))}
+ private async terms(m:TgMessage){
+   const lang = await this.lang(m.from!.id);
+   const siteUrl = this.env.SITE_URL || "https://threadsviewer.online";
+   const isEn = lang === "en";
+   await this.buttons(
+     m.chat.id,
+     text("terms", lang),
+     kb([
+       [{ text: isEn ? "📄 Full Terms & Tariffs" : "📄 Полная оферта и тарифы на сайте", url: `${siteUrl}/terms` }],
+       [{ text: isEn ? "🔒 Privacy Policy" : "🔒 Политика конфиденциальности", url: `${siteUrl}/privacy` }],
+       [{ text: isEn ? "💬 Contact Support" : "💬 Служба поддержки", callback_data: "sup:write:question" }]
+     ])
+   );
+ }
  private async acquireLock(cid:number,lang:string):Promise<boolean>{const lock=await this.db.state(cid,"fetch_lock");if(lock&&Date.now()-Number(lock)<180_000){await this.tg.sendMessage(cid,text("please_wait",lang));return false}await this.db.setState(cid,"fetch_lock",String(Date.now()));return true}
  private async subscribe(m:TgMessage){const uid=m.from!.id,cid=m.chat.id,lang=await this.lang(uid),sub=await this.db.subscription(uid);if(sub?.active){await this.buttons(cid,`✅ ${text("until",lang)} ${String(sub.expires_at).slice(0,10)} (${sub.days_left} ${text("days",lang)})`,kb([[{text:`🔄 ${text("renew",lang)}`,callback_data:"sub:choose"}]]));return}const u=await this.db.usage(uid);const title=lang==="en"?`📱 <b>Premium Subscription</b>\n\n⚡ Unlimited post reading & media viewer\n⚡ Anonymous creator tracking (/track)\n⚡ Ad-free web mirror (threadsviewer.online)\n\n🆓 Free requests left today: ${Math.max(0,LIMITS.freeDaily-u.daily)}`:`📱 <b>Премиум подписка</b>\n\n⚡ Безлимитное чтение постов и медиа\n⚡ Анонимный мониторинг авторов (/track)\n⚡ Веб-зеркало без рекламы (threadsviewer.online)\n\n🆓 Осталось бесплатных запросов на сегодня: ${Math.max(0,LIMITS.freeDaily-u.daily)}`;await this.buttons(cid,title,kb([[{text:`💳 ${text("subscribe",lang)}`,callback_data:"sub:choose"}]]));}
  private async status(m:TgMessage){const uid=m.from!.id,lang=await this.lang(uid),sub=await this.db.subscription(uid);if(sub?.active)await this.tg.sendMessage(m.chat.id,`✅ <b>${text("active",lang)}</b> ${text("until",lang)} ${String(sub.expires_at).slice(0,10)} (${sub.days_left} ${text("days",lang)})\n/web — персональная ссылка на сайт`);else{const u=await this.db.usage(uid);await this.tg.sendMessage(m.chat.id,`❌ <b>${text("no_sub_short",lang)}</b>\n🆓 ${text("left_today",lang)}: ${Math.max(0,LIMITS.freeDaily-u.daily)}\n/subscribe\n/web — привязать сайт`)}}
@@ -77,11 +90,13 @@ export class Bot {
     const lang=await this.lang(uid);
     const isEn = lang==="en";
     const title = isEn ? "Choose your subscription plan (Telegram Stars or Crypto):" : "Выберите удобный способ оплаты (Звёзды или Криптовалюта):";
+    const siteUrl = this.env.SITE_URL || "https://threadsviewer.online";
     await this.buttons(cid, title, kb([
       [{text: isEn ? `⚡ 7 days — ${LIMITS.priceStarsWeek} ⭐ (Stars)` : `⚡ 7 дней — ${LIMITS.priceStarsWeek} ⭐ (Звёзды)`, callback_data:"sub:stars:7"}],
       [{text: isEn ? `⚡ 7 days — ${LIMITS.priceCryptoUsdWeek} $ (USDT)` : `⚡ 7 дней — ${LIMITS.priceCryptoUsdWeek} $ (USDT)`, callback_data:"sub:crypto:7"}],
       [{text: isEn ? `👑 30 days — ${LIMITS.priceStarsMonth} ⭐ (Stars)` : `👑 30 дней — ${LIMITS.priceStarsMonth} ⭐ (Звёзды)`, callback_data:"sub:stars:30"}],
       [{text: isEn ? `👑 30 days — ${LIMITS.priceCryptoUsdMonth} $ (USDT)` : `👑 30 дней — ${LIMITS.priceCryptoUsdMonth} $ (USDT)`, callback_data:"sub:crypto:30"}],
+      [{text: isEn ? `📄 Terms & Refund Policy` : `📄 Оферта и условия возврата`, url: `${siteUrl}/terms`}],
     ]));
     return;
   }
