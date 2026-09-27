@@ -3,6 +3,7 @@ import {
   detectLanguage,
   handleImageProxy,
   renderHomePage,
+  renderNotFoundPage,
   renderPrivacyPage,
   renderProfilePage,
   renderRobotsTxt,
@@ -662,6 +663,58 @@ describe("Web Viewer SSR & Routing", () => {
       expect(payRes.status).toBe(200);
       const payHtml = await payRes.text();
       expect(payHtml).toContain("threadsreaderbot");
+    });
+
+    it("serves custom styled 404 page for unknown URLs and avoids soft-404 redirects", async () => {
+      const worker = (await import("../src/index")).default;
+      const fakeCtx = { waitUntil: () => {}, passThroughOnException: () => {} } as any;
+
+      // 1. Direct standalone 404 renderer
+      const notFoundResRu = renderNotFoundPage("ru");
+      expect(notFoundResRu.status).toBe(404);
+      const notFoundHtmlRu = await notFoundResRu.text();
+      expect(notFoundHtmlRu).toContain("404");
+      expect(notFoundHtmlRu).toContain("Страница не найдена");
+      expect(notFoundHtmlRu).toContain('content="noindex, follow"');
+      expect(notFoundHtmlRu).toContain('<meta name="description"');
+
+      const notFoundResEn = renderNotFoundPage("en");
+      expect(notFoundResEn.status).toBe(404);
+      const notFoundHtmlEn = await notFoundResEn.text();
+      expect(notFoundHtmlEn).toContain("Page Not Found (404)");
+
+      // 2. Unknown random URL should NOT 301 redirect and must return HTTP 404
+      const unknownReq = new Request("https://threadsviewer.online/random_non_existent_page_123");
+      const unknownRes = await worker.fetch(unknownReq, mockEnv, fakeCtx);
+      expect(unknownRes.status).toBe(404);
+      const unknownHtml = await unknownRes.text();
+      expect(unknownHtml).toContain("404");
+
+      // 3. Known creator /zuck should still 301 redirect to /@zuck
+      const zuckReq = new Request("https://threadsviewer.online/zuck");
+      const zuckRes = await worker.fetch(zuckReq, mockEnv, fakeCtx);
+      expect(zuckRes.status).toBe(301);
+      expect(zuckRes.headers.get("location")).toBe("https://threadsviewer.online/@zuck");
+
+      // 4. Terms and Privacy meta descriptions for SEO
+      const termsRes = renderTermsPage("ru");
+      const termsHtml = await termsRes.text();
+      expect(termsHtml).toContain('<meta name="description"');
+      expect(termsHtml).toContain('<meta property="og:description"');
+      expect(termsHtml).toContain('<meta property="og:locale" content="ru_RU"');
+
+      const privacyRes = renderPrivacyPage("en");
+      const privacyHtml = await privacyRes.text();
+      expect(privacyHtml).toContain('<meta name="description"');
+      expect(privacyHtml).toContain('<meta property="og:description"');
+      expect(privacyHtml).toContain('<meta property="og:locale" content="en_US"');
+
+      // 5. Clean-param and disallow directives in robots.txt
+      const robotsRes = renderRobotsTxt("https://threadsviewer.online");
+      const robotsTxt = await robotsRes.text();
+      expect(robotsTxt).toContain("Clean-param: ref&auth&payment&v /");
+      expect(robotsTxt).toContain("Disallow: /admin");
+      expect(robotsTxt).toContain("Disallow: /pay");
     });
   });
 });

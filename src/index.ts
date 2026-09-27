@@ -12,7 +12,9 @@ import {
   detectLanguage,
   esc,
   handleImageProxy,
+  POPULAR_CREATORS,
   renderHomePage,
+  renderNotFoundPage,
   renderPrivacyPage,
   renderProfilePage,
   renderRobotsTxt,
@@ -568,7 +570,7 @@ export default {
     if (profileMatch) {
       const username = profileMatch[1].toLowerCase();
       if (!isValidThreadsUsername(username)) {
-        return new Response("Not Found", { status: 404, headers: { "content-type": "text/plain; charset=UTF-8" } });
+        return renderNotFoundPage(lang, url.origin);
       }
       const edgeHit = await matchEdgeCache(request);
       if (edgeHit) return edgeHit;
@@ -587,32 +589,30 @@ export default {
       const initialData = isNotFound ? null : (cached as ProfileData);
       const errorMsg = isNotFound ? (lang === "en" ? "Profile Not Found in Threads" : "Профиль не найден в Threads") : null;
       let res = renderProfilePage(env, username, initialData, errorMsg, lang, isPremium, country, undefined, url.origin);
+      if (isNotFound) {
+        res = new Response(res.body, {
+          status: 404,
+          headers: res.headers,
+        });
+      }
       if (newAuthCookie) {
         res = new Response(res.body, res);
         res.headers.append("Set-Cookie", newAuthCookie);
-      } else if (cached && !isPremium) {
+      } else if (cached && !isPremium && !isNotFound) {
         putEdgeCache(request, res, ctx, 900);
       }
       return res;
     }
 
-    // Прямой переход по никнейму без префикса (например, /zuck -> 301 редирект на /@zuck)
+    // Прямой переход по никнейму без префикса (например, /zuck -> 301 редирект на /@zuck для популярных авторов)
     const directUserMatch = url.pathname.match(/^\/([A-Za-z0-9._]{1,40})\/?$/);
-    const reservedWords = new Set([
-      "admin", "api", "pay", "buy", "order", "terms", "privacy", "robots.txt", "sitemap.xml",
-      "favicon.ico", "favicon.svg", "apple-touch-icon.png", "og-image.svg", "og-image.png",
-      "ru", "en", "index.html", "health", "setup-webhook", "telegram",
-      "feed", "rss", "atom", "xmlrpc", "ads.txt"
-    ]);
-    if (
-      directUserMatch &&
-      !reservedWords.has(directUserMatch[1].toLowerCase()) &&
-      !directUserMatch[1].startsWith("yandex_") &&
-      !directUserMatch[1].startsWith("google") &&
-      isValidThreadsUsername(directUserMatch[1])
-    ) {
-      const target = `/@${directUserMatch[1].toLowerCase()}${url.search}`;
-      return Response.redirect(new URL(target, url.origin).toString(), 301);
+    if (directUserMatch) {
+      const candidate = directUserMatch[1].toLowerCase();
+      const isKnownCreator = candidate === "zuck" || POPULAR_CREATORS.some(c => c.username === candidate);
+      if (isKnownCreator) {
+        const target = `/@${candidate}${url.search}`;
+        return Response.redirect(new URL(target, url.origin).toString(), 301);
+      }
     }
 
     // API для получения данных профиля и постов (для "крутить как обычный тредс")
@@ -907,7 +907,7 @@ export default {
       }
     }
 
-    return new Response("Not found", { status: 404 });
+    return renderNotFoundPage(lang, url.origin);
   },
 
   async queue(batch: MessageBatch<TelegramUpdate>, env: Env) {

@@ -1959,7 +1959,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr40-2026-09-22-ux";
+  const ver = env.VERSION || "pr41-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1986,6 +1986,8 @@ export function renderHomePage(
   <meta property="og:title" content="${esc(t.home_title)}">
   <meta property="og:description" content="${esc(t.home_desc)}">
   <meta property="og:url" content="${homeCanonical}">
+  <meta property="og:locale" content="${lang === 'en' ? 'en_US' : 'ru_RU'}">
+  <meta property="og:locale:alternate" content="${lang === 'en' ? 'ru_RU' : 'en_US'}">
   <meta property="og:image" content="${origin}/og-image.svg?v=${esc(ver)}">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -2485,9 +2487,32 @@ export function renderProfilePage(
   const snippet = targetPost ? (targetPost.text ? targetPost.text.slice(0, 140).trim() : (lang === "en" ? "Post with media" : "Пост с медиа")) : "";
   const pageTitle = targetPost
     ? `@${esc(cleanUser)} в Threads: "${esc(snippet)}" | Threads Viewer`
-    : `@${esc(cleanUser)} в Threads - читать без VPN | Threads Viewer`;
-  const ogTitle = targetPost ? `@${esc(cleanUser)}: "${esc(snippet)}"` : `@${esc(cleanUser)} в Threads без VPN`;
-  const ogDesc = esc(targetPost ? (targetPost.text ? targetPost.text.slice(0, 240) : `Пост @${cleanUser} в Threads`) : (profile.bio ? profile.bio.slice(0, 220) : `Посты, фото и комментарии @${cleanUser} в Threads без регистрации и VPN.`));
+    : (lang === "en" ? `@${esc(cleanUser)} on Threads - View without VPN | Threads Viewer` : `@${esc(cleanUser)} в Threads - читать без VPN | Threads Viewer`);
+  const ogTitle = targetPost ? `@${esc(cleanUser)}: "${esc(snippet)}"` : (lang === "en" ? `@${esc(cleanUser)} on Threads without VPN` : `@${esc(cleanUser)} в Threads без VPN`);
+
+  let ogDesc = "";
+  if (errorMessage) {
+    ogDesc = esc(lang === "en"
+      ? `Profile @${cleanUser} was not found on Threads or is temporarily unavailable. Browse public creators online on Threads Viewer.`
+      : `Профиль @${cleanUser} не найден в Threads или временно недоступен. Поиск и анонимный просмотр авторов онлайн на Threads Viewer.`);
+  } else if (targetPost) {
+    const rawPost = targetPost.text ? targetPost.text.slice(0, 240).trim() : "";
+    if (rawPost.length >= 40) {
+      ogDesc = esc(rawPost);
+    } else if (rawPost.length > 0) {
+      ogDesc = esc(lang === "en" ? `${rawPost} - post by @${cleanUser} on Threads. Read media and comments online without VPN.` : `${rawPost} - пост @${cleanUser} в Threads. Читайте медиа и комментарии без VPN онлайн.`);
+    } else {
+      ogDesc = esc(lang === "en" ? `Post by @${cleanUser} in Threads. View full text, photos, videos, and comments online without VPN.` : `Пост @${cleanUser} в Threads. Смотрите фото, видео и комментарии без VPN онлайн.`);
+    }
+  } else {
+    const bioText = profile.bio ? profile.bio.replace(/\s+/g, " ").trim().slice(0, 160) : "";
+    if (bioText.length >= 35) {
+      ogDesc = esc(lang === "en" ? `${bioText} - read posts and photos from @${cleanUser} on Threads online.` : `${bioText} - посты, фото и комментарии @${cleanUser} в Threads онлайн.`);
+    } else {
+      ogDesc = esc(lang === "en" ? `View @${cleanUser}'s profile in Threads without VPN or registration: public posts, photos, and replies online.` : `Смотреть профиль @${cleanUser} в Threads без VPN и регистрации: свежие посты, фото, видео и комментарии онлайн.`);
+    }
+  }
+
   const rawMedia = targetPost ? (targetPost.imageUrl || profile.avatar) : profile.avatar;
   const ogImage = rawMedia ? `${origin}/api/img?url=${encodeURIComponent(rawMedia)}` : "";
   const canonicalUrl = targetPostId ? `${origin}/@${esc(cleanUser)}/post/${esc(targetPostId)}` : `${origin}/@${esc(cleanUser)}`;
@@ -2498,6 +2523,7 @@ export function renderProfilePage(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
+  ${errorMessage ? '<meta name="robots" content="noindex, follow">' : ''}
   <title>${pageTitle}</title>
   <meta name="description" content="${ogDesc}">
   <meta name="keywords" content="${esc(cleanUser)}, @${esc(cleanUser)}, threads, тредс, читать threads без впн, смотреть профиль ${esc(cleanUser)}">
@@ -2509,14 +2535,16 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr40-2026-09-22-ux')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr40-2026-09-22-ux')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr40-2026-09-22-ux')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr41-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr41-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr41-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
   <meta property="og:description" content="${ogDesc}">
   <meta property="og:url" content="${canonicalUrl}">
+  <meta property="og:locale" content="${lang === 'en' ? 'en_US' : 'ru_RU'}">
+  <meta property="og:locale:alternate" content="${lang === 'en' ? 'ru_RU' : 'en_US'}">
   ${ogImage ? `<meta property="og:image" content="${esc(ogImage)}">` : ''}
   <meta name="twitter:card" content="${ogImage ? 'summary_large_image' : 'summary'}">
   <meta name="twitter:title" content="${esc(ogTitle)}">
@@ -3288,12 +3316,23 @@ export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsview
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
+  <title>${title} - Threads Viewer</title>
+  <meta name="description" content="${isEn ? 'Terms of Service, acceptable usage limits, subscription plans, and refund terms for Threads Viewer (threadsviewer.online).' : 'Пользовательское соглашение, лимиты использования, тарифные планы подписок и правила возврата сервиса Threads Viewer (threadsviewer.online).'}">
+  <meta property="og:site_name" content="Threads Viewer">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${title} - Threads Viewer">
+  <meta property="og:description" content="${isEn ? 'Terms of Service, acceptable usage limits, subscription plans, and refund terms for Threads Viewer (threadsviewer.online).' : 'Пользовательское соглашение, лимиты использования, тарифные планы подписок и правила возврата сервиса Threads Viewer (threadsviewer.online).'}">
+  <meta property="og:url" content="${canonicalUrl}">
+  <meta property="og:locale" content="${isEn ? 'en_US' : 'ru_RU'}">
+  <meta property="og:locale:alternate" content="${isEn ? 'ru_RU' : 'en_US'}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="${title} - Threads Viewer">
+  <meta name="twitter:description" content="${isEn ? 'Terms of Service, acceptable usage limits, subscription plans, and refund terms for Threads Viewer (threadsviewer.online).' : 'Пользовательское соглашение, лимиты использования, тарифные планы подписок и правила возврата сервиса Threads Viewer (threadsviewer.online).'}">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${canonicalUrl}">
   <link rel="alternate" hreflang="ru" href="${origin}/terms?lang=ru">
   <link rel="alternate" hreflang="en" href="${origin}/terms?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/terms">
-  <title>${title} - Threads Viewer</title>
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3406,12 +3445,23 @@ export function renderPrivacyPage(lang: Lang = "ru", origin = "https://threadsvi
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
+  <title>${title} - Threads Viewer</title>
+  <meta name="description" content="${isEn ? 'Privacy Policy for Threads Viewer (threadsviewer.online). Learn how we handle and protect user privacy, cookies, and personal data.' : 'Политика конфиденциальности сервиса Threads Viewer (threadsviewer.online). Порядок сбора, хранения и защиты пользовательских данных и cookies.'}">
+  <meta property="og:site_name" content="Threads Viewer">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${title} - Threads Viewer">
+  <meta property="og:description" content="${isEn ? 'Privacy Policy for Threads Viewer (threadsviewer.online). Learn how we handle and protect user privacy, cookies, and personal data.' : 'Политика конфиденциальности сервиса Threads Viewer (threadsviewer.online). Порядок сбора, хранения и защиты пользовательских данных и cookies.'}">
+  <meta property="og:url" content="${canonicalUrl}">
+  <meta property="og:locale" content="${isEn ? 'en_US' : 'ru_RU'}">
+  <meta property="og:locale:alternate" content="${isEn ? 'ru_RU' : 'en_US'}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="${title} - Threads Viewer">
+  <meta name="twitter:description" content="${isEn ? 'Privacy Policy for Threads Viewer (threadsviewer.online). Learn how we handle and protect user privacy, cookies, and personal data.' : 'Политика конфиденциальности сервиса Threads Viewer (threadsviewer.online). Порядок сбора, хранения и защиты пользовательских данных и cookies.'}">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${canonicalUrl}">
   <link rel="alternate" hreflang="ru" href="${origin}/privacy?lang=ru">
   <link rel="alternate" hreflang="en" href="${origin}/privacy?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/privacy">
-  <title>${title} - Threads Viewer</title>
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3435,6 +3485,132 @@ export function renderPrivacyPage(lang: Lang = "ru", origin = "https://threadsvi
   return new Response(html, { headers: { "content-type": "text/html; charset=UTF-8" } });
 }
 
+export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsviewer.online"): Response {
+  const isEn = lang === "en";
+  const title = isEn ? "404 - Page Not Found | Threads Viewer" : "404 - Страница не найдена | Threads Viewer";
+  const heading = isEn ? "Page Not Found (404)" : "Страница не найдена (404)";
+  const desc = isEn
+    ? "The requested page does not exist or has been moved. Check the address or search for public Threads creators below."
+    : "Запрашиваемая страница не существует или была перемещена. Проверьте правильность адреса или воспользуйтесь поиском авторов Threads ниже.";
+  const homeBtn = isEn ? "Back to Homepage" : "На главную страницу";
+  const searchPlaceholder = isEn ? "Enter @username..." : "Введите @username автора...";
+  const searchBtn = isEn ? "Search" : "Найти";
+
+  const html = `<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, follow">
+  <title>${title}</title>
+  <meta name="description" content="${desc}">
+  <meta property="og:site_name" content="Threads Viewer">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${title}">
+  <meta property="og:description" content="${desc}">
+  <meta property="og:url" content="${origin}/404">
+  <meta property="og:locale" content="${isEn ? 'en_US' : 'ru_RU'}">
+  <meta property="og:locale:alternate" content="${isEn ? 'ru_RU' : 'en_US'}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr41-2026-09-22-ux">
+  <link rel="alternate icon" href="/favicon.ico?v=pr41-2026-09-22-ux">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr41-2026-09-22-ux">
+  <script>
+    (function(){
+      var t = localStorage.getItem('threads_theme');
+      if (t === 'light' || (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+  <style>
+    ${COMMON_STYLES}
+    .notfound-card {
+      background: #131313;
+      border: 1px solid #2d2d2d;
+      border-radius: 0;
+      padding: 36px 24px;
+      margin: 40px auto;
+      max-width: 580px;
+      text-align: center;
+    }
+    .notfound-code {
+      font-size: 3.5rem;
+      font-weight: 800;
+      color: #60a5fa;
+      line-height: 1;
+      margin-bottom: 12px;
+      letter-spacing: -0.04em;
+    }
+    .notfound-card h1 {
+      font-size: 1.35rem;
+      color: #fff;
+      margin-bottom: 12px;
+    }
+    .notfound-card p {
+      color: #888888;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      margin-bottom: 24px;
+    }
+    .notfound-search {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .notfound-input {
+      flex: 1;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      color: #fff;
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      border-radius: 0;
+      outline: none;
+    }
+    .notfound-input:focus {
+      border-color: #60a5fa;
+    }
+    .notfound-btn {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 10px 18px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border-radius: 0;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="notfound-card">
+    <div class="notfound-code">404</div>
+    <h1>${heading}</h1>
+    <p>${desc}</p>
+
+    <form class="notfound-search" onsubmit="event.preventDefault(); var v=document.getElementById('nfInput').value.trim().replace(/^@/,''); if(v) window.location.href='/@'+v;">
+      <input type="text" id="nfInput" class="notfound-input" placeholder="${searchPlaceholder}" required>
+      <button type="submit" class="notfound-btn">${searchBtn}</button>
+    </form>
+
+    <div>
+      <a href="/?lang=${lang}" class="btn-sharp">${homeBtn}</a>
+    </div>
+  </div>
+  ${renderCookieBanner(lang)}
+</body>
+</html>`;
+
+  return new Response(html, {
+    status: 404,
+    headers: {
+      "content-type": "text/html; charset=UTF-8",
+      "cache-control": "no-cache, no-store, must-revalidate",
+    },
+  });
+}
+
 export function renderRobotsTxt(origin: string): Response {
   const txt = `User-agent: *
 Allow: /
@@ -3444,6 +3620,10 @@ Allow: /terms
 Allow: /privacy
 Disallow: /api/
 Disallow: /telegram/
+Disallow: /admin
+Disallow: /pay
+
+Clean-param: ref&auth&payment&v /
 
 Sitemap: ${origin}/sitemap.xml
 `;
@@ -3451,21 +3631,23 @@ Sitemap: ${origin}/sitemap.xml
 }
 
 export function renderSitemap(origin: string, popularProfiles: string[]): Response {
+  const now = new Date().toISOString().slice(0, 10);
   const urls = [
-    `${origin}/`,
-    `${origin}/ru/`,
-    `${origin}/en/`,
-    `${origin}/terms`,
-    `${origin}/privacy`,
-    ...popularProfiles.map(u => `${origin}/@${u}`),
+    { loc: `${origin}/`, priority: "1.0", freq: "daily" },
+    { loc: `${origin}/ru/`, priority: "0.9", freq: "daily" },
+    { loc: `${origin}/en/`, priority: "0.9", freq: "daily" },
+    { loc: `${origin}/terms`, priority: "0.5", freq: "monthly" },
+    { loc: `${origin}/privacy`, priority: "0.5", freq: "monthly" },
+    ...popularProfiles.map(u => ({ loc: `${origin}/@${u}`, priority: "0.8", freq: "hourly" })),
   ];
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.map(u => `  <url>
-    <loc>${esc(u)}</loc>
-    <changefreq>${u.includes('/@') ? 'hourly' : 'daily'}</changefreq>
-    <priority>${u.endsWith('/') ? '1.0' : (u.includes('/@') ? '0.8' : '0.5')}</priority>
+    <loc>${esc(u.loc)}</loc>
+    <lastmod>${now}</lastmod>
+    <changefreq>${u.freq}</changefreq>
+    <priority>${u.priority}</priority>
   </url>`).join("\n")}
 </urlset>`;
 
