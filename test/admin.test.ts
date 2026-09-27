@@ -118,6 +118,8 @@ describe("Admin Route & Authentication", () => {
     expect(html).toContain("Добавить аккаунт Threads (JSON)");
     expect(html).toContain("Запросы за неделю (7 дней) и посуточная динамика");
     expect(html).toContain("Скорость работы бота (Сколько думает бот перед ответом)");
+    expect(html).toContain("Telegram бот");
+    expect(html).toContain("Веб-сайт");
     expect(html).toContain("География посетителей (Страны, что заходят)");
     expect(html).toContain("Поведение пользователей и повторные запросы (Ретеншн)");
   });

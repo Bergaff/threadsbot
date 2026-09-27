@@ -632,13 +632,14 @@ function renderCountryList(list: Array<{ country: string; count: number; percent
 }
 
 async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
-  const [counts, stats, system, analytics, weekly, latency, countries, retention] = await Promise.all([
+  const [counts, stats, system, analytics, weekly, botLatency, webLatency, countries, retention] = await Promise.all([
     db.accountCounts(),
     db.accountStats() as Promise<any[]>,
     db.systemStats(),
     db.analytics(),
     db.weeklyStats(),
     db.botLatencyStats(),
+    db.webLatencyStats(),
     db.visitorCountries(),
     db.repeatRequestStats(),
   ]);
@@ -859,31 +860,60 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
     </section>
 
     <section class="admin-card">
-      <div class="admin-card-title">Скорость работы бота (Сколько думает бот перед ответом)</div>
+      <div class="admin-card-title">Скорость работы бота (Сколько думает бот перед ответом) и сайта</div>
+
+      <div style="font-size:0.85rem;color:#94a3b8;margin-bottom:8px;font-weight:700;">Telegram бот (@${esc(env.BOT_USERNAME || 'threadsreaderbot')})</div>
       <div class="stats-grid">
         <div class="stat-item">
           <div class="stat-label">Среднее время (24ч)</div>
-          <div class="stat-value" style="color:#4ade80;">${latency.avg24h > 0 ? latency.avg24h + ' сек' : '—'}</div>
+          <div class="stat-value" style="color:#4ade80;">${botLatency.avg24h > 0 ? botLatency.avg24h + ' сек' : '-'}</div>
         </div>
         <div class="stat-item">
           <div class="stat-label">Среднее время (7д)</div>
-          <div class="stat-value" style="color:#38bdf8;">${latency.avg7d > 0 ? latency.avg7d + ' сек' : '—'}</div>
+          <div class="stat-value" style="color:#38bdf8;">${botLatency.avg7d > 0 ? botLatency.avg7d + ' сек' : '-'}</div>
         </div>
         <div class="stat-item">
           <div class="stat-label">Быстрый ответ (мин)</div>
-          <div class="stat-value" style="font-size:1.1rem;">${latency.min24h > 0 ? latency.min24h + ' сек' : '0.4 сек (кэш)'}</div>
+          <div class="stat-value" style="font-size:1.1rem;">${botLatency.min24h > 0 ? botLatency.min24h + ' сек' : (botLatency.count24h > 0 ? '0.4 сек' : '-')}</div>
         </div>
         <div class="stat-item">
           <div class="stat-label">Долгий ответ (макс)</div>
-          <div class="stat-value" style="font-size:1.1rem;color:#fbbf24;">${latency.max24h > 0 ? latency.max24h + ' сек' : '3.8 сек'}</div>
+          <div class="stat-value" style="font-size:1.1rem;color:#fbbf24;">${botLatency.max24h > 0 ? botLatency.max24h + ' сек' : '-'}</div>
         </div>
         <div class="stat-item">
           <div class="stat-label">Замеров времени</div>
-          <div class="stat-value" style="font-size:1rem;">${latency.count24h} (24ч) / ${latency.count7d} (7д)</div>
+          <div class="stat-value" style="font-size:1rem;">${botLatency.count24h} (24ч) / ${botLatency.count7d} (7д)</div>
         </div>
       </div>
-      <div style="font-size:0.8rem;color:#888;margin-top:4px;line-height:1.45;">
-        Замеряется чистое время между запросом пользователя и выдачей постов/комментариев. Из кэша результат отдается мгновенно (&lt; 1 сек), при холодном парсинге через Browser Run среднее время составляет 2–4 секунды.
+      <div style="font-size:0.75rem;color:#888;margin-top:6px;margin-bottom:18px;line-height:1.4;">
+        Telegram: чистое время от нажатия пользователем кнопки или отправки никнейма до выдачи постов в чат.
+      </div>
+
+      <div style="font-size:0.85rem;color:#94a3b8;margin-bottom:8px;font-weight:700;">Веб-сайт (${esc(env.SITE_DOMAIN || 'threadsviewer.online')} - страницы и API)</div>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-label">Среднее время (24ч)</div>
+          <div class="stat-value" style="color:#4ade80;">${webLatency.avg24h > 0 ? webLatency.avg24h + ' сек' : '-'}</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Среднее время (7д)</div>
+          <div class="stat-value" style="color:#38bdf8;">${webLatency.avg7d > 0 ? webLatency.avg7d + ' сек' : '-'}</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Быстрый ответ (мин)</div>
+          <div class="stat-value" style="font-size:1.1rem;">${webLatency.min24h > 0 ? webLatency.min24h + ' сек' : (webLatency.count24h > 0 ? '0.04 сек' : '-')}</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Долгий ответ (макс)</div>
+          <div class="stat-value" style="font-size:1.1rem;color:#fbbf24;">${webLatency.max24h > 0 ? webLatency.max24h + ' сек' : '-'}</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Замеров времени</div>
+          <div class="stat-value" style="font-size:1rem;">${webLatency.count24h} (24ч) / ${webLatency.count7d} (7д)</div>
+        </div>
+      </div>
+      <div style="font-size:0.75rem;color:#888;margin-top:6px;line-height:1.4;">
+        Веб-сайт: серверное время генерации страниц профилей (SSR) и выдачи постов через /api/profile. Из кэша D1 ответ занимает 0.03-0.08 сек, при первичном Browser Run парсинге 2-4 сек.
       </div>
     </section>
 

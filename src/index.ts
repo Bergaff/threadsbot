@@ -87,6 +87,7 @@ async function notifyError(env: Env, error: unknown) {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const reqStart = Date.now();
     const url = new URL(request.url);
     const lowerPath = url.pathname.toLowerCase();
 
@@ -410,6 +411,7 @@ export default {
       if (!isAdmin) {
         const db = new Database(env);
         ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+        ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
       }
       let res = renderHomePage(env, pageLang, isPremium, country, url.origin, paymentStatus);
       if (newAuthCookie) {
@@ -546,6 +548,7 @@ export default {
       if (!isAdmin) {
         ctx.waitUntil(db.logEvent(0, "web_post_view", `${username}:${targetPostId}`).catch(() => {}));
         ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+        ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
       }
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
       ctx.waitUntil(logSystem(env, "info", "web", `[WEB_POST_VIEW] Переход на @${username}/post/${targetPostId} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
@@ -575,6 +578,7 @@ export default {
       if (!isAdmin) {
         ctx.waitUntil(db.logEvent(0, "web_view", username).catch(() => {}));
         ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+        ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
       }
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
       ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
@@ -632,6 +636,9 @@ export default {
       // Сначала проверяем D1 кеш (включая отрицательный кеш)
       const cached = await db.cache<any>(username, "web_profile");
       if (cached) {
+        if (!isAdmin) {
+          ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
+        }
         if (cached.notFound || cached.status === "user_not_found") {
           await logSystem(env, "info", "api", `[API_CACHE_NEGATIVE] Отдан кеш (не найден) для @${username}`);
           const res = Response.json({
@@ -712,6 +719,9 @@ export default {
         }
 
         const fetched = await fetchPromise;
+        if (!isAdmin) {
+          ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
+        }
         await logSystem(env, "info", "api", `[API_RESULT] @${username}: status=${fetched.status}, постов=${fetched.data?.posts?.length || 0}`);
         if (fetched.status === "ok" && fetched.data) {
           await db.setCache(username, "web_profile", fetched.data);
@@ -778,6 +788,9 @@ export default {
       if (!refresh) {
         const cached = await db.cache<Comment[]>(cacheKey, "comments");
         if (cached) {
+          if (!verifyAdmin(request, env)) {
+            ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
+          }
           const res = Response.json({ ok: true, cached: true, comments: cached }, {
             headers: {
               "cache-control": "public, max-age=900, s-maxage=1800, stale-while-revalidate=3600",
@@ -814,6 +827,9 @@ export default {
 
       try {
         const fetched = await fetchComments(env, username, postIndex, 30);
+        if (!isAuthAdmin) {
+          ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
+        }
         if (fetched.status === "ok" && fetched.data) {
           await db.setCache(cacheKey, "comments", fetched.data);
           const res = Response.json({ ok: true, cached: false, comments: fetched.data }, {

@@ -303,7 +303,7 @@ export class Database {
     }
   }
 
-  async botLatencyStats(): Promise<{
+  async channelLatencyStats(eventType: "bot_latency" | "web_latency"): Promise<{
     avg24h: number;
     min24h: number;
     max24h: number;
@@ -315,31 +315,45 @@ export class Database {
   }> {
     const one = since(86_400_000);
     const seven = since(7 * 86_400_000);
+    const fmt = (ms?: number) => {
+      if (!ms || ms <= 0) return 0;
+      const sec = Number(ms) / 1000;
+      if (sec < 0.1) return Math.round(sec * 100) / 100;
+      return Math.round(sec * 10) / 10;
+    };
     try {
       const [r24, r7] = await Promise.all([
         this.db.prepare(
           `SELECT AVG(CAST(event_data AS REAL)) a, MIN(CAST(event_data AS REAL)) mn, MAX(CAST(event_data AS REAL)) mx, COUNT(*) c
-           FROM user_events WHERE event_type='bot_latency' AND timestamp>?`
-        ).bind(one).first<{ a?: number; mn?: number; mx?: number; c?: number }>(),
+           FROM user_events WHERE event_type=? AND timestamp>?`
+        ).bind(eventType, one).first<{ a?: number; mn?: number; mx?: number; c?: number }>(),
         this.db.prepare(
           `SELECT AVG(CAST(event_data AS REAL)) a, MIN(CAST(event_data AS REAL)) mn, MAX(CAST(event_data AS REAL)) mx, COUNT(*) c
-           FROM user_events WHERE event_type='bot_latency' AND timestamp>?`
-        ).bind(seven).first<{ a?: number; mn?: number; mx?: number; c?: number }>(),
+           FROM user_events WHERE event_type=? AND timestamp>?`
+        ).bind(eventType, seven).first<{ a?: number; mn?: number; mx?: number; c?: number }>(),
       ]);
 
       return {
-        avg24h: r24?.a ? Math.round((Number(r24.a) / 1000) * 10) / 10 : 0,
-        min24h: r24?.mn ? Math.round((Number(r24.mn) / 1000) * 10) / 10 : 0,
-        max24h: r24?.mx ? Math.round((Number(r24.mx) / 1000) * 10) / 10 : 0,
+        avg24h: r24?.a ? fmt(r24.a) : 0,
+        min24h: r24?.mn ? fmt(r24.mn) : 0,
+        max24h: r24?.mx ? fmt(r24.mx) : 0,
         count24h: Number(r24?.c || 0),
-        avg7d: r7?.a ? Math.round((Number(r7.a) / 1000) * 10) / 10 : 0,
-        min7d: r7?.mn ? Math.round((Number(r7.mn) / 1000) * 10) / 10 : 0,
-        max7d: r7?.mx ? Math.round((Number(r7.mx) / 1000) * 10) / 10 : 0,
+        avg7d: r7?.a ? fmt(r7.a) : 0,
+        min7d: r7?.mn ? fmt(r7.mn) : 0,
+        max7d: r7?.mx ? fmt(r7.mx) : 0,
         count7d: Number(r7?.c || 0),
       };
     } catch {
       return { avg24h: 0, min24h: 0, max24h: 0, count24h: 0, avg7d: 0, min7d: 0, max7d: 0, count7d: 0 };
     }
+  }
+
+  async botLatencyStats() {
+    return this.channelLatencyStats("bot_latency");
+  }
+
+  async webLatencyStats() {
+    return this.channelLatencyStats("web_latency");
   }
 
   async visitorCountries(): Promise<{
