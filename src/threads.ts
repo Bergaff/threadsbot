@@ -125,13 +125,8 @@ async function openBrowser(env: Env, account: Account): Promise<Opened> {
         userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         viewport: { width: 680, height: 900 },
       });
-      const page = await context.newPage();
-      // Открываем домен, прикрепляем куки, перезагружаем для синхронизации сессии в Meta
-      await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {});
-      await sleep(500);
       await addAccountCookies(context, account.cookies);
-      await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {});
-      await sleep(800);
+      const page = await context.newPage();
       return { browser, context, page, startedAt: Date.now() };
     } catch (error) {
       await browser?.close().catch(() => {});
@@ -499,9 +494,10 @@ async function capturePosts(page: Page, posts: Post[]): Promise<Post[]> {
     window.scrollTo(0, 0);
     document.querySelectorAll('div[role="dialog"]').forEach(e => e.remove());
     document.querySelectorAll("nav,header").forEach((e: any) => e.style.display = "none");
-  });
+  }).catch(() => {});
   const result: Post[] = [];
-  for (const post of posts) {
+  const targetBatch = posts.slice(0, 5);
+  for (const post of targetBatch) {
     try {
       const handle = await page.evaluateHandle((search: string) => {
         let nodes = Array.from(document.querySelectorAll('article,div[role="article"]'));
@@ -510,12 +506,23 @@ async function capturePosts(page: Page, posts: Post[]): Promise<Post[]> {
       }, post.text.slice(0, 50));
       const element = handle.asElement();
       if (element) {
-        await element.scrollIntoViewIfNeeded();
-        const shot = await element.screenshot({ type: "png" });
-        result.push({ ...post, image: new Uint8Array(shot) });
+        await element.scrollIntoViewIfNeeded().catch(() => {});
+        const shot = await element.screenshot({ type: "png", timeout: 4000 }).catch(() => null);
+        if (shot) {
+          result.push({ ...post, image: new Uint8Array(shot) });
+        } else {
+          result.push(post);
+        }
+      } else {
+        result.push(post);
       }
-      await handle.dispose();
-    } catch { /* one failed screenshot must not fail the whole request */ }
+      await handle.dispose().catch(() => {});
+    } catch {
+      result.push(post);
+    }
+  }
+  for (let i = result.length; i < posts.length; i++) {
+    result.push(posts[i]);
   }
   return result;
 }
@@ -642,7 +649,13 @@ export async function fetchProfileWithPosts(
           p.videoUrl = capturedVideos[vIdx++];
         }
       }
-      const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+      let updated: string | null = null;
+      try {
+        const rawCookies = await opened.context.cookies();
+        updated = keepSessionCookies(JSON.stringify(rawCookies));
+      } catch {
+        // Safe: never fail if browser or context closed right after scraping
+      }
       await markSuccess(env, account.name, posts.length, updated || undefined);
       await logSystem(env, "info", "scraper", `Успешно загружен профиль @${username}: ${posts.length} постов через [${account.name}]`);
       return { data: { profile, posts }, status: "ok", account: account.name };
@@ -651,6 +664,9 @@ export async function fetchProfileWithPosts(
       await logSystem(env, "error", "scraper", `Ошибка сбора @${username} (аккаунт: ${account.name}): ${errMsg}`);
       await markTransientError(env, account.name, error);
       if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name };
+      if (/target page|context or browser has been closed|browser has been closed|session closed|ws connection closed/i.test(errMsg) && tried.length < 2) {
+        continue;
+      }
       return { data: null, status: "service_error", account: account.name, error: errMsg };
     } finally {
       await closeBrowser(env, opened);
@@ -673,13 +689,23 @@ export async function fetchPosts(env: Env, username: string, mode: "text" | "img
       let data = await collectPosts(opened.page, amount);
       if (!data.length) return { data: null, status: "no_posts", account: account.name };
       if (mode === "img") data = await capturePosts(opened.page, data);
-      const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+      let updated: string | null = null;
+      try {
+        const rawCookies = await opened.context.cookies();
+        updated = keepSessionCookies(JSON.stringify(rawCookies));
+      } catch {
+        // Safe: never fail if browser or context closed right after scraping
+      }
       await markSuccess(env, account.name, data.length, updated || undefined);
       return { data, status: "ok", account: account.name };
     } catch (error) {
+      const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 300);
       await markTransientError(env, account.name, error);
       if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name };
-      return { data: null, status: "service_error", account: account.name, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) };
+      if (/target page|context or browser has been closed|browser has been closed|session closed|ws connection closed/i.test(errMsg) && tried.length < 2) {
+        continue;
+      }
+      return { data: null, status: "service_error", account: account.name, error: errMsg };
     } finally {
       await closeBrowser(env, opened);
     }
@@ -782,13 +808,23 @@ export async function fetchComments(env: Env, username: string, index: number, a
       await sleep(4000);
       await opened.page.evaluate(() => window.scrollBy(0, 800));
       const data = await collectComments(opened.page, amount);
-      const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+      let updated: string | null = null;
+      try {
+        const rawCookies = await opened.context.cookies();
+        updated = keepSessionCookies(JSON.stringify(rawCookies));
+      } catch {
+        // Safe: never fail if browser or context closed right after scraping
+      }
       await markSuccess(env, account.name, data.length, updated || undefined);
       return { data, status: "ok", account: account.name };
     } catch (error) {
+      const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 300);
       await markTransientError(env, account.name, error);
       if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name };
-      return { data: null, status: "service_error", account: account.name, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) };
+      if (/target page|context or browser has been closed|browser has been closed|session closed|ws connection closed/i.test(errMsg) && tried.length < 2) {
+        continue;
+      }
+      return { data: null, status: "service_error", account: account.name, error: errMsg };
     } finally {
       await closeBrowser(env, opened);
     }
@@ -813,12 +849,18 @@ export async function probeAccount(env: Env, name: string): Promise<{ name: stri
   try {
     await logSystem(env, "info", "probe", `Запуск теста сессии для [${name}] в браузере Threads...`);
     opened = await openBrowser(env, account);
+    await opened.page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 20_000 }).catch(() => {});
+    await sleep(2000);
     if (isLoginUrl(opened.page.url())) {
       await markSessionExpired(env, name);
       await logSystem(env, "error", "probe", `Тест [${name}] провален: сессия истекла (редирект на /login)`);
       return { name, ok: false, message: "Сессия истекла в Threads (редирект на /login)" };
     }
-    const updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+    let updated: string | null = null;
+    try {
+      const rawCookies = await opened.context.cookies();
+      updated = keepSessionCookies(JSON.stringify(rawCookies));
+    } catch {}
     if (updated) {
       await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,cookies=?,updated_at=? WHERE name=?").bind(updated, iso(), name).run();
     } else {
@@ -849,6 +891,8 @@ export async function refreshAccountCookies(
   let opened: Opened | undefined;
   try {
     opened = await openBrowser(env, account);
+    await opened.page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 20_000 }).catch(() => {});
+    await sleep(2000);
     if (isLoginUrl(opened.page.url())) {
       await markSessionExpired(env, name);
       return { name, ok: false, message: "Сессия уже истекла в Threads, требуется свежий логин" };
@@ -857,7 +901,10 @@ export async function refreshAccountCookies(
     await opened.page.evaluate(() => window.scrollBy(0, 600)).catch(() => {});
     await sleep(1000);
 
-    const rawCookies = await opened.context.cookies();
+    let rawCookies: any[] = [];
+    try {
+      rawCookies = await opened.context.cookies();
+    } catch {}
     const updated = keepSessionCookies(JSON.stringify(rawCookies));
     if (!updated) {
       await markSessionExpired(env, name);
