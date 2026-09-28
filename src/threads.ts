@@ -1,7 +1,7 @@
 import type { BrowserContext, Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
 import { diagnoseAccountCookies, playwrightCookies, snapshotHasSession } from "./cookies";
-import { isLoginUrl, isUserNotFoundPage } from "./profile";
+import { isHomeRedirect, isLoginUrl, isUserNotFoundPage } from "./profile";
 import { cleanPostText } from "./i18n";
 
 export {
@@ -149,11 +149,12 @@ async function closeBrowser(env: Env, opened?: Opened) {
 // СБОР ПОСТОВ И КОММЕНТАРИЕВ
 // ============================
 
-async function collectPosts(page: Page, target = 20): Promise<Post[]> {
+async function collectPosts(page: Page, target = 20, expectedUsername?: string): Promise<Post[]> {
   const all: Post[] = [], seen = new Set<string>();
   let stall = 0;
+  const cleanExpected = expectedUsername ? expectedUsername.toLowerCase().replace(/^@/, '') : '';
   for (let i = 0; i < 10; i++) {
-    const evaluated = await page.evaluate(() => {
+    const evaluated = await page.evaluate((targetUname: string) => {
       const posts: {
         text: string;
         has_image: boolean;
@@ -265,9 +266,19 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
           const authorLink = root.querySelector('a[href^="/@"][role="link"], a[href^="/@"]');
           if (authorLink) {
             const m = (authorLink.getAttribute("href") || "").match(/\/@([A-Za-z0-9._]+)/);
-            if (m) author = m[1];
+            if (m) author = m[1].toLowerCase();
           }
         } catch (e) {}
+
+        // Если пост принадлежит другому автору и это не репост запрашиваемого автора,
+        // то это блок рекомендаций / suggested posts / лента рекомендаций — пропускаем!
+        if (targetUname && author && author !== targetUname) {
+          const rootText = ((root as HTMLElement).innerText || "").toLowerCase();
+          const isRepost = rootText.includes("repost") || rootText.includes("репост");
+          if (!isRepost) {
+            continue;
+          }
+        }
 
         let authorAvatar = "";
         try {
@@ -421,12 +432,15 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
         }
       }
       return posts;
-    }) as unknown;
+    }, cleanExpected) as unknown;
     if (!Array.isArray(evaluated)) throw new Error("Threads returned an invalid posts collection");
     const current = evaluated as Post[];
     let added = 0;
     for (const post of current) {
       if (!post || typeof post.text !== "string") continue;
+      if (cleanExpected && post.author && post.author.toLowerCase() !== cleanExpected) {
+        continue;
+      }
       const value = { ...post, text: cleanPostText(post.text) };
       if (value.text.length < 3 && !value.has_image && !value.has_video) continue;
       const key = value.text.slice(0, 120) + (value.has_image ? "_img" : "") + (value.has_video ? "_vid" : "");
@@ -443,10 +457,13 @@ async function collectPosts(page: Page, target = 20): Promise<Post[]> {
 }
 
 async function checkProfile(page: Page, env: Env, username: string): Promise<ThreadsStatus | null> {
-  const targetUrl = `${BASE(env)}/@${username}`;
+  const cleanUser = username.toLowerCase().replace(/^@/, "");
+  const targetUrl = `${BASE(env)}/@${cleanUser}`;
   await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 20_000 }).catch(() => {});
   await sleep(1800);
   const currentUrl = page.url();
+
+  // 1. Проверка на редирект на /login (незалогиненная сессия или блок)
   if (isLoginUrl(currentUrl)) {
     // Несуществующий @username часто редиректит на /login.
     // Проверяем главную — если там залогинены, профиль просто не существует.
@@ -456,17 +473,36 @@ async function checkProfile(page: Page, env: Env, username: string): Promise<Thr
     return "user_not_found";
   }
 
+  // 2. Проверка на редирект в общую ленту / главную страницу (Threads редиректит авторизованную сессию с несуществующих профилей)
+  if (isHomeRedirect(currentUrl, cleanUser)) {
+    return "user_not_found";
+  }
+
+  // 3. Проверка текста страницы и заголовка окна на маркеры "Страница недоступна / не найдена"
+  const pageCheck = await page.evaluate(() => {
+    const body = (document.body ? document.body.innerText : "");
+    const title = document.title || "";
+    return { body, title };
+  }).catch(() => null);
+
+  if (pageCheck) {
+    if (isUserNotFoundPage(pageCheck.body) || isUserNotFoundPage(pageCheck.title)) {
+      return "user_not_found";
+    }
+  }
+
+  // 4. Проверка наличия контента
   const hasContent = await page.evaluate(() => {
     return Boolean(
       document.querySelector('div[data-pressable-container="true"],article,div[role="article"]') ||
-      document.querySelector('header')
+      document.querySelector('header,div[role="banner"],main')
     );
   }).catch(() => false);
 
   if (!hasContent) {
-    const body = await page.locator("body").innerText().catch(() => "");
-    if (isUserNotFoundPage(body)) return "user_not_found";
+    return "user_not_found";
   }
+
   return null;
 }
 
@@ -537,12 +573,12 @@ async function collectProfileHeader(page: Page, fallbackUsername: string): Promi
 
     // Avatar
     try {
-      const imgs = document.querySelectorAll("header img, img");
+      const imgs = document.querySelectorAll("header img, main img, img");
       for (let i = 0; i < imgs.length; i++) {
         const el = imgs[i] as HTMLImageElement;
         const alt = (el.getAttribute("alt") || "").toLowerCase();
         const src = el.currentSrc || el.src || "";
-        if (src && !src.includes("data:") && (alt.includes("profile picture") || alt.includes("фото профиля") || alt.includes(uname.toLowerCase()) || (el.naturalWidth || el.width || 0) > 30)) {
+        if (src && !src.includes("data:") && (alt.includes("profile picture") || alt.includes("фото профиля") || alt.includes(uname.toLowerCase()) || el.closest('header, main header'))) {
           if (!src.includes("s150x150") && !src.includes("s50x50")) {
             avatar = src;
             break;
@@ -642,7 +678,7 @@ export async function fetchProfileWithPosts(
         return { data: null, status: invalid, account: account.name };
       }
       const profile = await collectProfileHeader(opened.page, username);
-      const posts = await collectPosts(opened.page, amount);
+      const posts = await collectPosts(opened.page, amount, username);
       let vIdx = 0;
       for (const p of posts) {
         if (p.has_video && !p.videoUrl && vIdx < capturedVideos.length) {
@@ -686,7 +722,7 @@ export async function fetchPosts(env: Env, username: string, mode: "text" | "img
       const invalid = await checkProfile(opened.page, env, username);
       if (invalid === "session_expired") { await markSessionExpired(env, account.name); continue; }
       if (invalid) return { data: null, status: invalid, account: account.name };
-      let data = await collectPosts(opened.page, amount);
+      let data = await collectPosts(opened.page, amount, username);
       if (!data.length) return { data: null, status: "no_posts", account: account.name };
       if (mode === "img") data = await capturePosts(opened.page, data);
       let updated: string | null = null;
@@ -791,7 +827,7 @@ export async function fetchComments(env: Env, username: string, index: number, a
       const invalid = await checkProfile(opened.page, env, username);
       if (invalid === "session_expired") { await markSessionExpired(env, account.name); continue; }
       if (invalid) return { data: null, status: invalid, account: account.name };
-      const posts = await collectPosts(opened.page, index + 3);
+      const posts = await collectPosts(opened.page, index + 3, username);
       if (index >= posts.length) return { data: null, status: "post_not_found", account: account.name };
       const search = posts[index].text.slice(0, 50);
       const href = await opened.page.evaluate((value: string) => {

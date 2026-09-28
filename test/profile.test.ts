@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isLoginUrl, isUserNotFoundPage } from "../src/profile";
+import { isHomeRedirect, isLoginUrl, isUserNotFoundPage } from "../src/profile";
 
 describe("isLoginUrl", () => {
   it("detects login paths only", () => {
@@ -16,6 +16,20 @@ describe("isUserNotFoundPage", () => {
     expect(isUserNotFoundPage("Sorry, this page isn't available.")).toBe(true);
     expect(isUserNotFoundPage("Страница не найдена")).toBe(true);
     expect(isUserNotFoundPage("The link you followed may be broken")).toBe(true);
+    expect(isUserNotFoundPage("This account does not exist")).toBe(true);
+    expect(isUserNotFoundPage("Не удалось найти этот аккаунт")).toBe(true);
     expect(isUserNotFoundPage("Welcome to Threads")).toBe(false);
+  });
+});
+
+describe("isHomeRedirect", () => {
+  it("detects when Threads redirects away from the requested profile to home feed", () => {
+    expect(isHomeRedirect("https://www.threads.com/", "4a.cev")).toBe(true);
+    expect(isHomeRedirect("https://www.threads.com/?hl=ru", "4a.cev")).toBe(true);
+    expect(isHomeRedirect("https://www.threads.net/for_you", "4a.cev")).toBe(true);
+    expect(isHomeRedirect("https://www.threads.com/explore", "4a.cev")).toBe(true);
+    expect(isHomeRedirect("https://www.threads.com/@4a.cev", "4a.cev")).toBe(false);
+    expect(isHomeRedirect("https://www.threads.com/@4a.cev/post/123", "4a.cev")).toBe(false);
+    expect(isHomeRedirect("https://www.threads.com/@zuck", "4a.cev")).toBe(true);
   });
 });

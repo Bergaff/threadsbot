@@ -585,6 +585,17 @@ export default {
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
       ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
       const cached = await db.cache<any>(username, "web_profile");
+      if (cached && Array.isArray(cached.posts)) {
+        const cleanPosts = cached.posts.filter((p: any) => !p.author || p.author.toLowerCase() === username);
+        if (cleanPosts.length !== cached.posts.length) {
+          cached.posts = cleanPosts;
+          if (cleanPosts.length === 0) {
+            ctx.waitUntil(db.deleteCache(username, "web_profile").catch(() => {}));
+          } else {
+            ctx.waitUntil(db.setCache(username, "web_profile", cached).catch(() => {}));
+          }
+        }
+      }
       const isNotFound = cached && (cached.notFound || cached.status === "user_not_found");
       const initialData = isNotFound ? null : (cached as ProfileData);
       const errorMsg = isNotFound ? (lang === "en" ? "Profile Not Found in Threads" : "Профиль не найден в Threads") : null;
@@ -655,6 +666,17 @@ export default {
           putEdgeCache(request, res, ctx, 900);
           return res;
         }
+        if (Array.isArray(cached.posts)) {
+          const cleanPosts = cached.posts.filter((p: any) => !p.author || p.author.toLowerCase() === username);
+          if (cleanPosts.length !== cached.posts.length) {
+            cached.posts = cleanPosts;
+            if (cleanPosts.length === 0) {
+              ctx.waitUntil(db.deleteCache(username, "web_profile").catch(() => {}));
+            } else {
+              ctx.waitUntil(db.setCache(username, "web_profile", cached).catch(() => {}));
+            }
+          }
+        }
         await logSystem(env, "info", "api", `[API_CACHE] Отдан кеш для @${username} (${cached.posts?.length || 0} постов)`);
         const res = Response.json({ ok: true, cached: true, ...cached }, {
           headers: {
@@ -724,6 +746,9 @@ export default {
         }
         await logSystem(env, "info", "api", `[API_RESULT] @${username}: status=${fetched.status}, постов=${fetched.data?.posts?.length || 0}`);
         if (fetched.status === "ok" && fetched.data) {
+          if (Array.isArray(fetched.data.posts)) {
+            fetched.data.posts = fetched.data.posts.filter((p: any) => !p.author || p.author.toLowerCase() === username);
+          }
           await db.setCache(username, "web_profile", fetched.data);
           const res = Response.json({ ok: true, cached: false, ...fetched.data }, {
             headers: {

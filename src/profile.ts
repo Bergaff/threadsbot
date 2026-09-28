@@ -23,9 +23,37 @@ const NOT_FOUND_MARKERS = [
   "страница удалена",
   "couldn't find this account",
   "could not find this account",
+  "user not found",
+  "пользователь не найден",
+  "this account does not exist",
+  "this account doesn't exist",
+  "такого аккаунта нет",
+  "не удалось найти этот аккаунт",
+  "profile isn't available",
+  "profile is not available",
 ];
 
 export function isUserNotFoundPage(body: string): boolean {
+  if (!body) return false;
   const text = body.toLowerCase();
   return NOT_FOUND_MARKERS.some(marker => text.includes(marker.toLowerCase()));
+}
+
+export function isHomeRedirect(currentUrl: string, expectedUsername: string): boolean {
+  try {
+    const parsed = new URL(currentUrl);
+    const path = parsed.pathname.toLowerCase().replace(/\/+$/, "");
+    const cleanUser = expectedUsername.toLowerCase().replace(/^@/, "");
+    // Если путь /, пустой, /for_you, /following, /home, /explore:
+    if (path === "" || path === "/" || path === "/for_you" || path === "/following" || path === "/home" || path === "/explore") {
+      return true;
+    }
+    // Если путь не содержит запрашиваемый username:
+    if (!path.includes(cleanUser)) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }

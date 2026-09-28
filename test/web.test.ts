@@ -716,5 +716,50 @@ describe("Web Viewer SSR & Routing", () => {
       expect(robotsTxt).toContain("Disallow: /admin");
       expect(robotsTxt).toContain("Disallow: /pay");
     });
+
+    it("filters out stranger / suggested feed posts that do not belong to the requested profile", async () => {
+      // Simulate profile data where Threads served suggested posts from random users (e.g. dianarosli_)
+      const profileData = {
+        profile: {
+          username: "4a.cev",
+          displayName: "4a.cev",
+          bio: "",
+          avatar: "",
+          followers: "",
+          verified: false,
+        },
+        posts: [
+          {
+            text: "From 176 Netflix episodes to depan mata guehhhh",
+            author: "dianarosli_",
+            has_image: false,
+            has_video: false,
+          },
+          {
+            text: "他是覺得我在開玩笑吧？",
+            author: "tp19990525",
+            has_image: false,
+            has_video: false,
+          },
+          {
+            text: "My own valid post by 4a.cev",
+            author: "4a.cev",
+            has_image: false,
+            has_video: false,
+          },
+        ],
+      };
+
+      const res = renderProfilePage(mockEnv, "4a.cev", profileData as any, null, "ru");
+      const html = await res.text();
+
+      // Foreign posts from dianarosli_ and tp19990525 must be discarded
+      expect(html).not.toContain("dianarosli_");
+      expect(html).not.toContain("tp19990525");
+      expect(html).not.toContain("From 176 Netflix episodes");
+
+      // The valid post by 4a.cev must be displayed
+      expect(html).toContain("My own valid post by 4a.cev");
+    });
   });
 });

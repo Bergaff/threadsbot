@@ -156,6 +156,10 @@ export class Database {
     if (!this.db?.prepare) return Promise.resolve() as any;
     return this.db.prepare("INSERT INTO cache VALUES(?,?,?,?,?) ON CONFLICT(username,mode,page) DO UPDATE SET data=excluded.data,cached_at=excluded.cached_at").bind(username,mode,page,JSON.stringify(data),now()).run();
   }
+  deleteCache(username:string, mode:string, page=0) {
+    if (!this.db?.prepare) return Promise.resolve() as any;
+    return this.db.prepare("DELETE FROM cache WHERE username=? AND mode=? AND page=?").bind(username,mode,page).run();
+  }
 
   async state(scope:string|number,key:StateName): Promise<string|null> { return (await this.db.prepare("SELECT value FROM bot_state WHERE scope=? AND state_key=?").bind(String(scope),key).first<{value:string}>())?.value || null; }
   setState(scope:string|number,key:StateName,value:string) { return this.db.prepare("INSERT INTO bot_state VALUES(?,?,?,?) ON CONFLICT(scope,state_key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(String(scope),key,value,now()).run(); }
