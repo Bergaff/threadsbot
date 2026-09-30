@@ -266,6 +266,7 @@ describe("Web Viewer SSR & Routing", () => {
     expect(htmlHome).toContain('<meta name="yandex-verification" content="f2e3a97ba3ea12b6">');
     expect(htmlHome).toContain('<meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">');
     expect(htmlHome).toContain('<meta name="google-site-verification" content="google3ae2b24cd673c270">');
+    expect(htmlHome).toContain('<meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">');
   });
 
   it("serves Threads favicon, OpenGraph banner, and SEO rich snippet markup", async () => {
@@ -591,6 +592,11 @@ describe("Web Viewer SSR & Routing", () => {
       const verifyRes = await worker.fetch(verifyReq, mockEnv, {} as any);
       expect(verifyRes.status).toBe(200);
       expect(await verifyRes.text()).toBe("7d97667a3e056acab9aaf653807b4a03");
+
+      const mitgoReq = new Request("https://threadsviewer.online/29cab922-c980-4a1e-befe-778cda341cad");
+      const mitgoRes = await worker.fetch(mitgoReq, mockEnv, {} as any);
+      expect(mitgoRes.status).toBe(200);
+      expect(await mitgoRes.text()).toBe("29cab922-c980-4a1e-befe-778cda341cad");
 
       // 3. result.php GET ping
       const pingReq = new Request("https://threadsviewer.online/result.php");

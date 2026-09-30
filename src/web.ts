@@ -1959,7 +1959,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr44-2026-09-22-ux";
+  const ver = env.VERSION || "pr45-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1973,6 +1973,7 @@ export function renderHomePage(
   <meta name="yandex-verification" content="f2e3a97ba3ea12b6">
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
+  <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${homeCanonical}">
   <link rel="alternate" hreflang="ru" href="${origin}/ru/">
@@ -2534,14 +2535,15 @@ export function renderProfilePage(
   <meta name="yandex-verification" content="f2e3a97ba3ea12b6">
   <meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">
   <meta name="google-site-verification" content="google3ae2b24cd673c270">
+  <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${canonicalUrl}">
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr44-2026-09-22-ux')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr44-2026-09-22-ux')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr44-2026-09-22-ux')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr45-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr45-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr45-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3332,6 +3334,7 @@ export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsview
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="${title} - Threads Viewer">
   <meta name="twitter:description" content="${isEn ? 'Terms of Service, acceptable usage limits, subscription plans, and refund terms for Threads Viewer (threadsviewer.online).' : 'Пользовательское соглашение, лимиты использования, тарифные планы подписок и правила возврата сервиса Threads Viewer (threadsviewer.online).'}">
+  <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${canonicalUrl}">
   <link rel="alternate" hreflang="ru" href="${origin}/terms?lang=ru">
@@ -3461,6 +3464,7 @@ export function renderPrivacyPage(lang: Lang = "ru", origin = "https://threadsvi
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="${title} - Threads Viewer">
   <meta name="twitter:description" content="${isEn ? 'Privacy Policy for Threads Viewer (threadsviewer.online). Learn how we handle and protect user privacy, cookies, and personal data.' : 'Политика конфиденциальности сервиса Threads Viewer (threadsviewer.online). Порядок сбора, хранения и защиты пользовательских данных и cookies.'}">
+  <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${canonicalUrl}">
   <link rel="alternate" hreflang="ru" href="${origin}/privacy?lang=ru">
@@ -3516,9 +3520,10 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta property="og:url" content="${origin}/404">
   <meta property="og:locale" content="${isEn ? 'en_US' : 'ru_RU'}">
   <meta property="og:locale:alternate" content="${isEn ? 'ru_RU' : 'en_US'}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr44-2026-09-22-ux">
-  <link rel="alternate icon" href="/favicon.ico?v=pr44-2026-09-22-ux">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr44-2026-09-22-ux">
+  <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr45-2026-09-22-ux">
+  <link rel="alternate icon" href="/favicon.ico?v=pr45-2026-09-22-ux">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr45-2026-09-22-ux">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');

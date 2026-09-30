@@ -95,7 +95,7 @@ export default {
     const lowerPath = url.pathname.toLowerCase();
 
     // ==========================================
-    // ВЕРИФИКАЦИЯ МЕРЧАНТА / КАССЫ (ФАЙЛОВАЯ)
+    // ВЕРИФИКАЦИЯ МЕРЧАНТА / КАССЫ / MITGO (ФАЙЛОВАЯ)
     // ==========================================
     if (
       lowerPath === "/7d97667a3e056acab9aaf653807b4a03" ||
@@ -103,6 +103,17 @@ export default {
       lowerPath === "/7d97667a3e056acab9aaf653807b4a03.html"
     ) {
       return new Response("7d97667a3e056acab9aaf653807b4a03", {
+        status: 200,
+        headers: { "content-type": "text/plain; charset=UTF-8" },
+      });
+    }
+
+    if (
+      lowerPath === "/29cab922-c980-4a1e-befe-778cda341cad" ||
+      lowerPath === "/29cab922-c980-4a1e-befe-778cda341cad.txt" ||
+      lowerPath === "/29cab922-c980-4a1e-befe-778cda341cad.html"
+    ) {
+      return new Response("29cab922-c980-4a1e-befe-778cda341cad", {
         status: 200,
         headers: { "content-type": "text/plain; charset=UTF-8" },
       });
