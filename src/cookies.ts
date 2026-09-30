@@ -95,6 +95,21 @@ export function earliestCookieExpiry(cookies: CookieRecord[]): number | null {
   return expiries.length ? Math.min(...expiries) : null;
 }
 
+/** Срок жизни сессии определяется именно sessionid, а не временными куками (wd, dpr и т.д.) */
+export function sessionCookieExpiry(cookies: CookieRecord[]): number | null {
+  for (const cookie of cookies) {
+    const name = String(cookie.name ?? cookie.Name ?? "").toLowerCase();
+    if (SESSION_ALIASES.has(name) || name === "sessionid") {
+      const value = cookie.expirationDate ?? cookie.expires;
+      if (typeof value === "number" && value > 0) {
+        const ms = toExpiryMs(value);
+        if (ms > 0) return ms;
+      }
+    }
+  }
+  return earliestCookieExpiry(cookies);
+}
+
 export function cookieNameList(cookies: CookieRecord[]): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
@@ -141,7 +156,7 @@ export function diagnoseAccountCookies(name: string, isAlive: boolean, cookiesJs
   if (missingKeys.includes("sessionid")) {
     issues.push("нет sessionid (HttpOnly). В Cookie-Editor включи HttpOnly и экспортни JSON заново");
   } else if (missingKeys.length) issues.push(`нет ${missingKeys.join(", ")}`);
-  const expiresAt = earliestCookieExpiry(validation.cookies);
+  const expiresAt = sessionCookieExpiry(validation.cookies);
   const now = Date.now();
   if (expiresAt !== null) {
     const stamp = formatDay(expiresAt);

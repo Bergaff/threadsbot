@@ -10,6 +10,7 @@ export {
   hasKeyCookies,
   normalizeCookiesJson,
   parseThreadsUsername,
+  sessionCookieExpiry,
   validateCookiesJson,
 } from "./cookies";
 export type { AccountDiagnosis } from "./cookies";
@@ -955,7 +956,7 @@ export async function refreshAccountCookies(
     return {
       name,
       ok: true,
-      message: "Cookies успешно продлены в Meta и обновлены в D1",
+      message: "Сессия проверена и активна в Meta, куки синхронизированы в D1",
       cookieCount: diagnosis.cookieCount,
       expiry: diagnosis.expiresAt ? new Date(diagnosis.expiresAt).toLocaleDateString("ru-RU") : undefined,
     };

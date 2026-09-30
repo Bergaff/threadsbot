@@ -668,7 +668,7 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         <td>${esc(expiryStr)}${issuesStr}</td>
         <td>
           <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
-            <button class="btn-admin" onclick="refreshAccount(this, '${esc(a.name)}')">Продлить куки</button>
+            <button class="btn-admin" onclick="refreshAccount(this, '${esc(a.name)}')">Keep-Alive</button>
             <button class="btn-admin" onclick="probeAccount(this, '${esc(a.name)}')">Тест</button>
             <span id="test-res-${esc(a.name)}" class="test-indicator" style="display:none;"></span>
             <a href="/admin/api/account/export?name=${encodeURIComponent(a.name)}" class="btn-admin">JSON</a>
@@ -983,12 +983,16 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
           Технические аккаунты Threads (${stats.length})
         </div>
         <div style="display:flex;gap:6px;">
-          <button class="btn-admin btn-admin-primary" onclick="refreshAllAccounts(this)">Автообновление всех куки</button>
+          <button class="btn-admin btn-admin-primary" onclick="refreshAllAccounts(this)">Автообновление всех куки (Keep-Alive)</button>
           <button class="btn-admin" onclick="resetStatuses(this)">Сбросить статусы в Alive</button>
         </div>
       </div>
 
       ${deadAlert}
+
+      <p style="font-size:0.78rem;color:#888;margin-bottom:10px;">
+        💡 <b>Keep-Alive:</b> открывает Threads в фоновом браузере, подтверждает активность сессии в Meta и синхронизирует новые токены. Срок действия сессии (Expires) задается Meta при входе. Когда срок сессии завершится, просто вставьте свежий JSON через форму ниже.
+      </p>
 
       <div style="overflow-x:auto;">
         <table class="accounts-table">
@@ -1206,8 +1210,8 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
 
     function refreshAccount(btn, name) {
       var orig = btn ? btn.innerText : '';
-      if (btn) { btn.disabled = true; btn.innerText = 'Продление...'; }
-      showToast('Открываем Threads и обновляем сессию для ' + name + '...', 0);
+      if (btn) { btn.disabled = true; btn.innerText = 'Keep-Alive...'; }
+      showToast('Открываем Threads и подтверждаем активность для ' + name + '...', 0);
       fetch('/admin/api/account/refresh?name=' + encodeURIComponent(name), { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
