@@ -203,6 +203,8 @@ export class Database {
       this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='web_view' AND timestamp>?`).bind(one),
       this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='web_api' AND timestamp>?`).bind(one),
       this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='web_comments' AND timestamp>?`).bind(one),
+      this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='web_bot_crawl' AND timestamp>?`).bind(one),
+      this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='web_bot_crawl' AND timestamp>?`).bind(seven),
     ];
     const r=await this.db.batch(queries); const modes=(r[5]?.results || []) as {event_data?:string;c:number}[];
     const count=(i:number)=>Number((r[i]?.results?.[0] as {c:number}|undefined)?.c||0);
@@ -210,7 +212,10 @@ export class Database {
     const webViews = count(8);
     const webApi = count(9);
     const webComments = count(10);
-    const webRequests = webViews + webApi + webComments;
+    const botCrawls24h = count(11);
+    const botCrawls7d = count(12);
+    const webHumanRequests = webViews + webApi + webComments;
+    const webRequests = webHumanRequests + botCrawls24h;
     return {
       newUsers: count(0),
       dau: count(1),
@@ -221,6 +226,9 @@ export class Database {
       webApi,
       webComments,
       webRequests,
+      webHumanRequests,
+      botCrawls24h,
+      botCrawls7d,
       totalRequests: botReqs + webRequests,
       exhausted: count(4),
       newSubs: count(6),
@@ -363,14 +371,17 @@ export class Database {
   async visitorCountries(): Promise<{
     top24h: Array<{ country: string; count: number; percent: number }>;
     top7d: Array<{ country: string; count: number; percent: number }>;
+    topHuman24h: Array<{ country: string; count: number; percent: number }>;
+    topBots24h: Array<{ bot: string; count: number; percent: number }>;
     total24h: number;
     total7d: number;
+    totalHuman24h: number;
   }> {
     const one = since(86_400_000);
     const seven = since(7 * 86_400_000);
 
     try {
-      const [res24, res7] = await Promise.all([
+      const [res24, res7, resHuman24, resBots24] = await Promise.all([
         this.db.prepare(
           `SELECT event_data as country, COUNT(*) as c
            FROM user_events
@@ -387,20 +398,42 @@ export class Database {
            ORDER BY c DESC
            LIMIT 12`
         ).bind(seven).all<{ country: string; c: number }>(),
+        this.db.prepare(
+          `SELECT event_data as country, COUNT(*) as c
+           FROM user_events
+           WHERE event_type='web_human_country' AND timestamp>?
+           GROUP BY event_data
+           ORDER BY c DESC
+           LIMIT 12`
+        ).bind(one).all<{ country: string; c: number }>(),
+        this.db.prepare(
+          `SELECT SUBSTR(event_data, 1, INSTR(event_data || ':', ':') - 1) as bot, COUNT(*) as c
+           FROM user_events
+           WHERE event_type='web_bot_crawl' AND timestamp>?
+           GROUP BY bot
+           ORDER BY c DESC
+           LIMIT 8`
+        ).bind(one).all<{ bot: string; c: number }>(),
       ]);
 
       const list24 = (res24?.results || []).map(r => ({ country: String(r.country || "XX").toUpperCase(), count: Number(r.c || 0) }));
       const list7 = (res7?.results || []).map(r => ({ country: String(r.country || "XX").toUpperCase(), count: Number(r.c || 0) }));
+      const listHuman24 = (resHuman24?.results || []).map(r => ({ country: String(r.country || "XX").toUpperCase(), count: Number(r.c || 0) }));
+      const listBots24 = (resBots24?.results || []).map(r => ({ bot: String(r.bot || "Bot"), count: Number(r.c || 0) }));
 
       const total24h = list24.reduce((s, x) => s + x.count, 0);
       const total7d = list7.reduce((s, x) => s + x.count, 0);
+      const totalHuman24h = listHuman24.reduce((s, x) => s + x.count, 0);
+      const totalBots24h = listBots24.reduce((s, x) => s + x.count, 0);
 
       const top24h = list24.map(x => ({ ...x, percent: total24h > 0 ? Math.round((x.count / total24h) * 100) : 0 }));
       const top7d = list7.map(x => ({ ...x, percent: total7d > 0 ? Math.round((x.count / total7d) * 100) : 0 }));
+      const topHuman24h = listHuman24.map(x => ({ ...x, percent: totalHuman24h > 0 ? Math.round((x.count / totalHuman24h) * 100) : 0 }));
+      const topBots24h = listBots24.map(x => ({ ...x, percent: totalBots24h > 0 ? Math.round((x.count / totalBots24h) * 100) : 0 }));
 
-      return { top24h, top7d, total24h, total7d };
+      return { top24h, top7d, topHuman24h, topBots24h, total24h, total7d, totalHuman24h };
     } catch {
-      return { top24h: [], top7d: [], total24h: 0, total7d: 0 };
+      return { top24h: [], top7d: [], topHuman24h: [], topBots24h: [], total24h: 0, total7d: 0, totalHuman24h: 0 };
     }
   }
 

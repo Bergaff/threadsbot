@@ -8,6 +8,7 @@ import { diagnoseAccountCookies } from "./cookies";
 import { Telegram, type TelegramUpdate } from "./telegram";
 import { fetchComments, fetchProfileWithPosts, logSystem, type ProfileData, type Comment } from "./threads";
 import { verifyAuthToken } from "./auth";
+import { detectBotType } from "./profile";
 import {
   detectLanguage,
   esc,
@@ -412,7 +413,16 @@ export default {
       const isAdmin = verifyAdmin(request, env);
       if (!isAdmin) {
         const db = new Database(env);
-        ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+        const ua = request.headers.get("user-agent") || "";
+        const botName = detectBotType(ua);
+        if (botName) {
+          ctx.waitUntil(db.logEvent(0, "web_bot_crawl", `${botName}:home`).catch(() => {}));
+          ctx.waitUntil(logSystem(env, "info", "web", `[BOT_CRAWL] ${botName}: главная страница`).catch(() => {}));
+        } else {
+          ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+          ctx.waitUntil(db.logEvent(0, "web_human_country", country).catch(() => {}));
+          ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Главная страница (человек, ${country || "unknown"})`).catch(() => {}));
+        }
         ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
       }
       let res = renderHomePage(env, pageLang, isPremium, country, url.origin, paymentStatus);
@@ -548,12 +558,20 @@ export default {
       const db = new Database(env);
       const isAdmin = verifyAdmin(request, env);
       if (!isAdmin) {
-        ctx.waitUntil(db.logEvent(0, "web_post_view", `${username}:${targetPostId}`).catch(() => {}));
-        ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+        const ua = request.headers.get("user-agent") || "";
+        const botName = detectBotType(ua);
+        if (botName) {
+          ctx.waitUntil(db.logEvent(0, "web_bot_crawl", `${botName}:@${username}/post/${targetPostId}`).catch(() => {}));
+          ctx.waitUntil(logSystem(env, "info", "web", `[BOT_CRAWL] ${botName}: пост @${username}/post/${targetPostId}`).catch(() => {}));
+        } else {
+          ctx.waitUntil(db.logEvent(0, "web_post_view", `${username}:${targetPostId}`).catch(() => {}));
+          ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+          ctx.waitUntil(db.logEvent(0, "web_human_country", country).catch(() => {}));
+          ctx.waitUntil(logSystem(env, "info", "web", `[WEB_POST_VIEW] Пост @${username}/post/${targetPostId} (человек, ${country || "unknown"})`).catch(() => {}));
+        }
         ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
       }
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
-      ctx.waitUntil(logSystem(env, "info", "web", `[WEB_POST_VIEW] Переход на @${username}/post/${targetPostId} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
       const cached = await db.cache<ProfileData>(username, "web_profile");
       let res = renderProfilePage(env, username, cached, null, lang, isPremium, country, targetPostId, url.origin);
       if (newAuthCookie) {
@@ -578,12 +596,20 @@ export default {
       const db = new Database(env);
       const isAdmin = verifyAdmin(request, env);
       if (!isAdmin) {
-        ctx.waitUntil(db.logEvent(0, "web_view", username).catch(() => {}));
-        ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+        const ua = request.headers.get("user-agent") || "";
+        const botName = detectBotType(ua);
+        if (botName) {
+          ctx.waitUntil(db.logEvent(0, "web_bot_crawl", `${botName}:@${username}`).catch(() => {}));
+          ctx.waitUntil(logSystem(env, "info", "web", `[BOT_CRAWL] ${botName}: профиль @${username}`).catch(() => {}));
+        } else {
+          ctx.waitUntil(db.logEvent(0, "web_view", username).catch(() => {}));
+          ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+          ctx.waitUntil(db.logEvent(0, "web_human_country", country).catch(() => {}));
+          ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (человек, ${country || "unknown"})`).catch(() => {}));
+        }
         ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
       }
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
-      ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (admin: ${isAdmin}, premium: ${isPremium})`).catch(() => {}));
       const cached = await db.cache<any>(username, "web_profile");
       if (cached && Array.isArray(cached.posts)) {
         const cleanPosts = cached.posts.filter((p: any) => !p.author || p.author.toLowerCase() === username);
@@ -638,11 +664,21 @@ export default {
 
       const db = new Database(env);
       const isAdmin = verifyAdmin(request, env);
+      const ua = request.headers.get("user-agent") || "";
+      const botName = detectBotType(ua);
+      const isSearchBot = Boolean(botName);
+
       if (!isAdmin) {
-        ctx.waitUntil(db.logEvent(0, "web_api", username).catch(() => {}));
-        ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+        if (isSearchBot) {
+          ctx.waitUntil(db.logEvent(0, "web_bot_crawl", `${botName}:api/@${username}`).catch(() => {}));
+          await logSystem(env, "info", "api", `[BOT_CRAWL] ${botName}: API /api/profile/${username}`);
+        } else {
+          ctx.waitUntil(db.logEvent(0, "web_api", username).catch(() => {}));
+          ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
+          ctx.waitUntil(db.logEvent(0, "web_human_country", country).catch(() => {}));
+          await logSystem(env, "info", "api", `[API_REQ] Запрос профиля /api/profile/${username} (человек, ${country || "unknown"})`);
+        }
       }
-      await logSystem(env, "info", "api", `[API_REQ] Запрос профиля /api/profile/${username} (admin: ${isAdmin})`);
 
       // Сначала проверяем D1 кеш (включая отрицательный кеш)
       const cached = await db.cache<any>(username, "web_profile");
@@ -704,8 +740,6 @@ export default {
 
       // Защита от спам-парсинга: мягкий rate limit на чтение новых профилей с одного IP
       const clientIp = request.headers.get("cf-connecting-ip") || "unknown";
-      const ua = request.headers.get("user-agent") || "";
-      const isSearchBot = /Googlebot|YandexBot|bingbot|DuckDuckBot|Baiduspider/i.test(ua);
       const { isPremium } = await checkPremiumUser(request, env);
 
       if (!isAdmin && !isPremium && !isSearchBot) {

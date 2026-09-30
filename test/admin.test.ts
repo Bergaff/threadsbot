@@ -13,7 +13,44 @@ const mockD1 = {
         if (query.includes("threads_accounts")) return { total: 1, enabled: 1, alive: 1 };
         return { total: 1 };
       },
-      all: async () => ({
+      all: async () => {
+        if (query.includes("system_log")) {
+          return {
+            results: [
+              { id: 1, data: "[INFO][web] [BOT_CRAWL] Googlebot: главная страница", timestamp: new Date().toISOString() },
+              { id: 2, data: "[INFO][web] [WEB_VIEW] Главная страница (человек, US)", timestamp: new Date().toISOString() },
+            ],
+          };
+        }
+        return {
+          results: [
+            {
+              name: "acc_test",
+              is_alive: 1,
+              hourly_requests: 3,
+              requests_count: 42,
+              errors_count: 0,
+              cookies: sampleCookies,
+            },
+          ],
+        };
+      },
+      run: async () => ({ meta: { changes: 1 } }),
+    }),
+    first: async () => {
+      if (query.includes("threads_accounts")) return { total: 1, enabled: 1, alive: 1 };
+      return { total: 1 };
+    },
+    all: async () => {
+      if (query.includes("system_log")) {
+        return {
+          results: [
+            { id: 1, data: "[INFO][web] [BOT_CRAWL] Googlebot: главная страница", timestamp: new Date().toISOString() },
+            { id: 2, data: "[INFO][web] [WEB_VIEW] Главная страница (человек, US)", timestamp: new Date().toISOString() },
+          ],
+        };
+      }
+      return {
         results: [
           {
             name: "acc_test",
@@ -24,25 +61,8 @@ const mockD1 = {
             cookies: sampleCookies,
           },
         ],
-      }),
-      run: async () => ({ meta: { changes: 1 } }),
-    }),
-    first: async () => {
-      if (query.includes("threads_accounts")) return { total: 1, enabled: 1, alive: 1 };
-      return { total: 1 };
+      };
     },
-    all: async () => ({
-      results: [
-        {
-          name: "acc_test",
-          is_alive: 1,
-          hourly_requests: 3,
-          requests_count: 42,
-          errors_count: 0,
-          cookies: sampleCookies,
-        },
-      ],
-    }),
     run: async () => ({ meta: { changes: 1 } }),
   }),
   batch: async () => [
@@ -57,6 +77,7 @@ const mockD1 = {
     { results: [{ c: 30 }] },
     { results: [{ c: 20 }] },
     { results: [{ c: 5 }] },
+    { results: [{ c: 0 }] },
     { results: [{ c: 0 }] },
   ],
 };
@@ -120,8 +141,15 @@ describe("Admin Route & Authentication", () => {
     expect(html).toContain("Скорость работы бота (Сколько думает бот перед ответом)");
     expect(html).toContain("Telegram бот");
     expect(html).toContain("Веб-сайт");
+    expect(html).toContain("Поисковые роботы (SEO / Краулеры)");
     expect(html).toContain("География посетителей (Страны, что заходят)");
     expect(html).toContain("Поведение пользователей и повторные запросы (Ретеншн)");
+    expect(html).toContain("log-badge-bot");
+    expect(html).toContain("РОБОТ");
+    expect(html).toContain("Googlebot: главная страница");
+    expect(html).toContain("log-badge-user");
+    expect(html).toContain("ЧЕЛОВЕК");
+    expect(html).toContain("Главная страница (человек, US)");
   });
 
   it("verifyAdmin returns true only for authenticated admin cookies", async () => {

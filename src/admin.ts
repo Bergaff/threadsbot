@@ -474,9 +474,13 @@ const ADMIN_STYLES = `
   .log-badge-error { background: #7f1d1d; color: #fca5a5; }
   .log-badge-warn { background: #78350f; color: #fde68a; }
   .log-badge-info { background: #1e3a5f; color: #93c5fd; }
+  .log-badge-bot { background: #581c87; color: #d8b4fe; }
+  .log-badge-user { background: #065f46; color: #a7f3d0; }
   html[data-theme="light"] .log-badge-error { background: #fee2e2; color: #b91c1c; }
   html[data-theme="light"] .log-badge-warn { background: #fef3c7; color: #b45309; }
   html[data-theme="light"] .log-badge-info { background: #dbeafe; color: #1d4ed8; }
+  html[data-theme="light"] .log-badge-bot { background: #f3e8ff; color: #7e22ce; }
+  html[data-theme="light"] .log-badge-user { background: #dcfce7; color: #15803d; }
 
   /* Light Theme (Warm Matte Beige) */
   html[data-theme="light"] body {
@@ -590,41 +594,53 @@ function renderLoginPage(isError = false): Response {
   return new Response(html, { headers: { "content-type": "text/html; charset=UTF-8" } });
 }
 
-const COUNTRY_INFO: Record<string, { name: string; flag: string }> = {
-  RU: { name: "Россия", flag: "🇷🇺" },
-  BY: { name: "Беларусь", flag: "🇧🇾" },
-  KZ: { name: "Казахстан", flag: "🇰🇿" },
-  UA: { name: "Украина", flag: "🇺🇦" },
-  US: { name: "США", flag: "🇺🇸" },
-  DE: { name: "Германия", flag: "🇩🇪" },
-  TR: { name: "Турция", flag: "🇹🇷" },
-  KR: { name: "Южная Корея", flag: "🇰🇷" },
-  CA: { name: "Канада", flag: "🇨🇦" },
-  NL: { name: "Нидерланды", flag: "🇳🇱" },
-  FR: { name: "Франция", flag: "🇫🇷" },
-  GB: { name: "Великобритания", flag: "🇬🇧" },
-  ES: { name: "Испания", flag: "🇪🇸" },
-  IT: { name: "Италия", flag: "🇮🇹" },
-  PL: { name: "Польша", flag: "🇵🇱" },
-  UZ: { name: "Узбекистан", flag: "🇺🇿" },
-  GE: { name: "Грузия", flag: "🇬🇪" },
-  AM: { name: "Армения", flag: "🇦🇲" },
-  IL: { name: "Израиль", flag: "🇮🇱" },
-  FI: { name: "Финляндия", flag: "🇫🇮" },
-  SE: { name: "Швеция", flag: "🇸🇪" },
-  BR: { name: "Бразилия", flag: "🇧🇷" },
-  IN: { name: "Индия", flag: "🇮🇳" },
-  JP: { name: "Япония", flag: "🇯🇵" },
-  AU: { name: "Австралия", flag: "🇦🇺" },
+const COUNTRY_INFO: Record<string, { name: string }> = {
+  RU: { name: "Россия" },
+  BY: { name: "Беларусь" },
+  KZ: { name: "Казахстан" },
+  UA: { name: "Украина" },
+  US: { name: "США" },
+  DE: { name: "Германия" },
+  TR: { name: "Турция" },
+  KR: { name: "Южная Корея" },
+  CA: { name: "Канада" },
+  NL: { name: "Нидерланды" },
+  FR: { name: "Франция" },
+  GB: { name: "Великобритания" },
+  ES: { name: "Испания" },
+  IT: { name: "Италия" },
+  PL: { name: "Польша" },
+  UZ: { name: "Узбекистан" },
+  GE: { name: "Грузия" },
+  AM: { name: "Армения" },
+  IL: { name: "Израиль" },
+  FI: { name: "Финляндия" },
+  SE: { name: "Швеция" },
+  BR: { name: "Бразилия" },
+  IN: { name: "Индия" },
+  JP: { name: "Япония" },
+  AU: { name: "Австралия" },
 };
 
 function renderCountryList(list: Array<{ country: string; count: number; percent: number }>) {
   if (!list.length) return '<div style="color:#777;font-size:0.82rem;padding:8px 0;">Данные пока собираются...</div>';
   return list.map(item => {
-    const info = COUNTRY_INFO[item.country] || { name: item.country === "XX" ? "Не определена" : item.country, flag: "🌐" };
+    const info = COUNTRY_INFO[item.country] || { name: item.country === "XX" ? "Не определена" : item.country };
     return `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #282828;font-size:0.84rem;">
-        <span><span style="font-size:1.1rem;margin-right:6px;">${info.flag}</span><b>${esc(info.name)}</b> <span style="color:#777;font-size:0.75rem;">(${esc(item.country)})</span></span>
+        <span><b>${esc(info.name)}</b> <span style="color:#777;font-size:0.75rem;">(${esc(item.country)})</span></span>
+        <span><b>${item.count}</b> <span style="color:#888;font-size:0.78rem;">(${item.percent}%)</span></span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderBotList(list: Array<{ bot: string; count: number; percent: number }>) {
+  if (!list.length) return '<div style="color:#777;font-size:0.82rem;padding:8px 0;">Пока нет зафиксированных обходов поисковиков...</div>';
+  return list.map(item => {
+    return `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #282828;font-size:0.84rem;">
+        <span><b style="color:#c084fc;">${esc(item.bot)}</b></span>
         <span><b>${item.count}</b> <span style="color:#888;font-size:0.78rem;">(${item.percent}%)</span></span>
       </div>
     `;
@@ -685,9 +701,23 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         const rawData = String(l.data || (l as any).event_data || "");
         const isErr = rawData.includes("[ERROR]");
         const isWarn = rawData.includes("[WARN]");
-        const badgeClass = isErr ? "log-badge-error" : isWarn ? "log-badge-warn" : "log-badge-info";
-        const badgeText = isErr ? "ERR" : isWarn ? "WARN" : "INFO";
-        const cleanText = esc(rawData.replace(/^\[(ERROR|WARN|INFO)\]/, "").trim() || "Событие");
+        const isBot = rawData.includes("[BOT_CRAWL]");
+        const isUser = rawData.includes("[WEB_VIEW]") || rawData.includes("[WEB_POST_VIEW]") || rawData.includes("[API_REQ]");
+        let badgeClass = isErr ? "log-badge-error" : isWarn ? "log-badge-warn" : "log-badge-info";
+        let badgeText = isErr ? "ERR" : isWarn ? "WARN" : "INFO";
+        if (isBot) {
+          badgeClass = "log-badge-bot";
+          badgeText = "РОБОТ";
+        } else if (isUser) {
+          badgeClass = "log-badge-user";
+          badgeText = "ЧЕЛОВЕК";
+        }
+        const cleanText = esc(
+          rawData
+            .replace(/^\[(ERROR|WARN|INFO)\](\[[^\]]+\])?\s*/, "")
+            .replace(/\[(BOT_CRAWL|WEB_VIEW|WEB_POST_VIEW|API_REQ)\]\s*/, "")
+            .trim() || "Событие"
+        );
         const dateStr = l.timestamp ? new Date(l.timestamp).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
         return `<div class="log-line"><span style="color:#777;margin-right:8px;">${dateStr}</span><span class="log-badge ${badgeClass}">${badgeText}</span>${cleanText}</div>`;
       }).join("")
@@ -803,13 +833,22 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
           </div>
         </div>
         <div class="stat-item" style="border-left: 3px solid #3b82f6;">
-          <div class="stat-label" style="font-weight:700;color:#3b82f6;">Веб-сайт (зеркало Threads)</div>
-          <div class="stat-value">${analytics.webRequests} запросов</div>
+          <div class="stat-label" style="font-weight:700;color:#3b82f6;">Веб-сайт: Люди (Браузеры)</div>
+          <div class="stat-value">${analytics.webHumanRequests} визитов</div>
           <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.4;">
             <div>- Просмотров страниц: ${analytics.webViews}</div>
-            <div>- Запросов профилей (API): ${analytics.webApi}</div>
+            <div>- Запросов ленты (API): ${analytics.webApi}</div>
             <div>- Запросов комментариев: ${analytics.webComments}</div>
-            <div>- Редиректов в бота: прямые ссылки</div>
+            <div>- Реальные пользователи в браузерах</div>
+          </div>
+        </div>
+        <div class="stat-item" style="border-left: 3px solid #a855f7;">
+          <div class="stat-label" style="font-weight:700;color:#c084fc;">Поисковые роботы (SEO / Краулеры)</div>
+          <div class="stat-value">${analytics.botCrawls24h} обходов</div>
+          <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.4;">
+            <div>- Обходов за 7 дней: ${analytics.botCrawls7d}</div>
+            <div>- Googlebot, YandexBot, Bingbot и др.</div>
+            <div>- Сканирование страниц для поисковой выдачи</div>
           </div>
         </div>
       </div>
@@ -921,12 +960,16 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
       <div class="admin-card-title">География посетителей (Страны, что заходят)</div>
       <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
         <div class="stat-item">
-          <div class="stat-label" style="font-weight:700;color:#60a5fa;margin-bottom:8px;">За последние 24 часа (${countries.total24h} визитов)</div>
-          ${renderCountryList(countries.top24h)}
+          <div class="stat-label" style="font-weight:700;color:#60a5fa;margin-bottom:8px;">Реальные люди за 24ч (${countries.totalHuman24h || countries.total24h} визитов)</div>
+          ${renderCountryList(countries.topHuman24h.length > 0 ? countries.topHuman24h : countries.top24h)}
         </div>
         <div class="stat-item">
-          <div class="stat-label" style="font-weight:700;color:#93c5fd;margin-bottom:8px;">За 7 дней (${countries.total7d} визитов)</div>
+          <div class="stat-label" style="font-weight:700;color:#93c5fd;margin-bottom:8px;">Общая география за 7 дней (${countries.total7d} визитов)</div>
           ${renderCountryList(countries.top7d)}
+        </div>
+        <div class="stat-item">
+          <div class="stat-label" style="font-weight:700;color:#c084fc;margin-bottom:8px;">Поисковые роботы за 24ч (${analytics.botCrawls24h} обходов)</div>
+          ${renderBotList(countries.topBots24h)}
         </div>
       </div>
     </section>
@@ -954,22 +997,22 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         </div>
         <div style="display:grid;grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));gap:10px;">
           <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
-            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">⚡ Сразу (&lt; 2 минут)</div>
+            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">Сразу (&lt; 2 минут)</div>
             <div style="font-size:1.15rem;font-weight:700;color:#4ade80;margin:4px 0;">${retention.immediate} чел. (${retention.immediatePct}%)</div>
             <div style="font-size:0.75rem;color:#777;">Смотрят фото, комментарии или листают посты автора сразу</div>
           </div>
           <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
-            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">⏱ В течение часа (2–60 мин)</div>
+            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">В течение часа (2-60 мин)</div>
             <div style="font-size:1.15rem;font-weight:700;color:#38bdf8;margin:4px 0;">${retention.withinHour} чел. (${retention.withinHourPct}%)</div>
             <div style="font-size:0.75rem;color:#777;">Короткая сессия: ищут других авторов в течение часа</div>
           </div>
           <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
-            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">📅 В тот же день (1–24 ч)</div>
+            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">В тот же день (1-24 ч)</div>
             <div style="font-size:1.15rem;font-weight:700;color:#a78bfa;margin:4px 0;">${retention.withinDay} чел. (${retention.withinDayPct}%)</div>
             <div style="font-size:0.75rem;color:#777;">Возвращаются в сервис позже в тот же день</div>
           </div>
           <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
-            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">🔄 Со временем (&gt; 24 часов)</div>
+            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">Со временем (&gt; 24 часов)</div>
             <div style="font-size:1.15rem;font-weight:700;color:#fbbf24;margin:4px 0;">${retention.laterDays} чел. (${retention.laterDaysPct}%)</div>
             <div style="font-size:0.75rem;color:#777;">Постоянная аудитория: вернулись через день или несколько дней</div>
           </div>
@@ -991,7 +1034,7 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
       ${deadAlert}
 
       <p style="font-size:0.78rem;color:#888;margin-bottom:10px;">
-        💡 <b>Keep-Alive:</b> открывает Threads в фоновом браузере, подтверждает активность сессии в Meta и синхронизирует новые токены. Срок действия сессии (Expires) задается Meta при входе. Когда срок сессии завершится, просто вставьте свежий JSON через форму ниже.
+        <b>Keep-Alive:</b> открывает Threads в фоновом браузере, подтверждает активность сессии в Meta и синхронизирует новые токены. Срок действия сессии (Expires) задается Meta при входе. Когда срок сессии завершится, просто вставьте свежий JSON через форму ниже.
       </p>
 
       <div style="overflow-x:auto;">

@@ -57,3 +57,18 @@ export function isHomeRedirect(currentUrl: string, expectedUsername: string): bo
     return false;
   }
 }
+
+export function detectBotType(ua: string): string | null {
+  if (!ua) return null;
+  const s = ua.toLowerCase();
+  if (s.includes("googlebot") || s.includes("google-inspectiontool") || s.includes("google-site-verification")) return "Googlebot";
+  if (s.includes("yandexbot") || s.includes("yandeximages") || s.includes("yandexmetrika") || s.includes("yandexwebmaster") || s.includes("yandexdirect")) return "YandexBot";
+  if (s.includes("bingbot") || s.includes("msnbot") || s.includes("bingpreview")) return "Bingbot";
+  if (s.includes("duckduckbot")) return "DuckDuckBot";
+  if (s.includes("baiduspider")) return "Baiduspider";
+  if (s.includes("ahrefsbot")) return "AhrefsBot";
+  if (s.includes("semrushbot")) return "SemrushBot";
+  if (s.includes("dotbot") || s.includes("mj12bot") || s.includes("bytespider") || s.includes("megaindex")) return "SEO-Crawler";
+  if (s.includes("crawler") || s.includes("spider") || s.includes("headless") || s.includes("crawl") || s.includes("bot/")) return "Bot";
+  return null;
+}
