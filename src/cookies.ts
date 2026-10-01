@@ -204,12 +204,23 @@ export function normalizeCookiesJson(raw: string): NormalizedCookies | { ok: fal
   if (!validation.ok) return validation;
   const cookies: CookieRecord[] = [];
   const issues: string[] = [];
+  const badDomains: string[] = [];
   for (const cookie of validation.cookies) {
     const sameSite = sameSiteOf(cookie.sameSite);
+    // Домен проверяем явно: валидатор JSON его не смотрит, а мусорный домен
+    // означает, что браузер никогда не пришлёт куку сайту. Раньше это принималось
+    // молча, аккаунт сохранялся "рабочим" и умирал на первой же проверке.
+    // Частая причина - копирование из чата, где ".threads.com" превращается
+    // в markdown-ссылку ".[threads.com](http://threads.com)".
+    const rawDomain = String(cookie.domain || "").trim();
+    if (rawDomain && !/^\.[A-Za-z0-9.-]+$/.test(rawDomain)) {
+      badDomains.push(`${String(cookie.name)} -> ${rawDomain}`);
+      continue;
+    }
     const item: CookieRecord = {
       name: String(cookie.name),
       value: String(cookie.value),
-      domain: cookie.domain || ".threads.com",
+      domain: rawDomain || ".threads.com",
       path: cookie.path || "/",
       httpOnly: Boolean(cookie.httpOnly),
       secure: cookie.secure !== false || sameSite === "None",
@@ -218,6 +229,20 @@ export function normalizeCookiesJson(raw: string): NormalizedCookies | { ok: fal
     const expires = cookie.expirationDate ?? cookie.expires;
     if (typeof expires === "number" && expires > 0) item.expires = toUnixSeconds(expires);
     cookies.push(item);
+  }
+
+  if (badDomains.length) {
+    return {
+      ok: false,
+      error:
+        `Недопустимый домен у ${badDomains.length} куки: ${badDomains.slice(0, 5).join("; ")}. ` +
+        `Домен должен выглядеть как ".threads.com". Скорее всего JSON скопирован из чата или документа, ` +
+        `где адрес превратился в ссылку вида ".[threads.com](http://...)". Скопируйте экспорт заново из Cookie-Editor.`,
+    };
+  }
+
+  if (!cookies.length) {
+    return { ok: false, error: "После проверки доменов не осталось ни одной куки" };
   }
   const diagnosis = diagnoseAccountCookies("json", true, JSON.stringify(cookies));
   issues.push(...diagnosis.issues);
