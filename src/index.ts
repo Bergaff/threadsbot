@@ -748,16 +748,18 @@ export default {
       // Если нет в кеше и есть браузер — запрашиваем
       if (!env.BROWSER) {
         await logSystem(env, "error", "api", `[API_ERROR] Browser Run (env.BROWSER) отсутствует`);
-        return Response.json({ ok: false, error: "Browser Run недоступен на этом плане Cloudflare" }, { status: 503 });
+        return Response.json({ ok: false, error: "Сервис временно недоступен. Повторите попытку позже." }, { status: 503 });
       }
 
       const counts = await db.accountCounts();
       if (!counts.alive) {
-        await logSystem(env, "warn", "api", `[API_ERROR] Нет активных аккаунтов (живых: 0 из ${counts.total})`);
-        return Response.json({
-          ok: false,
-          error: "Нет активных технических аккаунтов Threads. Добавьте JSON cookies через Telegram-бот (/accounts).",
-        }, { status: 503 });
+        // РАНЬШЕ здесь был немедленный выход 503 с внутренним сообщением про cookies
+        // и Telegram-бот. Это было вдвойне неправильно:
+        //  1) пользователю показывались детали нашей инфраструктуры;
+        //  2) выход случался ДО обращения к публичному HTTP-источнику, который умеет
+        //     отдавать профиль и посты вообще без аккаунтов.
+        // Поэтому просто логируем и идём дальше: скрапер сам дойдёт до HTTP-фолбэка.
+        await logSystem(env, "warn", "api", `[API_NO_ACCOUNTS] @${username}: живых аккаунтов 0 из ${counts.total}, пробуем публичный HTTP-источник`);
       }
 
       // Защита от спам-парсинга: мягкий rate limit на чтение новых профилей с одного IP
@@ -842,11 +844,11 @@ export default {
         // Все остальные статусы (service_error, all_dead, browser_busy, no_posts...) -
         // это временные проблемы скрапера, а НЕ отсутствие профиля.
         // Их нельзя кешировать как 404, иначе пользователь застрянет на ложном "не найден".
-        const transientMessage = fetched.status === "all_dead"
-          ? "Все технические аккаунты временно недоступны. Повторите запрос через минуту."
-          : fetched.status === "browser_busy"
-            ? "Браузер Threads сейчас занят. Повторите запрос через 30 секунд."
-            : "Не удалось получить ответ от Threads. Повторите запрос через минуту.";
+        // Сообщения видны конечному пользователю, поэтому никаких внутренних деталей:
+        // ни про "технические аккаунты", ни про cookies, ни про браузер, ни про бота.
+        const transientMessage = fetched.status === "browser_busy"
+          ? "Сервис сейчас обрабатывает другой запрос. Повторите попытку через 30 секунд."
+          : "Не удалось получить данные из Threads. Повторите попытку через минуту.";
         await logSystem(env, "warn", "api", `[API_TRANSIENT] @${username}: status=${fetched.status}, отрицательный кеш НЕ записан`);
         return Response.json({
           ok: false,
@@ -898,7 +900,7 @@ export default {
       }
 
       if (!env.BROWSER) {
-        return Response.json({ ok: false, error: "Browser Run недоступен" }, { status: 503 });
+        return Response.json({ ok: false, error: "Сервис временно недоступен. Повторите попытку позже." }, { status: 503 });
       }
 
       const clientIp = request.headers.get("cf-connecting-ip") || "unknown";

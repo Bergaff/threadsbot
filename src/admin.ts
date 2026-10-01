@@ -1624,7 +1624,7 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
     }
 
     function probeAllAccounts(btn) {
-      if (!confirm('Проверить сессии всех аккаунтов?\n\nДля каждого будет запущен браузер Threads, это займёт примерно по 10 секунд на аккаунт.')) return;
+      if (!confirm('Проверить сессии всех аккаунтов? Для каждого будет запущен браузер Threads, примерно по 10 секунд на аккаунт.')) return;
       var orig = btn ? btn.innerText : '';
       if (btn) { btn.disabled = true; btn.innerText = 'Проверка сессий...'; }
       showToast('Проверяем сессии всех аккаунтов в браузере Threads...', 0);
