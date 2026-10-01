@@ -954,9 +954,17 @@ export function normalizePost(node: any, ownerUsername: string): Post | null {
   const likes = typeof likeRaw === "number" || typeof likeRaw === "string" ? String(likeRaw) : "";
   const replies = node.replies_count ?? node.comment_count ?? node.text_post_app_info?.direct_reply_count;
   const images: string[] = [];
+  // URL из публичного HTML приходят уже с HTML-экранированием (&amp; вместо &).
+  // Если их не раскодировать здесь, рендер экранирует их повторно, и тег <img>
+  // уезжает в страницу как текст с &amp;amp;amp; в атрибутах.
+  // Браузерный путь отдаёт чистые URL, поэтому на них это не влияло.
   const addImage = (v: any) => {
     if (!v) return;
-    if (typeof v === "string") { if (v.startsWith("http")) images.push(v); return; }
+    if (typeof v === "string") {
+      const decoded = decodeEntities(v);
+      if (decoded.startsWith("http")) images.push(decoded);
+      return;
+    }
     if (Array.isArray(v)) { for (const x of v) addImage(x); return; }
     if (typeof v === "object") addImage(v.url || v.src || v.candidate_url || v.display_url);
   };
