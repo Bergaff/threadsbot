@@ -46,6 +46,7 @@ const ROOT = resolve(HERE, "..");
 const PROFILES_DIR = join(HERE, "profiles");
 const OUT_DIR = join(HERE, "out");
 const ACCOUNTS_FILE = join(HERE, "accounts.local.json");
+const COMBOS_FILE = join(HERE, "accounts.local.txt");
 const EXAMPLE_FILE = join(HERE, "accounts.example.json");
 
 // Куки нужны только этих доменов: остальное - телеметрия и мусор.
@@ -113,23 +114,89 @@ function totp(secret, stepSeconds = 30, digits = 6) {
 // ---------------------------------------------------------------------------
 // Конфиг аккаунтов
 // ---------------------------------------------------------------------------
+/**
+ * Разбирает строку формата `логин:пароль:ключ2FA[:cookieBase64]`.
+ *
+ * Ключ 2FA часто пишут с пробелами (U77Y BQTL GLVE ...), поэтому разделителем
+ * считаем только первое вхождение ":" в каждой части, а пробелы внутри TOTP
+ * сохраняем - base32Decode их сам вычистит.
+ */
+function parseComboLine(line) {
+  const parts = String(line).split(":");
+  if (parts.length < 2) return null;
+  const [username, password, ...rest] = parts;
+  const uname = String(username || "").trim();
+  if (!uname) return null;
+
+  // TOTP может содержать пробелы, но не ":". Четвёртым полем иногда идёт cookie в Base64.
+  const totpSecret = (rest[0] || "").trim();
+  const cookieB64 = (rest[1] || "").trim();
+
+  return {
+    // Имя аккаунта в панели админа - из логина, без опасных символов.
+    name: uname.replace(/[^\w.-]/g, "_").slice(0, 64),
+    username: uname,
+    password: String(password || "").trim(),
+    totpSecret,
+    cookieBase64: cookieB64 || undefined,
+  };
+}
+
+/** Читает текстовый файл со строками-комбо: по одной на строку, # - комментарий. */
+function loadCombos(file) {
+  if (!existsSync(file)) return [];
+  return readFileSync(file, "utf8")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#") && !l.startsWith("//"))
+    .map(parseComboLine)
+    .filter(Boolean);
+}
+
 function loadAccounts() {
-  if (!existsSync(ACCOUNTS_FILE)) {
-    console.error(
-      `\nНет файла ${EXAMPLE_FILE.replace(ROOT + "/", "")}.\n` +
-        `Скопируйте пример и заполните:\n\n` +
-        `  cp tools/accounts.example.json tools/accounts.local.json\n\n` +
-        `Поля username/password/totpSecret НЕОБЯЗАТЕЛЬНЫ и нужны только для\n` +
-        `автозаполнения формы. Можно оставить одно имя и войти руками.\n`
-    );
-    process.exit(1);
+  // Приоритет: явный --combos, затем JSON-конфиг, затем текстовый файл комбо.
+  const combosArg = optValue("combos");
+  if (combosArg) {
+    const file = resolve(process.cwd(), combosArg);
+    if (!existsSync(file)) {
+      console.error(`\nФайл не найден: ${file}\n`);
+      process.exit(1);
+    }
+    const list = loadCombos(file);
+    if (!list.length) {
+      console.error(`\nВ ${file} нет ни одной разбираемой строки.\nФормат: логин:пароль:ключ2FA\n`);
+      process.exit(1);
+    }
+    return list.filter((a) => (ONLY ? a.name === ONLY || a.username === ONLY : true));
   }
-  const raw = JSON.parse(readFileSync(ACCOUNTS_FILE, "utf8"));
-  const list = Array.isArray(raw) ? raw : raw.accounts || [];
-  return list
-    .map((a) => (typeof a === "string" ? { name: a } : a))
-    .filter((a) => a && a.name)
-    .filter((a) => (ONLY ? a.name === ONLY : true));
+
+  if (existsSync(ACCOUNTS_FILE)) {
+    const raw = JSON.parse(readFileSync(ACCOUNTS_FILE, "utf8"));
+    const list = Array.isArray(raw) ? raw : raw.accounts || [];
+    return list
+      .map((a) => (typeof a === "string" ? { name: a } : a))
+      .filter((a) => a && a.name)
+      .filter((a) => (ONLY ? a.name === ONLY : true));
+  }
+
+  if (existsSync(COMBOS_FILE)) {
+    const list = loadCombos(COMBOS_FILE);
+    if (list.length) return list.filter((a) => (ONLY ? a.name === ONLY || a.username === ONLY : true));
+  }
+
+  console.error(
+    `\nНе найдено ни одного источника аккаунтов.\n\n` +
+      `Вариант 1 - JSON с произвольными полями:\n` +
+      `  cp tools/accounts.example.json tools/accounts.local.json\n\n` +
+      `Вариант 2 - простой текст, по одной строке на аккаунт:\n` +
+      `  tools/accounts.local.txt\n` +
+      `  логин:пароль:ключ2FA\n\n` +
+      `Вариант 3 - указать файл явно:\n` +
+      `  node tools/cookie-relay.mjs --combos path/to/file.txt\n\n` +
+      `Поля логина и пароля НЕОБЯЗАТЕЛЬНЫ: можно оставить одно имя и войти руками.\n` +
+      `Оба файла закрыты .gitignore и никогда не коммитятся.\n`
+  );
+  process.exit(1);
 }
 
 // ---------------------------------------------------------------------------
