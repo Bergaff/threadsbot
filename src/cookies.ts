@@ -95,6 +95,21 @@ export function earliestCookieExpiry(cookies: CookieRecord[]): number | null {
   return expiries.length ? Math.min(...expiries) : null;
 }
 
+/** Срок жизни сессии определяется именно sessionid, а не временными куками (wd, dpr и т.д.) */
+export function sessionCookieExpiry(cookies: CookieRecord[]): number | null {
+  for (const cookie of cookies) {
+    const name = String(cookie.name ?? cookie.Name ?? "").toLowerCase();
+    if (SESSION_ALIASES.has(name) || name === "sessionid") {
+      const value = cookie.expirationDate ?? cookie.expires;
+      if (typeof value === "number" && value > 0) {
+        const ms = toExpiryMs(value);
+        if (ms > 0) return ms;
+      }
+    }
+  }
+  return earliestCookieExpiry(cookies);
+}
+
 export function cookieNameList(cookies: CookieRecord[]): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
@@ -141,7 +156,7 @@ export function diagnoseAccountCookies(name: string, isAlive: boolean, cookiesJs
   if (missingKeys.includes("sessionid")) {
     issues.push("нет sessionid (HttpOnly). В Cookie-Editor включи HttpOnly и экспортни JSON заново");
   } else if (missingKeys.length) issues.push(`нет ${missingKeys.join(", ")}`);
-  const expiresAt = earliestCookieExpiry(validation.cookies);
+  const expiresAt = sessionCookieExpiry(validation.cookies);
   const now = Date.now();
   if (expiresAt !== null) {
     const stamp = formatDay(expiresAt);
@@ -151,17 +166,61 @@ export function diagnoseAccountCookies(name: string, isAlive: boolean, cookiesJs
   return { name, isAlive, issues, missingKeys, cookieCount: validation.cookies.length, expiresAt, names };
 }
 
+/**
+ * Пробует распаковать Base64 в JSON с куки.
+ *
+ * Base64 - частый формат выгрузки: его дают расширения-экспортёры, а при переносе
+ * между машинами JSON удобнее передать одной строкой. Принимаем его прозрачно,
+ * чтобы пользователю не пришлось декодировать вручную.
+ *
+ * Возвращает null, если это не Base64 или внутри не JSON - тогда строка
+ * обрабатывается как есть, и обычный путь выдаст привычную ошибку.
+ */
+function tryDecodeBase64Cookies(raw: string): string | null {
+  const compact = String(raw || "").replace(/\s+/g, "");
+  if (compact.length < 16 || compact.length % 4 !== 0) return null;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(compact)) return null;
+  try {
+    const binary = atob(compact);
+    // atob отдаёт байты как latin1, поэтому декодируем в UTF-8 явно:
+    // имена и значения куки могут содержать не-ASCII.
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes).trim();
+    if (!text.startsWith("[") && !text.startsWith("{")) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeCookiesJson(raw: string): NormalizedCookies | { ok: false; error: string } {
-  const validation = validateCookiesJson(raw);
+  let input = String(raw || "").trim();
+  // Если это не JSON напрямую, пробуем считать Base64.
+  if (input && !input.startsWith("[") && !input.startsWith("{")) {
+    const decoded = tryDecodeBase64Cookies(input);
+    if (decoded) input = decoded;
+  }
+  const validation = validateCookiesJson(input);
   if (!validation.ok) return validation;
   const cookies: CookieRecord[] = [];
   const issues: string[] = [];
+  const badDomains: string[] = [];
   for (const cookie of validation.cookies) {
     const sameSite = sameSiteOf(cookie.sameSite);
+    // Домен проверяем явно: валидатор JSON его не смотрит, а мусорный домен
+    // означает, что браузер никогда не пришлёт куку сайту. Раньше это принималось
+    // молча, аккаунт сохранялся "рабочим" и умирал на первой же проверке.
+    // Частая причина - копирование из чата, где ".threads.com" превращается
+    // в markdown-ссылку ".[threads.com](http://threads.com)".
+    const rawDomain = String(cookie.domain || "").trim();
+    if (rawDomain && !/^\.[A-Za-z0-9.-]+$/.test(rawDomain)) {
+      badDomains.push(`${String(cookie.name)} -> ${rawDomain}`);
+      continue;
+    }
     const item: CookieRecord = {
       name: String(cookie.name),
       value: String(cookie.value),
-      domain: cookie.domain || ".threads.com",
+      domain: rawDomain || ".threads.com",
       path: cookie.path || "/",
       httpOnly: Boolean(cookie.httpOnly),
       secure: cookie.secure !== false || sameSite === "None",
@@ -170,6 +229,20 @@ export function normalizeCookiesJson(raw: string): NormalizedCookies | { ok: fal
     const expires = cookie.expirationDate ?? cookie.expires;
     if (typeof expires === "number" && expires > 0) item.expires = toUnixSeconds(expires);
     cookies.push(item);
+  }
+
+  if (badDomains.length) {
+    return {
+      ok: false,
+      error:
+        `Недопустимый домен у ${badDomains.length} куки: ${badDomains.slice(0, 5).join("; ")}. ` +
+        `Домен должен выглядеть как ".threads.com". Скорее всего JSON скопирован из чата или документа, ` +
+        `где адрес превратился в ссылку вида ".[threads.com](http://...)". Скопируйте экспорт заново из Cookie-Editor.`,
+    };
+  }
+
+  if (!cookies.length) {
+    return { ok: false, error: "После проверки доменов не осталось ни одной куки" };
   }
   const diagnosis = diagnoseAccountCookies("json", true, JSON.stringify(cookies));
   issues.push(...diagnosis.issues);

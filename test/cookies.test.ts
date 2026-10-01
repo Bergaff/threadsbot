@@ -110,3 +110,49 @@ describe("cookies json", () => {
     expect(d.missingKeys).not.toContain("sessionid");
   });
 });
+
+describe("normalizeCookiesJson accepts Base64 input", () => {
+  const cookie = [{
+    name: "sessionid",
+    value: "abc123",
+    domain: ".threads.net",
+    path: "/",
+    expires: Date.now() / 1000 + 86400 * 30,
+  }];
+  const json = JSON.stringify(cookie);
+  const b64 = btoa(json);
+
+  it("decodes a Base64 payload into the same cookies as raw JSON", () => {
+    const fromJson: any = normalizeCookiesJson(json);
+    const fromB64: any = normalizeCookiesJson(b64);
+    expect(fromB64.ok).toBe(true);
+    expect(fromB64.json).toBe(fromJson.json);
+  });
+
+  it("tolerates whitespace and newlines inside the Base64 string", () => {
+    const wrapped = b64.replace(/(.{20})/g, "$1\n");
+    const res: any = normalizeCookiesJson(wrapped);
+    expect(res.ok).toBe(true);
+    expect(res.json).toContain("sessionid");
+  });
+
+  it("preserves non-ASCII values through Base64 decoding", () => {
+    const nonAscii = JSON.stringify([{ name: "sessionid", value: "значение-тест", domain: ".threads.net" }]);
+    const encoded = btoa(new TextEncoder().encode(nonAscii).reduce((a, b) => a + String.fromCharCode(b), ""));
+    const res: any = normalizeCookiesJson(encoded);
+    expect(res.ok).toBe(true);
+    expect(res.json).toContain("значение-тест");
+  });
+
+  it("still rejects garbage that is neither JSON nor Base64 JSON", () => {
+    const res: any = normalizeCookiesJson("просто текст, не куки");
+    expect(res.ok).toBe(false);
+    expect(typeof res.error).toBe("string");
+  });
+
+  it("does not mistake a Base64 string that decodes to non-JSON for cookies", () => {
+    const notJson = btoa("hello world, this is not json at all");
+    const res: any = normalizeCookiesJson(notJson);
+    expect(res.ok).toBe(false);
+  });
+});
