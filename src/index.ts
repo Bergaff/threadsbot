@@ -1047,34 +1047,37 @@ export default {
 
         // Автоматический тест сессий технических аккаунтов раз в сутки (24 часа)
         try {
-          if (env.BROWSER && stats.length > 0) {
+          if (env.BROWSER) {
+            const enabledNames = await db.enabledAccountNames();
             const lastDailyProbe = await db.state(0, "last_daily_probe");
             const oneDayAgo = Date.now() - 24 * 3600 * 1000;
             const lastTime = lastDailyProbe ? new Date(lastDailyProbe).getTime() : 0;
-            if (lastTime < oneDayAgo) {
+            if (enabledNames.length > 0 && lastTime < oneDayAgo) {
               await db.setState(0, "last_daily_probe", new Date().toISOString());
-              await logSystem(env, "info", "cron", `Запуск ежедневного автотестирования аккаунтов Threads (${stats.length} акк.)`);
+              await logSystem(env, "info", "cron", `Запуск ежедневного автотестирования аккаунтов Threads (${enabledNames.length} акк.)`);
               const failedAccs: string[] = [];
-              for (const a of stats) {
+              for (const name of enabledNames) {
                 try {
-                  const res = await probeAccount(env, a.name);
+                  const res = await probeAccount(env, name);
                   if (!res.ok) {
-                    failedAccs.push(`${a.name} (${res.message})`);
-                    await logSystem(env, "warn", "cron", `Ежедневный тест [${a.name}] выявил проблему: ${res.message}`);
+                    failedAccs.push(`${name} - ${res.message}`);
+                    await logSystem(env, "warn", "cron", `Ежедневный тест [${name}] выявил проблему: ${res.message}`);
+                  } else {
+                    await logSystem(env, "info", "cron", `Ежедневный тест [${name}]: сессия активна`);
                   }
                   await sleep(2000);
                 } catch (e) {
-                  console.error("Daily probe failed for", a.name, e);
+                  console.error("Daily probe failed for", name, e);
                 }
               }
               if (failedAccs.length) {
                 const tg = new Telegram(env.TELEGRAM_TOKEN);
-                const msg = `⚠️ <b>Ежедневный тест аккаунтов выявил проблемы:</b>\n\n• ${failedAccs.join("\n• ")}\n\nОбновите cookies в панели админа или через бот.`;
+                const msg = `<b>Ежедневный автотест аккаунтов</b>\n\nПроблемы обнаружены (${failedAccs.length} из ${enabledNames.length}):\n\n- ${failedAccs.join("\n- ")}\n\nОбновите cookies в панели админа или через бот.`;
                 await Promise.all(
                   adminIds(env).map(id => tg.sendMessage(id, msg).catch(() => {})),
                 );
               } else {
-                await logSystem(env, "info", "cron", `Ежедневный автотест завершен успешно: все аккаунты (${stats.length}) активны`);
+                await logSystem(env, "info", "cron", `Ежедневный автотест завершен успешно: все аккаунты (${enabledNames.length}) активны`);
               }
             }
           }
