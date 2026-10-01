@@ -1305,7 +1305,7 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
     <section class="admin-card">
       <div class="admin-card-title">Добавить аккаунт Threads (JSON)</div>
       <p style="font-size:0.82rem;color:#888;margin-bottom:12px;">
-        Загрузите файл .json из Cookie-Editor или Playwright, либо вставьте его текст. Аккаунт сразу сохранится в базе Cloudflare D1 и станет доступен как сайту, так и Telegram-боту.
+        Загрузите файл .json из Cookie-Editor или Playwright, либо вставьте его текст. Можно также вставить строку в Base64 - она распакуется автоматически. Аккаунт сразу сохранится в базе Cloudflare D1 и станет доступен как сайту, так и Telegram-боту.
       </p>
 
       <form id="addAccountForm" onsubmit="submitAccount(event)">

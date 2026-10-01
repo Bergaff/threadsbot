@@ -14,7 +14,13 @@
     "",
     "locale/timezone задают язык и часовой пояс окна браузера.",
     "Ставьте те же, что используете в реальности для этого аккаунта:",
-    "резкая смена гео на входе - частый триггер checkpoint."
+    "резкая смена гео на входе - частый триггер checkpoint.",
+    "",
+    "loginVia - способ входа: \"threads\" (по умолчанию) или \"instagram\".",
+    "Threads авторизуется инстаграм-учёткой, а sessionid ставится на домен",
+    ".instagram.com, поэтому вход через Instagram даёт те же куки. Иногда он",
+    "проходит мягче, чем форма входа на самом Threads. После входа скрипт сам",
+    "зайдет на threads.net, чтобы сессия подхватилась и там."
   ],
   "accounts": [
     {
@@ -22,8 +28,18 @@
       "username": "",
       "password": "",
       "totpSecret": "",
+      "loginVia": "threads",
       "locale": "en-GB",
       "timezone": "Europe/London"
+    },
+    {
+      "name": "example.via.instagram",
+      "username": "",
+      "password": "",
+      "totpSecret": "",
+      "loginVia": "instagram",
+      "locale": "en-US",
+      "timezone": "America/New_York"
     }
   ]
 }

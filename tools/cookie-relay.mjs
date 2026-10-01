@@ -198,9 +198,18 @@ async function harvestAccount(chromium, account) {
     if (hasSessionCookie(cookies)) {
       log("  Сессия уже живая в локальном профиле - вход не требуется");
     } else {
-      log("  Локальная сессия отсутствует, нужен вход");
-      await page.goto("https://www.threads.net/login", { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => {});
-      await new Promise((r) => setTimeout(r, 2000));
+      // Threads авторизуется инстаграм-учёткой, и sessionid ставится на домен
+      // .instagram.com. Поэтому вход через Instagram даёт те же куки, что нужны
+      // Threads, и иногда проходит мягче, чем форма входа на самом Threads.
+      const via = String(account.loginVia || "threads").toLowerCase();
+      const loginUrl =
+        via === "instagram" || via === "ig"
+          ? "https://www.instagram.com/accounts/login/"
+          : "https://www.threads.net/login";
+      log(`  Локальная сессия отсутствует, нужен вход через ${via === "instagram" || via === "ig" ? "Instagram" : "Threads"}`);
+
+      await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 2500));
 
       // Автозаполнение - только если данные лежат в ЛОКАЛЬНОМ файле.
       if (account.username && account.password) {
@@ -221,6 +230,15 @@ async function harvestAccount(chromium, account) {
       if (!ok) {
         await waitForEnter("  Не дождался sessionid. Завершите вход и нажмите Enter (или Ctrl+C для пропуска)... ");
       }
+
+      // После входа через Instagram заходим на Threads, чтобы он подхватил
+      // инстаграм-сессию и проставил собственные куки домена .threads.net.
+      if (via === "instagram" || via === "ig") {
+        log("  Переношу сессию на Threads...");
+        await page.goto("https://www.threads.net/", { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => {});
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+
       cookies = keepOnlyThreadsCookies(await context.cookies().catch(() => []));
     }
 

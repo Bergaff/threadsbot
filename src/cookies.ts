@@ -166,8 +166,41 @@ export function diagnoseAccountCookies(name: string, isAlive: boolean, cookiesJs
   return { name, isAlive, issues, missingKeys, cookieCount: validation.cookies.length, expiresAt, names };
 }
 
+/**
+ * Пробует распаковать Base64 в JSON с куки.
+ *
+ * Base64 - частый формат выгрузки: его дают расширения-экспортёры, а при переносе
+ * между машинами JSON удобнее передать одной строкой. Принимаем его прозрачно,
+ * чтобы пользователю не пришлось декодировать вручную.
+ *
+ * Возвращает null, если это не Base64 или внутри не JSON - тогда строка
+ * обрабатывается как есть, и обычный путь выдаст привычную ошибку.
+ */
+function tryDecodeBase64Cookies(raw: string): string | null {
+  const compact = String(raw || "").replace(/\s+/g, "");
+  if (compact.length < 16 || compact.length % 4 !== 0) return null;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(compact)) return null;
+  try {
+    const binary = atob(compact);
+    // atob отдаёт байты как latin1, поэтому декодируем в UTF-8 явно:
+    // имена и значения куки могут содержать не-ASCII.
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes).trim();
+    if (!text.startsWith("[") && !text.startsWith("{")) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeCookiesJson(raw: string): NormalizedCookies | { ok: false; error: string } {
-  const validation = validateCookiesJson(raw);
+  let input = String(raw || "").trim();
+  // Если это не JSON напрямую, пробуем считать Base64.
+  if (input && !input.startsWith("[") && !input.startsWith("{")) {
+    const decoded = tryDecodeBase64Cookies(input);
+    if (decoded) input = decoded;
+  }
+  const validation = validateCookiesJson(input);
   if (!validation.ok) return validation;
   const cookies: CookieRecord[] = [];
   const issues: string[] = [];
