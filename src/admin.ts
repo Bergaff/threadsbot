@@ -12,46 +12,171 @@ function esc(value: unknown): string {
     .replaceAll("'", "&#39;");
 }
 
-export function verifyAdmin(request: Request, env: Env): boolean {
-  const pwd = adminPassword(env);
+/**
+ * АДМИНСКАЯ АВТОРИЗАЦИЯ
+ *
+ * Раньше сессионная кука была равна btoa(пароль). Base64 - не шифрование: любой,
+ * кто перехватил куку, декодировал её и получал пароль в открытом виде. Токен не
+ * ротируется, отзыв невозможен, перебор пароля ничем не ограничен.
+ *
+ * Сейчас кука - это случайный непрозрачный токен, который живёт в D1 вместе со
+ * сроком действия. Пароль из него не восстанавливается, выход действительно
+ * отзывает сессию, а после нескольких неудачных попыток вход блокируется.
+ */
+
+/** Срок жизни одной админской сессии. */
+const ADMIN_SESSION_TTL_MS = 12 * 3600_000;
+/** Сколько неудачных попыток входа допустимо до блокировки. */
+const ADMIN_MAX_LOGIN_FAILS = 5;
+/** На сколько блокируем вход после превышения лимита попыток. */
+const ADMIN_LOCKOUT_MS = 15 * 60_000;
+
+type AdminSessionMap = Record<string, string>;
+
+function newAdminToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Читает карту сессий и сразу выбрасывает протухшие записи. */
+async function loadAdminSessions(db: Database): Promise<AdminSessionMap> {
+  const raw = await db.state(0, "admin_sessions").catch(() => null);
+  if (!raw) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const now = Date.now();
+  const out: AdminSessionMap = {};
+  for (const [token, exp] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof token !== "string" || token.length < 32) continue;
+    const expMs = new Date(String(exp)).getTime();
+    if (Number.isFinite(expMs) && expMs > now) out[token] = String(exp);
+  }
+  return out;
+}
+
+async function saveAdminSessions(db: Database, sessions: AdminSessionMap): Promise<void> {
+  await db.setState(0, "admin_sessions", JSON.stringify(sessions));
+}
+
+/** Проверка защиты от перебора. Возвращает число оставшихся миллисекунд блокировки. */
+async function adminLockoutRemaining(db: Database): Promise<number> {
+  const raw = await db.state(0, "admin_login_fails").catch(() => null);
+  if (!raw) return 0;
+  let count = 0;
+  let at = 0;
+  try {
+    const parsed = JSON.parse(raw) as { count?: unknown; at?: unknown };
+    count = Number(parsed.count) || 0;
+    at = Number(parsed.at) || 0;
+  } catch {
+    return 0;
+  }
+  if (count < ADMIN_MAX_LOGIN_FAILS) return 0;
+  const left = at + ADMIN_LOCKOUT_MS - Date.now();
+  return left > 0 ? left : 0;
+}
+
+async function registerAdminLoginFail(db: Database): Promise<void> {
+  const raw = await db.state(0, "admin_login_fails").catch(() => null);
+  let count = 0;
+  let at = 0;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as { count?: unknown; at?: unknown };
+      count = Number(parsed.count) || 0;
+      at = Number(parsed.at) || 0;
+    } catch {
+      count = 0;
+      at = 0;
+    }
+  }
+  // Окно счётчика сбрасывается, если предыдущие попытки были давно.
+  if (!at || Date.now() - at > ADMIN_LOCKOUT_MS) {
+    count = 0;
+    at = Date.now();
+  }
+  await db.setState(0, "admin_login_fails", JSON.stringify({ count: count + 1, at }));
+}
+
+/**
+ * Проверяет админскую сессию по случайному токену из D1.
+ * Асинхронная: токен хранится в базе, а не выводится из пароля.
+ */
+export async function verifyAdmin(request: Request, env: Env): Promise<boolean> {
   const cookie = request.headers.get("cookie") || "";
   const match = cookie.match(/(?:^|;\s*)admin_session=([^;]+)/);
   if (!match) return false;
-  // Simple token matching
-  return match[1] === btoa(pwd);
+  const token = match[1].trim();
+  if (token.length < 32) return false;
+  const db = new Database(env);
+  const sessions = await loadAdminSessions(db);
+  const exp = sessions[token];
+  if (!exp) return false;
+  return new Date(exp).getTime() > Date.now();
 }
 
 export async function handleAdminRoute(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
+  const db = new Database(env);
 
   // Login handler
   if (path === "/admin/login" && request.method === "POST") {
+    const lockMs = await adminLockoutRemaining(db);
+    if (lockMs > 0) {
+      const mins = Math.ceil(lockMs / 60_000);
+      return renderLoginPage(`Слишком много неудачных попыток. Повторите через ${mins} мин.`);
+    }
+
     const formData = await request.formData().catch(() => null);
     const pwd = String(formData?.get("password") || "").trim();
     if (pwd && pwd === adminPassword(env)) {
+      const sessions = await loadAdminSessions(db);
+      const token = newAdminToken();
+      sessions[token] = new Date(Date.now() + ADMIN_SESSION_TTL_MS).toISOString();
+      await saveAdminSessions(db, sessions);
+      // Успешный вход обнуляет счётчик неудачных попыток.
+      await db.clearState(0, "admin_login_fails").catch(() => {});
+
       const headers = new Headers();
       headers.set("Location", "/admin");
-      headers.set("Set-Cookie", `admin_session=${btoa(pwd)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
+      headers.set(
+        "Set-Cookie",
+        `admin_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.floor(ADMIN_SESSION_TTL_MS / 1000)}`
+      );
       return new Response(null, { status: 302, headers });
     }
+
+    await registerAdminLoginFail(db);
     return renderLoginPage(true);
   }
 
   // Logout handler
   if (path === "/admin/logout") {
+    // Реально отзываем сессию, а не только стираем куку на клиенте.
+    const cookie = request.headers.get("cookie") || "";
+    const match = cookie.match(/(?:^|;\s*)admin_session=([^;]+)/);
+    if (match) {
+      const sessions = await loadAdminSessions(db);
+      if (delete sessions[match[1].trim()]) {
+        await saveAdminSessions(db, sessions).catch(() => {});
+      }
+    }
     const headers = new Headers();
     headers.set("Location", "/admin");
-    headers.set("Set-Cookie", "admin_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
+    headers.set("Set-Cookie", "admin_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0");
     return new Response(null, { status: 302, headers });
   }
 
   // Check auth
-  if (!verifyAdmin(request, env)) {
+  if (!(await verifyAdmin(request, env))) {
     return renderLoginPage(false);
   }
-
-  const db = new Database(env);
 
   // Admin API Action: Add Account JSON
   if (path === "/admin/api/account/add" && request.method === "POST") {
@@ -644,7 +769,14 @@ const ADMIN_STYLES = `
   }
 `;
 
-function renderLoginPage(isError = false): Response {
+function renderLoginPage(isError: boolean | string = false): Response {
+  // Принимаем либо булев флаг (прежнее поведение), либо готовый текст сообщения.
+  const errorText =
+    typeof isError === "string" && isError.trim()
+      ? isError.trim()
+      : isError
+        ? "Неверный пароль администратора"
+        : "";
   const html = `<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -665,7 +797,7 @@ function renderLoginPage(isError = false): Response {
 <body>
   <div style="max-width: 360px; margin: 80px auto; padding: 24px; background: #131313; border: 1px solid #2d2d2d;">
     <h2 style="font-size: 1.2rem; color: #fff; margin-bottom: 14px;">Панель администратора</h2>
-    ${isError ? `<div style="background: #331515; border: 1px solid #552222; color: #fca5a5; padding: 8px; font-size: 0.82rem; margin-bottom: 12px;">Неверный пароль администратора</div>` : ""}
+    ${errorText ? `<div style="background: #331515; border: 1px solid #552222; color: #fca5a5; padding: 8px; font-size: 0.82rem; margin-bottom: 12px;">${esc(errorText)}</div>` : ""}
     <form action="/admin/login" method="POST">
       <div class="form-group">
         <label for="password">Пароль (ADMIN_PASSWORD):</label>

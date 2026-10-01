@@ -4,6 +4,15 @@
 accounts/
 *.json
 
+# Cookie Relay: локальные учётные данные, профили браузеров и снятые куки.
+# Здесь лежат пароли, TOTP-сиды и живые сессии - в репозиторий не должны попасть никогда.
+tools/accounts.local.json
+tools/profiles/
+tools/out/
+
+# Пример конфига не содержит секретов и должен быть в репозитории.
+!tools/accounts.example.json
+
 # Python
 __pycache__/
 *.pyc

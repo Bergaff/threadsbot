@@ -93,6 +93,54 @@ const mockEnv: Env = {
   VERSION: "v2.1.0",
 };
 
+/**
+ * Админские сессии теперь хранятся в D1, а не выводятся из пароля,
+ * поэтому для тестов авторизации нужен мок с реальной памятью bot_state.
+ */
+function makeStatefulEnv(): Env {
+  const botState = new Map<string, string>();
+
+  const statefulD1 = {
+    ...mockD1,
+    prepare(query: string) {
+      if (query.includes("bot_state")) {
+        return {
+          bind: (...args: any[]) => ({
+            first: async () => {
+              const key = String(args[1]);
+              return botState.has(key) ? { value: botState.get(key) } : null;
+            },
+            all: async () => ({ results: [] }),
+            run: async () => {
+              const key = String(args[1]);
+              if (/^\s*DELETE/i.test(query)) botState.delete(key);
+              else botState.set(key, String(args[2] ?? ""));
+              return { meta: { changes: 1 } };
+            },
+          }),
+          first: async () => null,
+          all: async () => ({ results: [] }),
+          run: async () => ({ meta: { changes: 1 } }),
+        };
+      }
+      return mockD1.prepare(query);
+    },
+  };
+
+  return { ...mockEnv, DB: statefulD1 as any };
+}
+
+/** Логинится и достаёт выданный сессионный токен из Set-Cookie. */
+async function loginAndGetToken(env: Env): Promise<string> {
+  const body = new FormData();
+  body.set("password", "secret_admin_password");
+  const req = new Request("https://site.com/admin/login", { method: "POST", body });
+  const res = await handleAdminRoute(req, env);
+  const cookie = res.headers.get("Set-Cookie") || "";
+  const match = cookie.match(/admin_session=([^;]+)/);
+  return match ? match[1] : "";
+}
+
 describe("Admin Route & Authentication", () => {
   it("renders login form if unauthenticated", async () => {
     const req = new Request("https://site.com/admin");
@@ -124,11 +172,12 @@ describe("Admin Route & Authentication", () => {
   });
 
   it("renders dashboard when authenticated with logs and test indicators", async () => {
-    const token = btoa("secret_admin_password");
+    const env = makeStatefulEnv();
+    const token = await loginAndGetToken(env);
     const req = new Request("https://site.com/admin", {
       headers: { cookie: `admin_session=${token}` },
     });
-    const res = await handleAdminRoute(req, mockEnv);
+    const res = await handleAdminRoute(req, env);
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("Threads Viewer - Админ панель");
@@ -152,23 +201,103 @@ describe("Admin Route & Authentication", () => {
     expect(html).toContain("Главная страница (человек, US)");
   });
 
-  it("verifyAdmin returns true only for authenticated admin cookies", async () => {
+  it("verifyAdmin accepts only tokens issued by login, not the password itself", async () => {
     const { verifyAdmin } = await import("../src/admin");
-    const validToken = btoa("secret_admin_password");
+    const env = makeStatefulEnv();
+
+    const token = await loginAndGetToken(env);
+    expect(token.length).toBeGreaterThanOrEqual(32);
+
     const reqAuth = new Request("https://site.com/@zuck", {
-      headers: { cookie: `admin_session=${validToken}` },
+      headers: { cookie: `admin_session=${token}` },
     });
     const reqUnauth = new Request("https://site.com/@zuck");
     const reqWrong = new Request("https://site.com/@zuck", {
       headers: { cookie: `admin_session=invalid` },
     });
-    expect(verifyAdmin(reqAuth, mockEnv)).toBe(true);
-    expect(verifyAdmin(reqUnauth, mockEnv)).toBe(false);
-    expect(verifyAdmin(reqWrong, mockEnv)).toBe(false);
+    expect(await verifyAdmin(reqAuth, env)).toBe(true);
+    expect(await verifyAdmin(reqUnauth, env)).toBe(false);
+    expect(await verifyAdmin(reqWrong, env)).toBe(false);
+  });
+
+  it("no longer accepts btoa(password) as a session token", async () => {
+    // РЕГРЕСС НА ДЫРУ: раньше кука была равна btoa(пароль), то есть перехвативший
+    // её получал пароль в открытом виде. Такой токен больше не должен работать.
+    const { verifyAdmin } = await import("../src/admin");
+    const env = makeStatefulEnv();
+    await loginAndGetToken(env); // чтобы в базе точно была хотя бы одна живая сессия
+
+    const legacy = btoa("secret_admin_password");
+    const req = new Request("https://site.com/@zuck", {
+      headers: { cookie: `admin_session=${legacy}` },
+    });
+    expect(await verifyAdmin(req, env)).toBe(false);
+  });
+
+  it("issues an opaque token that does not encode the password", async () => {
+    const env = makeStatefulEnv();
+    const token = await loginAndGetToken(env);
+    expect(token).not.toBe(btoa("secret_admin_password"));
+    // Токен - это hex случайных байтов, из него нельзя восстановить пароль.
+    expect(/^[0-9a-f]{48}$/.test(token)).toBe(true);
+    // Даже если декодировать его как base64, пароль там не окажется.
+    const decoded = (() => { try { return atob(token); } catch { return ""; } })();
+    expect(decoded).not.toContain("secret_admin_password");
+  });
+
+  it("issues a different token on each login", async () => {
+    const env = makeStatefulEnv();
+    const a = await loginAndGetToken(env);
+    const b = await loginAndGetToken(env);
+    expect(a).not.toBe(b);
+    expect(a.length).toBe(48);
+    expect(b.length).toBe(48);
+  });
+
+  it("revokes the session on logout", async () => {
+    const { verifyAdmin } = await import("../src/admin");
+    const env = makeStatefulEnv();
+    const token = await loginAndGetToken(env);
+
+    const reqAuth = new Request("https://site.com/admin", {
+      headers: { cookie: `admin_session=${token}` },
+    });
+    expect(await verifyAdmin(reqAuth, env)).toBe(true);
+
+    const logoutReq = new Request("https://site.com/admin/logout", {
+      headers: { cookie: `admin_session=${token}` },
+    });
+    const logoutRes = await handleAdminRoute(logoutReq, env);
+    expect(logoutRes.status).toBe(302);
+
+    // После выхода тот же токен больше не действителен.
+    expect(await verifyAdmin(reqAuth, env)).toBe(false);
+  });
+
+  it("locks login after repeated wrong passwords", async () => {
+    const env = makeStatefulEnv();
+    for (let i = 0; i < 5; i++) {
+      const body = new FormData();
+      body.set("password", "wrong_pass");
+      const req = new Request("https://site.com/admin/login", { method: "POST", body });
+      await handleAdminRoute(req, env);
+    }
+
+    // Шестая попытка блокируется даже с ВЕРНЫМ паролем.
+    const token = await loginAndGetToken(env);
+    expect(token).toBe("");
+
+    const body = new FormData();
+    body.set("password", "secret_admin_password");
+    const req = new Request("https://site.com/admin/login", { method: "POST", body });
+    const res = await handleAdminRoute(req, env);
+    const html = await res.text();
+    expect(html).toContain("Слишком много неудачных попыток");
   });
 
   it("returns webhook status in admin API", async () => {
-    const token = btoa("secret_admin_password");
+    const env = makeStatefulEnv();
+    const token = await loginAndGetToken(env);
     const req = new Request("https://site.com/admin/api/webhook/status", {
       headers: { cookie: `admin_session=${token}` },
     });
@@ -180,7 +309,7 @@ describe("Admin Route & Authentication", () => {
       return origFetch(url, init);
     }) as any;
     try {
-      const res = await handleAdminRoute(req, mockEnv);
+      const res = await handleAdminRoute(req, env);
       expect(res.status).toBe(200);
       const data = await res.json<any>();
       expect(data.ok).toBe(true);

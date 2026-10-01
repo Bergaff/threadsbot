@@ -424,7 +424,7 @@ export default {
       }
 
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
-      const isAdmin = verifyAdmin(request, env);
+      const isAdmin = await verifyAdmin(request, env);
       if (!isAdmin) {
         const db = new Database(env);
         const ua = request.headers.get("user-agent") || "";
@@ -570,7 +570,7 @@ export default {
       if (edgeHit) return edgeHit;
 
       const db = new Database(env);
-      const isAdmin = verifyAdmin(request, env);
+      const isAdmin = await verifyAdmin(request, env);
       if (!isAdmin) {
         const ua = request.headers.get("user-agent") || "";
         const botName = detectBotType(ua);
@@ -608,7 +608,7 @@ export default {
       if (edgeHit) return edgeHit;
 
       const db = new Database(env);
-      const isAdmin = verifyAdmin(request, env);
+      const isAdmin = await verifyAdmin(request, env);
       if (!isAdmin) {
         const ua = request.headers.get("user-agent") || "";
         const botName = detectBotType(ua);
@@ -681,7 +681,7 @@ export default {
       if (edgeHit) return edgeHit;
 
       const db = new Database(env);
-      const isAdmin = verifyAdmin(request, env);
+      const isAdmin = await verifyAdmin(request, env);
       const ua = request.headers.get("user-agent") || "";
       const botName = detectBotType(ua);
       const isSearchBot = Boolean(botName);
@@ -877,14 +877,14 @@ export default {
       }
 
       const db = new Database(env);
-      if (!verifyAdmin(request, env)) {
+      if (!(await verifyAdmin(request, env))) {
         ctx.waitUntil(db.logEvent(0, "web_comments", `${username}:${postIndex}`).catch(() => {}));
       }
       const cacheKey = `${username}_cmt_${postIndex}`;
       if (!refresh) {
         const cached = await db.cache<Comment[]>(cacheKey, "comments");
         if (cached) {
-          if (!verifyAdmin(request, env)) {
+          if (!(await verifyAdmin(request, env))) {
             ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
           }
           const res = Response.json({ ok: true, cached: true, comments: cached }, {
@@ -903,7 +903,7 @@ export default {
 
       const clientIp = request.headers.get("cf-connecting-ip") || "unknown";
       const { isPremium } = await checkPremiumUser(request, env);
-      const isAuthAdmin = verifyAdmin(request, env);
+      const isAuthAdmin = await verifyAdmin(request, env);
       if (!isAuthAdmin && !isPremium) {
         const rate = checkScraperRateLimit(clientIp + ":cmt", 25, 300_000);
         if (!rate.allowed) {

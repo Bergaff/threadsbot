@@ -2,7 +2,17 @@ import { LIMITS, type Env, excludedIds } from "./config";
 
 const now = () => new Date().toISOString();
 const since = (ms: number) => new Date(Date.now() - ms).toISOString();
-export type StateName = "last_button" | "last_username" | "waiting_support" | "admin_reply" | "fetch_lock" | "last_daily_probe";
+export type StateName =
+  | "last_button"
+  | "last_username"
+  | "waiting_support"
+  | "admin_reply"
+  | "fetch_lock"
+  | "last_daily_probe"
+  /** Карта {токен: ISO-дата истечения} активных админских сессий. */
+  | "admin_sessions"
+  /** Счётчик неудачных попыток входа в админку для защиты от перебора. */
+  | "admin_login_fails";
 
 export class Database {
   constructor(private readonly env: Env) {}
