@@ -1519,10 +1519,12 @@ export async function probeAccount(env: Env, name: string): Promise<{ name: stri
     }
 
     if (verdict === "user_not_found") {
-      // @zuck существует всегда. Если аккаунт его "не видит", сессия фактически нерабочая.
-      await markTransientError(env, name, new Error("Probe: эталонный профиль не найден"));
-      await logSystem(env, "error", "probe", `Тест [${name}] провален: аккаунт не видит эталонный профиль @${PROBE_USERNAME} - сессия нерабочая`);
-      return { name, ok: false, message: `Аккаунт не видит эталонный профиль @${PROBE_USERNAME} - сессия нерабочая` };
+      // @zuck существует всегда и публично. Если аккаунт его "не видит" и Threads уводит
+      // сессию на ленту, это значит ровно одно: аккаунт разлогинен. Формулировка
+      // "профиль не найден" здесь сбивала с толку, потому что профиль найден прекрасно.
+      await markSessionExpired(env, name);
+      await logSystem(env, "error", "probe", `Тест [${name}] провален: Threads не показал эталонный профиль @${PROBE_USERNAME} и увёл на ленту. Значит аккаунт разлогинен, сессию нужно пересоздать вручную`);
+      return { name, ok: false, message: "Аккаунт разлогинен в Threads. Нужен свежий экспорт cookies, автопродление не поможет" };
     }
     let updated: string | null = null;
     try {
