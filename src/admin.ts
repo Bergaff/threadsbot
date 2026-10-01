@@ -1308,6 +1308,31 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         Загрузите файл .json из Cookie-Editor или Playwright, либо вставьте его текст. Можно также вставить строку в Base64 - она распакуется автоматически. Аккаунт сразу сохранится в базе Cloudflare D1 и станет доступен как сайту, так и Telegram-боту.
       </p>
 
+      <div style="border:1px solid #242424;padding:12px 14px;margin-bottom:16px;">
+        <div style="font-size:0.88rem;color:#eee;margin-bottom:8px;">Как получить cookies: три шага, без git и без терминала</div>
+        <ol style="margin:0 0 8px 18px;padding:0;font-size:0.8rem;color:#999;line-height:1.65;">
+          <li>Поставьте в браузер расширение <b style="color:#ccc;">Cookie-Editor</b> (Chrome Web Store или Firefox Add-ons). Оно нужно потому, что главная кука <code style="color:#ccc;">sessionid</code> помечена HttpOnly, и обычными средствами страницы её не прочитать.</li>
+          <li>Зайдите на <b style="color:#ccc;">threads.com</b> под нужным аккаунтом. Если аккаунт заходит через Instagram - войдите там, затем откройте threads.com: сессия подхватится.</li>
+          <li>Нажмите Cookie-Editor, затем <b style="color:#ccc;">Export</b> и <b style="color:#ccc;">Export as JSON</b>. Вставьте скопированное в поле ниже. Галочка HttpOnly должна быть включена, иначе <code style="color:#ccc;">sessionid</code> не попадёт в экспорт и аккаунт сохранится нерабочим.</li>
+        </ol>
+        <div style="font-size:0.78rem;color:#777;line-height:1.6;border-top:1px solid #242424;padding-top:8px;">
+          Несколько аккаунтов: экспортируйте их по очереди и вставьте всё разом в поле массовой заливки ниже, разделяя блоки строкой из трёх дефисов.
+        </div>
+      </div>
+
+      <div style="border:1px solid #242424;padding:12px 14px;margin-bottom:16px;background:#161616;">
+        <div style="font-size:0.88rem;color:#eee;margin-bottom:8px;">Почему здесь нет входа по логину и паролю</div>
+        <p style="margin:0;font-size:0.78rem;color:#888;line-height:1.65;">
+          Панель работает на Cloudflare, поэтому любой запущенный ею браузер выходит с датацентрового IP.
+          Вход в Threads с такого адреса Meta почти всегда встречает проверкой с кодом на почту или телефон,
+          а повторяющиеся автоматические попытки приводят к постоянной блокировке аккаунта, а не к рабочей сессии.
+          Кроме того, хранение паролей и ключей 2FA на сервере означает, что при утечке базы скомпрометированы
+          все аккаунты сразу, причём с обходом двухфакторной защиты.
+          Поэтому панель принимает уже готовые cookies: авторизация происходит в вашем браузере, с вашего адреса,
+          а сюда приезжает только результат.
+        </p>
+      </div>
+
       <form id="addAccountForm" onsubmit="submitAccount(event)">
         <div class="form-group">
           <label for="accName">Имя аккаунта (необязательно, можно оставить пустым):</label>
