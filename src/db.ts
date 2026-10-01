@@ -193,11 +193,15 @@ export class Database {
    * Аккаунты, которые не обновлялись дольше указанного срока и нуждаются в автопродлении сессии.
    * Сортировка по возрастанию updated_at: первыми прогреваются самые "холодные",
    * то есть те, у которых больше всего риск потерять сессию.
+   *
+   * Только is_alive=1: сессию, которую Meta уже аннулировала, Keep-Alive оживить не может,
+   * поэтому гонять браузер по мёртвым аккаунтам - пустая трата лимита Browser Rendering.
+   * Их лечит только свежий экспорт cookies; они видны в deadAccountNames() и в суточной сводке.
    */
   async accountsStaleForKeepAlive(hours: number, limit = 3): Promise<string[]> {
     const cutoff = new Date(Date.now() - Math.max(1, hours) * 3_600_000).toISOString();
     const res = await this.db.prepare(
-      "SELECT name FROM threads_accounts WHERE enabled=1 AND (updated_at IS NULL OR updated_at < ?) ORDER BY updated_at ASC LIMIT ?"
+      "SELECT name FROM threads_accounts WHERE enabled=1 AND is_alive=1 AND (updated_at IS NULL OR updated_at < ?) ORDER BY updated_at ASC LIMIT ?"
     ).bind(cutoff, Math.max(1, limit)).all<{ name: string }>();
     return (res.results || []).map(r => String(r.name));
   }
