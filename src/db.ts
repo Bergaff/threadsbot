@@ -182,7 +182,7 @@ export class Database {
   answerTicket(id:number, answer:string) { return this.db.prepare("UPDATE support_tickets SET status='answered',answer=?,answered_at=? WHERE id=?").bind(answer,now(),id).run(); }
 
   async accountCounts() { return await this.db.prepare("SELECT COUNT(*) total,SUM(enabled) enabled,SUM(enabled AND is_alive) alive FROM threads_accounts").first<{total:number;enabled:number;alive:number}>() || {total:0,enabled:0,alive:0}; }
-  async accountStats() { return (await this.db.prepare("SELECT name,is_alive,last_error,requests_count,posts_sent,errors_count,hourly_requests,hourly_reset,last_used,cookies FROM threads_accounts ORDER BY name").all()).results; }
+  async accountStats() { return (await this.db.prepare("SELECT name,is_alive,last_error,requests_count,posts_sent,errors_count,hourly_requests,hourly_reset,last_used,updated_at,cookies FROM threads_accounts ORDER BY name").all()).results; }
   /** Только включенные аккаунты (enabled=1) — для ежедневного автотеста сессий */
   async enabledAccountNames(): Promise<string[]> {
     const res = await this.db.prepare("SELECT name FROM threads_accounts WHERE enabled=1 ORDER BY name").all<{ name: string }>();

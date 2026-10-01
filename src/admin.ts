@@ -118,6 +118,30 @@ export async function handleAdminRoute(request: Request, env: Env): Promise<Resp
     return Response.json(res);
   }
 
+  // Admin API Action: Test / Probe ALL enabled accounts (реальная проверка сессий, а не флаг из базы)
+  if (path === "/admin/api/account/probe-all" && request.method === "POST") {
+    const names = await db.enabledAccountNames();
+    if (!names.length) return Response.json({ ok: false, error: "Нет включённых аккаунтов" }, { status: 400 });
+    const results: Array<{ name: string; ok: boolean; message: string }> = [];
+    for (const name of names) {
+      try {
+        results.push(await probeAccount(env, name));
+      } catch (err) {
+        results.push({ name, ok: false, message: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
+      }
+      // Пауза между запусками браузера, чтобы не упереться в лимит Browser Rendering
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    const dead = results.filter(r => !r.ok).map(r => r.name);
+    return Response.json({
+      ok: dead.length === 0,
+      total: results.length,
+      alive: results.length - dead.length,
+      dead,
+      results,
+    });
+  }
+
   // Admin API Action: Refresh Account Cookies (Автопродление)
   if (path === "/admin/api/account/refresh" && request.method === "POST") {
     const name = url.searchParams.get("name") || "";
@@ -686,14 +710,32 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
       ? `<div style="color:#f87171;font-size:0.72rem;max-width:240px;word-break:break-word;margin-top:2px;">${esc(a.last_error)}</div>`
       : "";
 
+    // Когда статус последний раз подтверждался реальным запросом к Threads.
+    // Без этого зелёный бейдж невозможно отличить от протухшего флага в базе.
+    const verifiedRaw = a.updated_at || a.last_used || "";
+    const verifiedTs = verifiedRaw ? new Date(String(verifiedRaw)).getTime() : 0;
+    let verifiedStr = "никогда";
+    let verifiedStale = true;
+    if (verifiedTs) {
+      const mins = Math.round((Date.now() - verifiedTs) / 60_000);
+      verifiedStr = mins < 1 ? "только что"
+        : mins < 60 ? `${mins} мин. назад`
+        : mins < 1440 ? `${Math.round(mins / 60)} ч. назад`
+        : `${Math.round(mins / 1440)} дн. назад`;
+      // Флаг старше суток считается непроверенным: сессию мог убить checkpoint в любой момент
+      verifiedStale = mins >= 1440;
+    }
+    const verifiedColor = verifiedStale ? "#888" : "#4ade80";
+
     return `
       <tr>
         <td><b>${esc(a.name)}</b></td>
         <td>${a.is_alive ? `<span class="status-badge-ok">Активен</span>` : `<span class="status-badge-err">Ошибка</span>`}</td>
+        <td style="color:${verifiedColor};font-size:0.75rem;white-space:nowrap;" title="Когда статус последний раз менялся реальным запросом к Threads">${esc(verifiedStr)}${verifiedStale ? `<div style="color:#888;font-size:0.68rem;">требует проверки</div>` : ""}</td>
         <td>${a.hourly_requests} / 20</td>
         <td>${a.requests_count}</td>
         <td>${a.errors_count}${errStr}</td>
-        <td>${esc(expiryStr)}${issuesStr}</td>
+        <td>${esc(expiryStr)}${issuesStr}<div style="color:#888;font-size:0.68rem;margin-top:2px;">дата не гарантирует живую сессию</div></td>
         <td>
           <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
             <button class="btn-admin" onclick="refreshAccount(this, '${esc(a.name)}')">Keep-Alive</button>
@@ -737,7 +779,9 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
 
   const deadAlert = (counts.total > 0 && !counts.alive)
     ? `<div style="background:rgba(239,68,68,0.12);border:1px solid #ef4444;color:#ef4444;padding:12px 16px;margin-bottom:14px;font-size:0.88rem;">
-        <b>Внимание:</b> Все технические аккаунты Threads находятся в статусе ошибки. Нажмите кнопку <b>«Сбросить статусы в Alive»</b> выше, чтобы вернуть их в строй и разблокировать загрузку страниц.
+        <b>Внимание:</b> все технические аккаунты Threads помечены как нерабочие. Это значит, что Meta аннулировала их сессии.
+        <div style="margin-top:6px;">Нужно зайти в Threads под каждым аккаунтом заново и залить свежий JSON через форму ниже.</div>
+        <div style="margin-top:6px;color:#fca5a5;">Кнопка «Сбросить статусы в Alive» здесь не поможет: она только перерисует бейджи в зелёный, а сессии останутся мёртвыми, и сайт снова начнёт отдавать ошибки.</div>
       </div>`
     : "";
 
@@ -1037,14 +1081,18 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         <div class="admin-card-title" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">
           Технические аккаунты Threads (${stats.length})
         </div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn-admin btn-admin-primary" onclick="refreshAllAccounts(this)">Автообновление всех куки (Keep-Alive)</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn-admin btn-admin-primary" onclick="probeAllAccounts(this)">Проверить все сессии</button>
+          <button class="btn-admin" onclick="refreshAllAccounts(this)">Автообновление всех куки (Keep-Alive)</button>
           <button class="btn-admin" onclick="resetStatuses(this)">Сбросить статусы в Alive</button>
         </div>
       </div>
 
       ${deadAlert}
 
+      <p style="font-size:0.78rem;color:#888;margin-bottom:10px;">
+        <b>Проверить все сессии:</b> реально открывает Threads в браузере под каждым аккаунтом и смотрит, авторизована ли сессия. Это единственный способ узнать правду - колонка «Статус» хранит кешированный флаг, а колонка «Срок куки» проверяет только дату, которая не меняется, даже когда Meta уже аннулировала сессию на своей стороне.
+      </p>
       <p style="font-size:0.78rem;color:#888;margin-bottom:10px;">
         <b>Keep-Alive:</b> открывает Threads в фоновом браузере, подтверждает активность сессии в Meta и синхронизирует новые токены. Срок действия сессии (Expires) задается Meta при входе. Когда срок сессии завершится, просто вставьте свежий JSON через форму ниже.
       </p>
@@ -1055,6 +1103,7 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
             <tr>
               <th>Имя</th>
               <th>Статус</th>
+              <th>Проверен</th>
               <th>Лимит / час</th>
               <th>Запросов</th>
               <th>Ошибок</th>
@@ -1063,7 +1112,7 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
             </tr>
           </thead>
           <tbody>
-            ${tableRows || '<tr><td colspan="7" style="text-align:center;color:#777;padding:16px;">Аккаунтов нет. Добавьте первый JSON ниже.</td></tr>'}
+            ${tableRows || '<tr><td colspan="8" style="text-align:center;color:#777;padding:16px;">Аккаунтов нет. Добавьте первый JSON ниже.</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -1328,6 +1377,39 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
             ind.title = 'Ошибка сети: ' + err;
           }
           showToast('Сетевая ошибка при запуске теста: ' + err, 5000);
+        });
+    }
+
+    function probeAllAccounts(btn) {
+      if (!confirm('Проверить сессии всех аккаунтов?\\n\\nДля каждого будет запущен браузер Threads, это займёт примерно по 10 секунд на аккаунт.')) return;
+      var orig = btn ? btn.innerText : '';
+      if (btn) { btn.disabled = true; btn.innerText = 'Проверка сессий...'; }
+      showToast('Проверяем сессии всех аккаунтов в браузере Threads...', 0);
+      fetch('/admin/api/account/probe-all', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          if (data.error) { showToast('Ошибка: ' + data.error, 6000); return; }
+          var dead = data.dead || [];
+          if (dead.length === 0) {
+            showToast('Все аккаунты (' + data.total + ') авторизованы и работают', 6000);
+          } else {
+            showToast('Мёртвые сессии (' + dead.length + ' из ' + data.total + '): ' + dead.join(', ') + '. Нужны свежие cookies.', 12000);
+          }
+          // Подсвечиваем результат прямо в таблице, не перезагружая страницу сразу
+          (data.results || []).forEach(function(res) {
+            var ind = document.getElementById('test-res-' + res.name);
+            if (!ind) return;
+            ind.style.display = 'inline-flex';
+            ind.className = 'test-indicator ' + (res.ok ? 'test-indicator-ok' : 'test-indicator-err');
+            ind.innerText = res.ok ? 'OK' : '!';
+            ind.title = res.name + ': ' + (res.message || '');
+          });
+          setTimeout(function() { window.location.reload(); }, 2500);
+        })
+        .catch(function(err) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          showToast('Сетевая ошибка при проверке: ' + err, 6000);
         });
     }
 
