@@ -1,7 +1,7 @@
 import type { BrowserContext, Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
 import { diagnoseAccountCookies, playwrightCookies, snapshotHasSession } from "./cookies";
-import { isHomeRedirect, isLoginUrl, isUserNotFoundPage } from "./profile";
+import { isLoginUrl, isProfileUrl, isThreadsHost, isUserNotFoundPage } from "./profile";
 import { cleanPostText } from "./i18n";
 
 export {
@@ -52,6 +52,8 @@ type Account = { name: string; cookies: string; hourly_requests: number; hourly_
 type Opened = { browser: any; context: BrowserContext; page: Page; startedAt: number };
 
 const FREE_BROWSER_INTERVAL_MS = 3_000;
+/** Эталонный публичный профиль для проверки живости сессии аккаунта-скрапера. */
+const PROBE_USERNAME = "zuck";
 const BASE = (env: Env) => env.BASE_URL || "https://www.threads.com";
 const iso = () => new Date().toISOString();
 export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -457,74 +459,267 @@ async function collectPosts(page: Page, target = 20, expectedUsername?: string):
   return all.slice(0, target);
 }
 
-async function checkProfile(page: Page, env: Env, username: string): Promise<ThreadsStatus | null> {
+/**
+ * Вердикт проверки профиля.
+ *
+ * "ok"              - страница профиля отрендерилась
+ * "session_expired" - сессия аккаунта мертва (редирект на /login или форма входа)
+ * "user_not_found"  - ЕСТЬ положительное доказательство, что профиля не существует
+ * "inconclusive"    - доказательств нет (таймаут навигации, about:blank, пустой DOM).
+ *                     Это НЕ "профиль не найден" - нужно попробовать другой аккаунт.
+ */
+export type ProfileVerdict = "ok" | "user_not_found" | "session_expired" | "inconclusive";
+
+const CONTENT_SELECTOR = 'div[data-pressable-container="true"],article,div[role="article"],header,div[role="banner"],main';
+
+const LOGGED_OUT_MARKERS = [
+  "log in with instagram",
+  "log in to threads",
+  "sign up with instagram",
+  "войти через instagram",
+  "войти с помощью instagram",
+  "войти в threads",
+  "зарегистрироваться через instagram",
+];
+
+function hasLoggedOutMarkers(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  return LOGGED_OUT_MARKERS.some(m => t.includes(m));
+}
+
+async function checkProfile(page: Page, env: Env, username: string): Promise<ProfileVerdict> {
   const cleanUser = username.toLowerCase().replace(/^@/, "");
   const targetUrl = `${BASE(env)}/@${cleanUser}`;
-  await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 20_000 }).catch(() => {});
-  await sleep(1800);
-  const currentUrl = page.url();
 
-  // 1. Проверка на редирект на /login (сессия истекла, куки недействительны или Meta требует авторизацию)
+  // Навигация с одной повторной попыткой. ВАЖНО: не глушим ошибку молча -
+  // упавшая навигация оставляет about:blank, и раньше это превращалось в ложный user_not_found.
+  let response: any = null;
+  let navError: string | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    navError = null;
+    try {
+      response = await page.goto(targetUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: attempt === 0 ? 20_000 : 15_000,
+      });
+      break;
+    } catch (e) {
+      navError = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+    }
+  }
+
+  // Даем SPA React смонтироваться, но не дольше необходимого
+  await page.waitForSelector(CONTENT_SELECTOR, { timeout: 5_000 }).catch(() => {});
+
+  const currentUrl = page.url();
+  let httpStatus = 0;
+  try { httpStatus = response ? await response.status() : 0; } catch { httpStatus = 0; }
+
+  // 1. Навигация не удалась и мы не на Threads -> доказательств нет
+  if (!isThreadsHost(currentUrl)) {
+    await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: навигация не завершилась (url=${currentUrl || "пусто"}, status=${httpStatus || "нет"}, ошибка=${navError || "нет"}) - вердикт не вынесен`);
+    return "inconclusive";
+  }
+
+  // 2. Редирект на /login = мертвая сессия аккаунта-скрапера
   if (isLoginUrl(currentUrl)) {
     return "session_expired";
   }
 
-  // 2. Проверка на редирект в общую ленту / главную страницу
-  if (isHomeRedirect(currentUrl, cleanUser)) {
-    const isLoggedOut = await page.evaluate(() => {
-      const body = (document.body ? document.body.innerText : "").toLowerCase();
-      return body.includes("log in with instagram") || body.includes("войти через instagram") || body.includes("войти с помощью instagram");
-    }).catch(() => false);
-    if (isLoggedOut) {
-      return "session_expired";
-    }
+  // 3. Threads сам вернул 404 для URL профиля = сильное доказательство отсутствия
+  if (httpStatus === 404) {
+    return "user_not_found";
+  }
+  if (httpStatus >= 500 || httpStatus === 429) {
+    await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: Threads вернул HTTP ${httpStatus} - вердикт не вынесен`);
+    return "inconclusive";
+  }
+
+  // 4. Считываем DOM один раз
+  const snapshot = await page.evaluate(() => {
+    const body = document.body ? document.body.innerText : "";
+    return {
+      body,
+      title: document.title || "",
+      url: location.href,
+      hasContent: Boolean(document.querySelector('div[data-pressable-container="true"],article,div[role="article"],header,div[role="banner"],main')),
+    };
+  }).catch(() => null);
+
+  if (!snapshot) {
+    await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: не удалось прочитать DOM - вердикт не вынесен`);
+    return "inconclusive";
+  }
+
+  // 5. Форма входа на странице = сессия мертва (даже если URL не сменился)
+  if (hasLoggedOutMarkers(snapshot.body) || hasLoggedOutMarkers(snapshot.title)) {
+    return "session_expired";
+  }
+
+  // 6. Явный текст "страница недоступна / аккаунт не найден" = доказательство отсутствия
+  if (isUserNotFoundPage(snapshot.title) || isUserNotFoundPage(snapshot.body)) {
     return "user_not_found";
   }
 
-  // 3. Проверка текста страницы и заголовка окна на маркеры "Страница недоступна / не найдена"
-  const pageCheck = await page.evaluate(() => {
-    const body = (document.body ? document.body.innerText : "");
-    const title = document.title || "";
-    return { body, title };
-  }).catch(() => null);
-
-  if (pageCheck) {
-    if (isUserNotFoundPage(pageCheck.body) || isUserNotFoundPage(pageCheck.title)) {
-      return "user_not_found";
-    }
+  // 7. Авторизованная сессия выброшена с URL профиля на ленту/главную.
+  //    Именно так Threads ведёт себя с несуществующими профилями.
+  const path = (() => {
+    try { return new URL(currentUrl).pathname.toLowerCase().replace(/\/+$/, ""); } catch { return ""; }
+  })();
+  const FEED_PATHS = ["", "/", "/for_you", "/following", "/home", "/explore"];
+  if (FEED_PATHS.includes(path)) {
+    await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: Threads увёл сессию с профиля на ленту (${currentUrl})`);
+    return "user_not_found";
   }
 
-  // 4. Проверка наличия контента (даем время SPA React дорендерить элементы)
-  let hasContent = await page.evaluate(() => {
-    return Boolean(
-      document.querySelector('div[data-pressable-container="true"],article,div[role="article"]') ||
-      document.querySelector('header,div[role="banner"],main')
-    );
-  }).catch(() => false);
-
-  if (!hasContent) {
-    await sleep(2000);
-    hasContent = await page.evaluate(() => {
-      return Boolean(
-        document.querySelector('div[data-pressable-container="true"],article,div[role="article"]') ||
-        document.querySelector('header,div[role="banner"],main')
-      );
-    }).catch(() => false);
+  // 8. Ушли куда-то ещё (checkpoint, интерстициал, чужой профиль) - доказательств нет
+  if (!isProfileUrl(currentUrl, cleanUser)) {
+    await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: Threads увёл сессию на ${currentUrl} - вердикт не вынесен`);
+    return "inconclusive";
   }
 
-  if (!hasContent) {
-    const checkSecond = await page.evaluate(() => {
-      const body = (document.body ? document.body.innerText : "");
-      const title = document.title || "";
-      return { body, title };
-    }).catch(() => null);
-    if (checkSecond && (isUserNotFoundPage(checkSecond.body) || isUserNotFoundPage(checkSecond.title))) {
-      return "user_not_found";
-    }
-    return "service_error";
+  // 9. Контент отрендерился - профиль существует
+  if (snapshot.hasContent) {
+    return "ok";
   }
 
-  return null;
+  // 10. Пустой DOM без единого маркера. Раньше здесь возвращался user_not_found -
+  //     это и была причина ложных 404 на существующих профилях.
+  await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: страница ${snapshot.url} не отдала контент (title="${(snapshot.title || "").slice(0, 60)}", body=${(snapshot.body || "").length} симв.) - вердикт не вынесен`);
+  return "inconclusive";
+}
+
+/** Состояние голосования аккаунтов за вердикт "профиль не найден". */
+type VerdictState = {
+  notFoundVotes: string[];
+  inconclusiveAccounts: string[];
+  requiredVotes: number;
+};
+
+async function newVerdictState(env: Env): Promise<VerdictState> {
+  let aliveCount = 0;
+  try {
+    const row = await env.DB
+      .prepare("SELECT COUNT(*) AS c FROM threads_accounts WHERE enabled=1 AND is_alive=1")
+      .first<{ c: number }>();
+    aliveCount = Number(row?.c || 0);
+  } catch {
+    aliveCount = 0;
+  }
+  // Отсутствие профиля должны подтвердить минимум два независимых аккаунта,
+  // иначе один глючный аккаунт отравляет кеш на всех пользователей.
+  return { notFoundVotes: [], inconclusiveAccounts: [], requiredVotes: aliveCount >= 2 ? 2 : 1 };
+}
+
+type VerdictOutcome =
+  | { action: "proceed" }
+  | { action: "rotate" }
+  | { action: "return"; status: ThreadsStatus; account?: string; error?: string };
+
+/**
+ * Единая точка принятия решения по вердикту checkProfile.
+ * Ключевой принцип: user_not_found возвращается только при положительном
+ * доказательстве, подтверждённом кворумом аккаунтов и не опровергнутом
+ * независимой HTTP-проверкой публичной страницы профиля.
+ */
+async function resolveVerdict(
+  env: Env,
+  account: Account,
+  username: string,
+  verdict: ProfileVerdict,
+  state: VerdictState
+): Promise<VerdictOutcome> {
+  if (verdict === "ok") return { action: "proceed" };
+
+  if (verdict === "session_expired") {
+    await logSystem(env, "warn", "scraper", `Сессия истекла у аккаунта [${account.name}] при запросе @${username}`);
+    await markSessionExpired(env, account.name);
+    return { action: "rotate" };
+  }
+
+  if (verdict === "inconclusive") {
+    state.inconclusiveAccounts.push(account.name);
+    await logSystem(env, "warn", "scraper", `Аккаунт [${account.name}] не смог достоверно проверить @${username} - пробуем следующий аккаунт`);
+    await markTransientError(env, account.name, new Error("Проверка профиля не дала однозначного результата"));
+    return { action: "rotate" };
+  }
+
+  // verdict === "user_not_found"
+  // ВЕТО: независимая HTTP-проверка публичной страницы профиля без браузера и без куки.
+  const existsPublicly = await publicProfileExists(username);
+  if (existsPublicly === true) {
+    state.inconclusiveAccounts.push(account.name);
+    await logSystem(env, "warn", "scraper", `Аккаунт [${account.name}] сообщил, что @${username} не найден, но публичная страница Threads подтверждает существование профиля. Вердикт отклонён, пробуем другой аккаунт`);
+    await markTransientError(env, account.name, new Error("Ложный user_not_found: профиль существует публично"));
+    return { action: "rotate" };
+  }
+
+  state.notFoundVotes.push(account.name);
+  await logSystem(env, "warn", "scraper", `Аккаунт [${account.name}] сообщил, что @${username} не найден (голос ${state.notFoundVotes.length} из ${state.requiredVotes}, HTTP-проверка: ${existsPublicly === false ? "подтверждает 404" : "не дала ответа"})`);
+
+  if (existsPublicly === false || state.notFoundVotes.length >= state.requiredVotes) {
+    await logSystem(env, "warn", "scraper", `Отсутствие @${username} подтверждено (${state.notFoundVotes.join(", ")}). Возвращаем user_not_found`);
+    return { action: "return", status: "user_not_found", account: state.notFoundVotes.join(", ") };
+  }
+  return { action: "rotate" };
+}
+
+/** Итог, когда доступные аккаунты закончились, а однозначного ответа нет. */
+function verdictOnExhaustion(username: string, state: VerdictState, tried: string[]): VerdictOutcome & { action: "return" } {
+  if (state.notFoundVotes.length > 0) {
+    return { action: "return", status: "user_not_found", account: state.notFoundVotes.join(", ") };
+  }
+  if (state.inconclusiveAccounts.length > 0) {
+    // Ни один аккаунт не дал достоверного ответа.
+    // Это НЕ "профиль не найден" - отрицательный кеш писать нельзя.
+    return {
+      action: "return",
+      status: "service_error",
+      account: state.inconclusiveAccounts.join(", "),
+      error: "Аккаунты-скраперы не смогли достоверно проверить профиль",
+    };
+  }
+  return { action: "return", status: "all_dead", account: tried.join(", ") || undefined };
+}
+
+/**
+ * Независимая HTTP-проверка существования профиля без браузера.
+ * Используется ТОЛЬКО чтобы наложить вето на user_not_found:
+ * если публичная страница профиля отвечает 200 и содержит username в title/og:title,
+ * значит профиль существует и объявлять его отсутствующим нельзя.
+ *
+ * Возвращает: true - профиль точно существует, false - точно отсутствует (404), null - неизвестно.
+ */
+async function publicProfileExists(username: string): Promise<boolean | null> {
+  const clean = username.toLowerCase().replace(/^@/, "");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 9_000);
+  try {
+    const res = await fetch(`https://www.threads.net/@${clean}`, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+      },
+    });
+    if (res.status === 404) return false;
+    if (!res.ok) return null;
+    const html = await res.text();
+    if (!html) return null;
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const ogTitleMatch = html.match(/property=["']og:title["'][^>]*content=["']([\s\S]*?)["']/i)
+      || html.match(/content=["']([\s\S]*?)["'][^>]*property=["']og:title["']/i);
+    const haystack = `${titleMatch?.[1] || ""} ${ogTitleMatch?.[1] || ""}`.toLowerCase();
+    if (haystack.includes(clean)) return true;
+    if (isUserNotFoundPage(html.slice(0, 20_000))) return false;
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function chooseAccount(env: Env, tried: string[]): Promise<Account | null> {
@@ -665,11 +860,22 @@ export async function fetchProfileWithPosts(
   amount = 20
 ): Promise<{ data: ProfileData | null; status: ThreadsStatus; account?: string; error?: string }> {
   const tried: string[] = [];
+  const state = await newVerdictState(env);
+
   while (true) {
     const account = await chooseAccount(env, tried);
     if (!account) {
-      await logSystem(env, "error", "scraper", `Все аккаунты недоступны (all_dead) для @${username}. Проверено: ${tried.join(", ") || "нет доступных"}`);
-      return { data: null, status: "all_dead" };
+      // Аккаунты закончились. Решаем по накопленным голосам.
+      const outcome = verdictOnExhaustion(username, state, tried);
+      await logSystem(
+        env,
+        outcome.status === "user_not_found" ? "warn" : "error",
+        "scraper",
+        `@${username}: аккаунты исчерпаны (проверено: ${tried.join(", ") || "нет доступных"}). ` +
+        `Голосов за отсутствие: ${state.notFoundVotes.length}/${state.requiredVotes}, ` +
+        `недостоверных: ${state.inconclusiveAccounts.length}. Итог: ${outcome.status}`
+      );
+      return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
     }
     tried.push(account.name);
     let opened: Opened | undefined;
@@ -688,16 +894,13 @@ export async function fetchProfileWithPosts(
         } catch {}
       });
 
-      const invalid = await checkProfile(opened.page, env, username);
-      if (invalid === "session_expired") {
-        await logSystem(env, "warn", "scraper", `Сессия истекла у аккаунта [${account.name}] при запросе @${username}`);
-        await markSessionExpired(env, account.name);
-        continue;
+      const verdict = await checkProfile(opened.page, env, username);
+      const outcome = await resolveVerdict(env, account, username, verdict, state);
+      if (outcome.action === "rotate") continue;
+      if (outcome.action === "return") {
+        return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
       }
-      if (invalid) {
-        await logSystem(env, "warn", "scraper", `Проверка @${username} вернула статус: ${invalid} (аккаунт: ${account.name})`);
-        return { data: null, status: invalid, account: account.name };
-      }
+
       const profile = await collectProfileHeader(opened.page, username);
       const posts = await collectPosts(opened.page, amount, username);
       let vIdx = 0;
@@ -733,16 +936,21 @@ export async function fetchProfileWithPosts(
 
 export async function fetchPosts(env: Env, username: string, mode: "text" | "img", amount = 20): Promise<{ data: Post[] | null; status: ThreadsStatus; account?: string; error?: string }> {
   const tried: string[] = [];
+  const state = await newVerdictState(env);
   while (true) {
     const account = await chooseAccount(env, tried);
-    if (!account) return { data: null, status: "all_dead" };
+    if (!account) {
+      const outcome = verdictOnExhaustion(username, state, tried);
+      return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
+    }
     tried.push(account.name);
     let opened: Opened | undefined;
     try {
       opened = await openBrowser(env, account);
-      const invalid = await checkProfile(opened.page, env, username);
-      if (invalid === "session_expired") { await markSessionExpired(env, account.name); continue; }
-      if (invalid) return { data: null, status: invalid, account: account.name };
+      const verdict = await checkProfile(opened.page, env, username);
+      const outcome = await resolveVerdict(env, account, username, verdict, state);
+      if (outcome.action === "rotate") continue;
+      if (outcome.action === "return") return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
       let data = await collectPosts(opened.page, amount, username);
       if (!data.length) return { data: null, status: "no_posts", account: account.name };
       if (mode === "img") data = await capturePosts(opened.page, data);
@@ -838,16 +1046,21 @@ async function collectComments(page: Page, target = 20): Promise<Comment[]> {
 
 export async function fetchComments(env: Env, username: string, index: number, amount = 20): Promise<{ data: Comment[] | null; status: ThreadsStatus; account?: string; error?: string }> {
   const tried: string[] = [];
+  const state = await newVerdictState(env);
   while (true) {
     const account = await chooseAccount(env, tried);
-    if (!account) return { data: null, status: "all_dead" };
+    if (!account) {
+      const outcome = verdictOnExhaustion(username, state, tried);
+      return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
+    }
     tried.push(account.name);
     let opened: Opened | undefined;
     try {
       opened = await openBrowser(env, account);
-      const invalid = await checkProfile(opened.page, env, username);
-      if (invalid === "session_expired") { await markSessionExpired(env, account.name); continue; }
-      if (invalid) return { data: null, status: invalid, account: account.name };
+      const verdict = await checkProfile(opened.page, env, username);
+      const outcome = await resolveVerdict(env, account, username, verdict, state);
+      if (outcome.action === "rotate") continue;
+      if (outcome.action === "return") return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
       const posts = await collectPosts(opened.page, index + 3, username);
       if (index >= posts.length) return { data: null, status: "post_not_found", account: account.name };
       const search = posts[index].text.slice(0, 50);
@@ -906,18 +1119,30 @@ export async function probeAccount(env: Env, name: string): Promise<{ name: stri
   try {
     await logSystem(env, "info", "probe", `Запуск теста сессии для [${name}] в браузере Threads...`);
     opened = await openBrowser(env, account);
-    await opened.page.goto(`${BASE(env)}/@zuck`, { waitUntil: "domcontentloaded", timeout: 20_000 }).catch(() => {});
-    await sleep(2000);
-    const probeUrl = opened.page.url();
-    const isLoggedOut = isLoginUrl(probeUrl) || await opened.page.evaluate(() => {
-      const body = (document.body ? document.body.innerText : "").toLowerCase();
-      return body.includes("log in with instagram") || body.includes("войти через instagram") || body.includes("войти с помощью instagram");
-    }).catch(() => false);
 
-    if (isLoggedOut) {
+    // Тестируем на эталонном публичном профиле, который гарантированно существует.
+    // Используем ту же логику вердиктов, что и боевой скрапер, чтобы тест не расходился с реальностью.
+    const verdict = await checkProfile(opened.page, env, PROBE_USERNAME);
+
+    if (verdict === "session_expired") {
       await markSessionExpired(env, name);
       await logSystem(env, "error", "probe", `Тест [${name}] провален: сессия истекла (требуется вход в аккаунт)`);
       return { name, ok: false, message: "Сессия истекла в Threads (требуется вход в аккаунт)" };
+    }
+
+    if (verdict === "inconclusive") {
+      // Эталонный профиль не открылся, но и явных признаков мертвой сессии нет.
+      // Не помечаем аккаунт живым - иначе тест будет врать, как раньше.
+      await markTransientError(env, name, new Error("Probe: эталонный профиль не открылся"));
+      await logSystem(env, "warn", "probe", `Тест [${name}] не дал однозначного результата: страница @${PROBE_USERNAME} не открылась (таймаут или пустой DOM)`);
+      return { name, ok: false, message: `Не удалось открыть эталонный профиль @${PROBE_USERNAME} (таймаут или пустая страница)` };
+    }
+
+    if (verdict === "user_not_found") {
+      // @zuck существует всегда. Если аккаунт его "не видит", сессия фактически нерабочая.
+      await markTransientError(env, name, new Error("Probe: эталонный профиль не найден"));
+      await logSystem(env, "error", "probe", `Тест [${name}] провален: аккаунт не видит эталонный профиль @${PROBE_USERNAME} - сессия нерабочая`);
+      return { name, ok: false, message: `Аккаунт не видит эталонный профиль @${PROBE_USERNAME} - сессия нерабочая` };
     }
     let updated: string | null = null;
     try {

@@ -836,10 +836,25 @@ export default {
           return res;
         }
 
+        // Все остальные статусы (service_error, all_dead, browser_busy, no_posts...) -
+        // это временные проблемы скрапера, а НЕ отсутствие профиля.
+        // Их нельзя кешировать как 404, иначе пользователь застрянет на ложном "не найден".
+        const transientMessage = fetched.status === "all_dead"
+          ? "Все технические аккаунты временно недоступны. Повторите запрос через минуту."
+          : fetched.status === "browser_busy"
+            ? "Браузер Threads сейчас занят. Повторите запрос через 30 секунд."
+            : "Не удалось получить ответ от Threads. Повторите запрос через минуту.";
+        await logSystem(env, "warn", "api", `[API_TRANSIENT] @${username}: status=${fetched.status}, отрицательный кеш НЕ записан`);
         return Response.json({
           ok: false,
           status: fetched.status,
-          error: fetched.error || fetched.status,
+          error: transientMessage,
+          retryAfter: 60,
+        }, {
+          status: 503,
+          headers: {
+            "cache-control": "no-store, max-age=0",
+          },
         });
       } catch (err) {
         await logSystem(env, "error", "api", `[API_EXCEPTION] Ошибка сбора @${username}: ${err}`);

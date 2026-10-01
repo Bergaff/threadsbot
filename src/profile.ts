@@ -39,8 +39,38 @@ export function isUserNotFoundPage(body: string): boolean {
   return NOT_FOUND_MARKERS.some(marker => text.includes(marker.toLowerCase()));
 }
 
+/** URL вообще относится к Threads? about:blank, пустая строка и чужие хосты - нет. */
+export function isThreadsHost(url: string): boolean {
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host === "threads.com" || host.endsWith(".threads.com") ||
+      host === "threads.net" || host.endsWith(".threads.net")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Мы стоим именно на странице запрошенного профиля (/@username или /@username/post/...)? */
+export function isProfileUrl(url: string, username: string): boolean {
+  if (!url) return false;
+  try {
+    const path = new URL(url).pathname.toLowerCase().replace(/\/+$/, "");
+    const clean = username.toLowerCase().replace(/^@/, "");
+    return path === `/@${clean}` || path.startsWith(`/@${clean}/`);
+  } catch {
+    return false;
+  }
+}
+
 export function isHomeRedirect(currentUrl: string, expectedUsername: string): boolean {
   try {
+    // ВАЖНО: about:blank / таймаут навигации / чужой хост - это НЕ редирект на главную.
+    // Раньше about:blank давал pathname "blank", не содержащий username, и профиль
+    // ошибочно объявлялся несуществующим.
+    if (!isThreadsHost(currentUrl)) return false;
     const parsed = new URL(currentUrl);
     const path = parsed.pathname.toLowerCase().replace(/\/+$/, "");
     const cleanUser = expectedUsername.toLowerCase().replace(/^@/, "");

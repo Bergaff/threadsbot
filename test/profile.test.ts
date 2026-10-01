@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectBotType, isHomeRedirect, isLoginUrl, isUserNotFoundPage } from "../src/profile";
+import { detectBotType, isHomeRedirect, isLoginUrl, isProfileUrl, isThreadsHost, isUserNotFoundPage } from "../src/profile";
 
 describe("detectBotType", () => {
   it("detects search bots and SEO crawlers correctly", () => {
@@ -50,5 +50,42 @@ describe("isHomeRedirect", () => {
     expect(isHomeRedirect("https://www.threads.com/@4a.cev", "4a.cev")).toBe(false);
     expect(isHomeRedirect("https://www.threads.com/@4a.cev/post/123", "4a.cev")).toBe(false);
     expect(isHomeRedirect("https://www.threads.com/@zuck", "4a.cev")).toBe(true);
+  });
+
+  it("REGRESSION: never treats a failed navigation as a home redirect", () => {
+    // about:blank даёт pathname "blank", который не содержит username.
+    // Раньше из-за этого существующий профиль объявлялся несуществующим.
+    expect(isHomeRedirect("about:blank", "xuxukit")).toBe(false);
+    expect(isHomeRedirect("", "xuxukit")).toBe(false);
+    expect(isHomeRedirect("https://example.com/@xuxukit", "xuxukit")).toBe(false);
+    expect(isHomeRedirect("not a url", "xuxukit")).toBe(false);
+  });
+});
+
+describe("isThreadsHost", () => {
+  it("accepts only Threads origins", () => {
+    expect(isThreadsHost("https://www.threads.com/@zuck")).toBe(true);
+    expect(isThreadsHost("https://threads.com/@zuck")).toBe(true);
+    expect(isThreadsHost("https://www.threads.net/@zuck")).toBe(true);
+    expect(isThreadsHost("https://l.threads.com/")).toBe(true);
+    expect(isThreadsHost("about:blank")).toBe(false);
+    expect(isThreadsHost("")).toBe(false);
+    expect(isThreadsHost("https://evil-threads.com/@zuck")).toBe(false);
+    expect(isThreadsHost("https://threads.com.evil.test/@zuck")).toBe(false);
+  });
+});
+
+describe("isProfileUrl", () => {
+  it("matches only the requested profile page", () => {
+    expect(isProfileUrl("https://www.threads.com/@xuxukit", "xuxukit")).toBe(true);
+    expect(isProfileUrl("https://www.threads.com/@xuxukit/", "xuxukit")).toBe(true);
+    expect(isProfileUrl("https://www.threads.com/@xuxukit/post/123", "xuxukit")).toBe(true);
+    expect(isProfileUrl("https://www.threads.com/@XUXUKIT", "xuxukit")).toBe(true);
+    expect(isProfileUrl("https://www.threads.com/@xuxukit", "@xuxukit")).toBe(true);
+    expect(isProfileUrl("https://www.threads.com/", "xuxukit")).toBe(false);
+    expect(isProfileUrl("https://www.threads.com/@other", "xuxukit")).toBe(false);
+    expect(isProfileUrl("https://www.threads.com/checkpoint/", "xuxukit")).toBe(false);
+    expect(isProfileUrl("about:blank", "xuxukit")).toBe(false);
+    expect(isProfileUrl("", "xuxukit")).toBe(false);
   });
 });
