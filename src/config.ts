@@ -19,6 +19,8 @@ export interface Env {
   SPONSOR_EN_URL?: string;
   SPONSOR_EN_TITLE?: string;
   SPONSOR_EN_DESC?: string;
+  /** Как часто прогревать каждый аккаунт, чтобы Meta продлевала sessionid (часы). */
+  KEEPALIVE_HOURS?: string;
 }
 
 export const LIMITS = {

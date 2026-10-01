@@ -97,6 +97,58 @@ export async function handleAdminRoute(request: Request, env: Env): Promise<Resp
     }
   }
 
+  // Admin API Action: Bulk add accounts (массовая заливка куки, чтобы не заполнять форму на каждый аккаунт)
+  if (path === "/admin/api/account/add-bulk" && request.method === "POST") {
+    try {
+      const formData = await request.formData();
+      const raw = String(formData.get("bulk") || "").trim();
+      if (!raw) return Response.json({ ok: false, error: "Пусто" }, { status: 400 });
+
+      // Блоки разделяются строкой из трёх дефисов. Первая строка блока - имя, остальное - JSON.
+      const chunks = raw.split(/^\s*---\s*$/m).map(c => c.trim()).filter(Boolean);
+      const results: Array<{ name: string; ok: boolean; message: string; expiry?: number | null }> = [];
+
+      for (const chunk of chunks) {
+        const lines = chunk.split("\n");
+        let name = "";
+        let jsonLines = lines;
+        const first = (lines[0] || "").trim();
+        if (first && !first.startsWith("[") && !first.startsWith("{")) {
+          name = first.replace(/[^\w.-]/g, "_").slice(0, 64);
+          jsonLines = lines.slice(1);
+        }
+        if (!name) name = "acc_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+
+        const jsonContent = jsonLines.join("\n").trim();
+        if (!jsonContent) {
+          results.push({ name, ok: false, message: "Нет JSON с cookies" });
+          continue;
+        }
+        const normalized = normalizeCookiesJson(jsonContent);
+        if (!normalized.ok) {
+          results.push({ name, ok: false, message: normalized.error });
+          continue;
+        }
+        const diagnosis = diagnoseAccountCookies(name, true, normalized.json);
+        const isAlive = !diagnosis.missingKeys.includes("sessionid");
+        await db.accountUpsert(name, normalized.json, isAlive, isAlive ? null : "Нет sessionid");
+        results.push({
+          name,
+          ok: isAlive,
+          message: isAlive
+            ? `Сохранён, cookies: ${diagnosis.cookieCount}`
+            : `Сохранён, но нет sessionid: ${diagnosis.issues.join("; ")}`,
+          expiry: diagnosis.expiresAt,
+        });
+      }
+
+      const okCount = results.filter(r => r.ok).length;
+      return Response.json({ ok: okCount > 0, total: results.length, saved: okCount, results });
+    } catch (err) {
+      return Response.json({ ok: false, error: String(err) }, { status: 500 });
+    }
+  }
+
   // Admin API Action: Delete Account
   if (path === "/admin/api/account/delete" && request.method === "POST") {
     const name = url.searchParams.get("name") || "";
@@ -1142,6 +1194,20 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         </button>
         <div id="accFormMsg" style="display:none;margin-top:12px;padding:10px 14px;border:1px solid transparent;font-size:0.85rem;line-height:1.4;"></div>
       </form>
+
+      <div style="border-top:1px solid #242424;margin-top:18px;padding-top:14px;">
+        <div class="admin-card-title" style="font-size:0.95rem;">Массовая заливка нескольких аккаунтов</div>
+        <p style="font-size:0.78rem;color:#888;margin-bottom:10px;">
+          Чтобы не заполнять форму на каждый аккаунт отдельно, вставьте все экспорты сразу.
+          Блоки разделяются строкой из трёх дефисов. Первая строка блока - имя аккаунта, дальше JSON из Cookie-Editor.
+        </p>
+        <div class="form-group">
+          <label for="accBulk">Аккаунты (имя + JSON, разделитель ---):</label>
+          <textarea id="accBulk" rows="8" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:0.75rem;" placeholder="wolf.8385407&#10;[{&quot;name&quot;:&quot;sessionid&quot;,...}]&#10;---&#10;lion.2795153&#10;[{&quot;name&quot;:&quot;sessionid&quot;,...}]"></textarea>
+        </div>
+        <button type="button" class="btn-admin" id="bulkAccBtn" onclick="submitBulkAccounts(this)">Сохранить все аккаунты</button>
+        <div id="bulkAccMsg" style="display:none;margin-top:12px;padding:10px 14px;border:1px solid #242424;font-size:0.82rem;line-height:1.5;"></div>
+      </div>
     </section>
 
     <section class="admin-card">
@@ -1380,8 +1446,53 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         });
     }
 
+    function submitBulkAccounts(btn) {
+      var ta = document.getElementById('accBulk');
+      var box = document.getElementById('bulkAccMsg');
+      var raw = ta ? ta.value.trim() : '';
+      if (!raw) {
+        if (box) {
+          box.style.display = 'block';
+          box.style.borderColor = '#ef4444';
+          box.style.color = '#f87171';
+          box.innerText = 'Поле пустое. Вставьте блоки "имя + JSON", разделённые строкой из трёх дефисов.';
+        }
+        return;
+      }
+      var orig = btn ? btn.innerText : '';
+      if (btn) { btn.disabled = true; btn.innerText = 'Сохранение...'; }
+      var form = new FormData();
+      form.append('bulk', raw);
+      fetch('/admin/api/account/add-bulk', { method: 'POST', body: form })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          if (!box) return;
+          box.style.display = 'block';
+          if (data.error) {
+            box.style.borderColor = '#ef4444';
+            box.style.color = '#f87171';
+            box.innerText = 'Ошибка: ' + data.error;
+            return;
+          }
+          box.style.borderColor = '#242424';
+          box.style.color = '#ccc';
+          var lines = (data.results || []).map(function(res) {
+            return (res.ok ? '[OK] ' : '[!!] ') + res.name + ': ' + (res.message || '');
+          });
+          box.innerHTML = '<b>Сохранено ' + data.saved + ' из ' + data.total + '</b><br>' + lines.join('<br>');
+          showToast('Массовый импорт завершён: сохранено ' + data.saved + ' из ' + data.total, 6000);
+          if (ta) ta.value = '';
+          setTimeout(function() { window.location.reload(); }, 3000);
+        })
+        .catch(function(err) {
+          if (btn) { btn.disabled = false; btn.innerText = orig; }
+          showToast('Сетевая ошибка импорта: ' + err, 6000);
+        });
+    }
+
     function probeAllAccounts(btn) {
-      if (!confirm('Проверить сессии всех аккаунтов?\\n\\nДля каждого будет запущен браузер Threads, это займёт примерно по 10 секунд на аккаунт.')) return;
+      if (!confirm('Проверить сессии всех аккаунтов?\n\nДля каждого будет запущен браузер Threads, это займёт примерно по 10 секунд на аккаунт.')) return;
       var orig = btn ? btn.innerText : '';
       if (btn) { btn.disabled = true; btn.innerText = 'Проверка сессий...'; }
       showToast('Проверяем сессии всех аккаунтов в браузере Threads...', 0);

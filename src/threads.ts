@@ -64,6 +64,62 @@ export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, 
 
 class BrowserBusyError extends Error {}
 
+/** Детерминированный хеш FNV-1a. Нужен для стабильного фингерпринта аккаунта. */
+function fnv1a(str: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+type Fingerprint = {
+  userAgent: string;
+  viewport: { width: number; height: number };
+  locale: string;
+  timezoneId: string;
+};
+
+const FP_OS = [
+  "Windows NT 10.0; Win64; x64",
+  "Windows NT 11.0; Win64; x64",
+  "Macintosh; Intel Mac OS X 10_15_7",
+  "Macintosh; Intel Mac OS X 13_5",
+];
+const FP_CHROME = [122, 124, 126, 128, 130];
+/** Только те локали, для которых в детекторах есть и русские, и английские маркеры. */
+const FP_LOCALE_TZ: Array<[string, string]> = [
+  ["en-US", "America/New_York"],
+  ["en-GB", "Europe/London"],
+  ["ru-RU", "Europe/Moscow"],
+  ["en-US", "Europe/Berlin"],
+  ["en-US", "Asia/Singapore"],
+];
+
+/**
+ * Стабильный фингерпринт на аккаунт.
+ *
+ * Одинаковый при каждом запуске для одного имени - иначе это выглядит как ферма ботов.
+ * Разный между аккаунтами - иначе Meta связывает их в одну группу и после первого же
+ * checkpoint банит пакетом. Раньше все аккаунты ходили с идентичным UA, viewport,
+ * локалью и таймзоной, то есть совпадали по всем параметрам кроме куки.
+ */
+function fingerprintFor(name: string): Fingerprint {
+  const h = fnv1a(name || "account");
+  const os = FP_OS[h % FP_OS.length];
+  const chrome = FP_CHROME[(h >>> 3) % FP_CHROME.length];
+  const [locale, timezoneId] = FP_LOCALE_TZ[(h >>> 6) % FP_LOCALE_TZ.length];
+  const width = 640 + ((h >>> 9) % 9) * 20;
+  const height = 860 + ((h >>> 13) % 8) * 20;
+  return {
+    userAgent: `Mozilla/5.0 (${os}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chrome}.0.0.0 Safari/537.36`,
+    viewport: { width, height },
+    locale,
+    timezoneId,
+  };
+}
+
 // ============================
 // BROWSER
 // ============================
@@ -128,9 +184,12 @@ async function openBrowser(env: Env, account: Account): Promise<Opened> {
     try {
       const { launch } = await import("@cloudflare/playwright");
       browser = await launch(env.BROWSER);
+      const fp = fingerprintFor(account.name);
       const context = await browser.newContext({
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-        viewport: { width: 680, height: 900 },
+        userAgent: fp.userAgent,
+        viewport: fp.viewport,
+        locale: fp.locale,
+        timezoneId: fp.timezoneId,
       });
       await addAccountCookies(context, account.cookies);
       const page = await context.newPage();
@@ -1500,11 +1559,25 @@ export async function refreshAccountCookies(
   let opened: Opened | undefined;
   try {
     opened = await openBrowser(env, account);
-    await opened.page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 20_000 }).catch(() => {});
-    await sleep(2000);
-    if (isLoginUrl(opened.page.url())) {
+
+    // Проверяем сессию тем же структурным способом, что и боевой скрапер.
+    // Раньше здесь был только isLoginUrl(page.url()) после захода на главную, но
+    // Threads НЕ редиректит гостя с главной на /login - он просто показывает ленту.
+    // Из-за этого Keep-Alive рапортовал об успехе на полностью мёртвой сессии.
+    const verdict = await checkProfile(opened.page, env, PROBE_USERNAME);
+
+    if (verdict === "session_expired") {
       await markSessionExpired(env, name);
+      await logSystem(env, "warn", "keepalive", `Keep-Alive [${name}]: сессия мертва, требуется свежий логин`);
       return { name, ok: false, message: "Сессия уже истекла в Threads, требуется свежий логин" };
+    }
+
+    if (verdict === "inconclusive" || verdict === "user_not_found") {
+      // Эталонный профиль не открылся. Продлевать нечего, но и утверждать,
+      // что сессия мертва, оснований нет - помечаем как временную ошибку.
+      await markTransientError(env, name, new Error(`Keep-Alive: эталонный профиль недоступен (${verdict})`));
+      await logSystem(env, "warn", "keepalive", `Keep-Alive [${name}]: не удалось открыть эталонный профиль @${PROBE_USERNAME} (${verdict}) - сессия не продлена`);
+      return { name, ok: false, message: `Не удалось открыть эталонный профиль @${PROBE_USERNAME}, сессия не продлена` };
     }
 
     await opened.page.evaluate(() => window.scrollBy(0, 600)).catch(() => {});

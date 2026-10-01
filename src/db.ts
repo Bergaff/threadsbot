@@ -188,6 +188,27 @@ export class Database {
     const res = await this.db.prepare("SELECT name FROM threads_accounts WHERE enabled=1 ORDER BY name").all<{ name: string }>();
     return (res.results || []).map(r => String(r.name));
   }
+
+  /**
+   * Аккаунты, которые не обновлялись дольше указанного срока и нуждаются в автопродлении сессии.
+   * Сортировка по возрастанию updated_at: первыми прогреваются самые "холодные",
+   * то есть те, у которых больше всего риск потерять сессию.
+   */
+  async accountsStaleForKeepAlive(hours: number, limit = 3): Promise<string[]> {
+    const cutoff = new Date(Date.now() - Math.max(1, hours) * 3_600_000).toISOString();
+    const res = await this.db.prepare(
+      "SELECT name FROM threads_accounts WHERE enabled=1 AND (updated_at IS NULL OR updated_at < ?) ORDER BY updated_at ASC LIMIT ?"
+    ).bind(cutoff, Math.max(1, limit)).all<{ name: string }>();
+    return (res.results || []).map(r => String(r.name));
+  }
+
+  /** Аккаунты, помеченные мёртвыми: по ним автопродление уже не поможет, нужен ручной логин. */
+  async deadAccountNames(): Promise<string[]> {
+    const res = await this.db.prepare(
+      "SELECT name, COALESCE(last_error,'') AS reason FROM threads_accounts WHERE enabled=1 AND is_alive=0 ORDER BY name"
+    ).all<{ name: string; reason: string }>();
+    return (res.results || []).map(r => `${r.name}${r.reason ? ` (${r.reason})` : ""}`);
+  }
   async accountCookie(name:string) { return await this.db.prepare("SELECT cookies FROM threads_accounts WHERE name=?").bind(name).first<{cookies:string}>(); }
   async accountDelete(name:string) { return this.db.prepare("DELETE FROM threads_accounts WHERE name=?").bind(name).run(); }
   /** ВАЖНО: сохраняет/обновляет cookies аккаунта. Раньше здесь была опечатка iso() -> ReferenceError, из-за

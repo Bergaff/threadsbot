@@ -6,7 +6,10 @@ import { adminIds, type Env } from "./config";
 import { Database } from "./db";
 import { diagnoseAccountCookies } from "./cookies";
 import { Telegram, type TelegramUpdate } from "./telegram";
-import { fetchComments, fetchProfileWithPosts, logSystem, probeAccount, sleep, type ProfileData, type Comment } from "./threads";
+import { fetchComments, fetchProfileWithPosts, logSystem, probeAccount, refreshAccountCookies, sleep, type ProfileData, type Comment } from "./threads";
+
+/** Сколько аккаунтов прогревать за один запуск cron, чтобы не выбирать лимит Browser Rendering. */
+const KEEPALIVE_BATCH = 3;
 import { verifyAuthToken } from "./auth";
 import { detectBotType } from "./profile";
 import {
@@ -1060,44 +1063,65 @@ export default {
           );
         }
 
-        // Автоматический тест сессий технических аккаунтов раз в сутки (24 часа)
+        // АВТОПРОДЛЕНИЕ СЕССИЙ (Keep-Alive) - главный механизм, заменяющий ручной заход в каждый аккаунт.
+        // Meta продлевает срок жизни sessionid при каждом успешном обращении, поэтому регулярный
+        // "прогрев" удерживает сессию живой неделями. Проверяет и продлевает за один проход браузера.
         try {
           if (env.BROWSER) {
-            const enabledNames = await db.enabledAccountNames();
-            const lastDailyProbe = await db.state(0, "last_daily_probe");
-            const oneDayAgo = Date.now() - 24 * 3600 * 1000;
-            const lastTime = lastDailyProbe ? new Date(lastDailyProbe).getTime() : 0;
-            if (enabledNames.length > 0 && lastTime < oneDayAgo) {
-              await db.setState(0, "last_daily_probe", new Date().toISOString());
-              await logSystem(env, "info", "cron", `Запуск ежедневного автотестирования аккаунтов Threads (${enabledNames.length} акк.)`);
-              const failedAccs: string[] = [];
-              for (const name of enabledNames) {
+            const intervalHours = Number(env.KEEPALIVE_HOURS || 12);
+            const stale = await db.accountsStaleForKeepAlive(intervalHours, KEEPALIVE_BATCH);
+            if (stale.length) {
+              await logSystem(env, "info", "keepalive", `Автопродление сессий: ${stale.length} акк. не обновлялись дольше ${intervalHours}ч (${stale.join(", ")})`);
+              const failed: string[] = [];
+              const okList: string[] = [];
+              for (const name of stale) {
                 try {
-                  const res = await probeAccount(env, name);
-                  if (!res.ok) {
-                    failedAccs.push(`${name} - ${res.message}`);
-                    await logSystem(env, "warn", "cron", `Ежедневный тест [${name}] выявил проблему: ${res.message}`);
-                  } else {
-                    await logSystem(env, "info", "cron", `Ежедневный тест [${name}]: сессия активна`);
-                  }
-                  await sleep(2000);
+                  const res = await refreshAccountCookies(env, name);
+                  if (res.ok) okList.push(name);
+                  else failed.push(`${name} - ${res.message}`);
                 } catch (e) {
-                  console.error("Daily probe failed for", name, e);
+                  failed.push(`${name} - ${(e instanceof Error ? e.message : String(e)).slice(0, 120)}`);
                 }
+                await sleep(2000);
               }
-              if (failedAccs.length) {
+              await logSystem(env, "info", "keepalive", `Автопродление завершено: успешно ${okList.length} (${okList.join(", ") || "-"}), с ошибкой ${failed.length}`);
+
+              if (failed.length) {
+                // Алерт сразу, не дожидаясь суточной сводки: чем раньше залиты свежие куки,
+                // тем меньше шансов, что Meta убьёт сессию безвозвратно.
                 const tg = new Telegram(env.TELEGRAM_TOKEN);
-                const msg = `<b>Ежедневный автотест аккаунтов</b>\n\nПроблемы обнаружены (${failedAccs.length} из ${enabledNames.length}):\n\n- ${failedAccs.join("\n- ")}\n\nОбновите cookies в панели админа или через бот.`;
+                const msg = `<b>Keep-Alive: сессии не продлены</b>\n\n- ${failed.join("\n- ")}\n\nПродлено успешно: ${okList.length}. По перечисленным аккаунтам нужен свежий экспорт cookies, иначе они отключатся и сайт начнёт отдавать ошибки.`;
                 await Promise.all(
                   adminIds(env).map(id => tg.sendMessage(id, msg).catch(() => {})),
                 );
-              } else {
-                await logSystem(env, "info", "cron", `Ежедневный автотест завершен успешно: все аккаунты (${enabledNames.length}) активны`);
               }
             }
           }
+        } catch (keepAliveErr) {
+          console.error("Keep-alive cron error:", keepAliveErr);
+        }
+
+        // Суточная сводка по состоянию аккаунтов. Без дополнительных запусков браузера:
+        // берёт уже накопленные результаты автопродления и боевого скрапера.
+        try {
+          const lastDailyProbe = await db.state(0, "last_daily_probe");
+          const oneDayAgo = Date.now() - 24 * 3600 * 1000;
+          const lastTime = lastDailyProbe ? new Date(lastDailyProbe).getTime() : 0;
+          if (lastTime < oneDayAgo) {
+            await db.setState(0, "last_daily_probe", new Date().toISOString());
+            const counts = await db.accountCounts();
+            const deadNames = await db.deadAccountNames();
+            await logSystem(env, "info", "cron", `Суточная сводка по аккаунтам: живых ${counts.alive} из ${counts.total}`);
+            if (deadNames.length) {
+              const tg = new Telegram(env.TELEGRAM_TOKEN);
+              const msg = `<b>Суточная сводка по аккаунтам Threads</b>\n\nЖивых: ${counts.alive} из ${counts.total}\nТребуют свежие cookies:\n- ${deadNames.join("\n- ")}\n\nАвтопродление работает каждые ${Number(env.KEEPALIVE_HOURS || 12)}ч и само удерживает живые сессии. Перечисленные выше уже не продлеваются - по ним нужен ручной вход и новый экспорт.`;
+              await Promise.all(
+                adminIds(env).map(id => tg.sendMessage(id, msg).catch(() => {})),
+              );
+            }
+          }
         } catch (probeErr) {
-          console.error("Daily probe cron error:", probeErr);
+          console.error("Daily summary cron error:", probeErr);
         }
 
         // Анонимный мониторинг авторов (проверка новых постов)
