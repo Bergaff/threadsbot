@@ -1959,7 +1959,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr46-2026-09-22-ux";
+  const ver = env.VERSION || "pr47-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2541,9 +2541,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr46-2026-09-22-ux')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr46-2026-09-22-ux')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr46-2026-09-22-ux')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr47-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr47-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr47-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2672,7 +2672,9 @@ export function renderProfilePage(
         <h3 id="loadingStatusTitle">${errorMessage ? (lang === 'en' ? 'Profile Not Found or Error' : 'Профиль не найден или ошибка') : t.loading_posts}</h3>
       </div>
       <p id="loadingStatusText">${errorMessage ? esc(errorMessage) : (lang === 'en' ? 'Fetching profile, posts and media from Threads servers. This may take a few seconds...' : 'Запрашиваем профиль, посты и медиа с серверов Threads. Это занимает несколько секунд...')}</p>
-      <div id="loadingStatusAction" style="${errorMessage ? 'margin-top:14px;' : 'display:none;margin-top:14px;'}">
+      <div id="loadingStatusAction" style="${errorMessage ? 'margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;' : 'display:none;margin-top:14px;'}">
+        <button class="btn-sharp btn-sharp-primary" onclick="retryFetchProfile()" style="display:inline-block;">${lang === 'en' ? 'Try Again' : 'Попробовать снова'}</button>
+        <a href="https://t.me/${esc(tgUser)}?start=view_${esc(cleanUser)}" target="_blank" rel="noopener" class="btn-sharp" style="display:inline-block;">${lang === 'en' ? 'Open in Telegram' : 'Открыть в Telegram-боте'}</a>
         <a href="/?lang=${lang}" class="btn-sharp" style="display:inline-block;">${lang === 'en' ? 'Back to Home' : 'Вернуться на главную'}</a>
       </div>
     </div>
@@ -3168,7 +3170,11 @@ export function renderProfilePage(
             if (txt) {
               txt.innerText = res.error || (currentLang === 'en' ? 'User does not exist or has set their account to private.' : 'Пользователь не существует или закрыл аккаунт настройками приватности.');
             }
-            if (action) action.style.display = 'block';
+            if (action) {
+              action.style.display = 'flex';
+              action.style.gap = '8px';
+              action.style.flexWrap = 'wrap';
+            }
           }
         })
         .catch(function() {
@@ -3180,8 +3186,25 @@ export function renderProfilePage(
           if (box) box.className = 'status-card status-card-error';
           if (title) title.innerText = currentLang === 'en' ? 'Connection Error' : 'Ошибка соединения';
           if (txt) txt.innerText = '${t.toast_error}';
-          if (action) action.style.display = 'block';
+          if (action) {
+            action.style.display = 'flex';
+            action.style.gap = '8px';
+            action.style.flexWrap = 'wrap';
+          }
         });
+    }
+
+    function retryFetchProfile() {
+      var box = document.getElementById('loadingBox');
+      var title = document.getElementById('loadingStatusTitle');
+      var txt = document.getElementById('loadingStatusText');
+      var action = document.getElementById('loadingStatusAction');
+      if (box) box.className = 'status-card status-card-loading';
+      if (title) title.innerText = currentLang === 'en' ? 'Checking Profile...' : 'Загрузка профиля...';
+      if (txt) txt.innerText = currentLang === 'en' ? 'Connecting to Threads and requesting profile afresh...' : 'Запрашиваем профиль с серверов Threads заново...';
+      if (action) action.style.display = 'none';
+      var refreshUrl = window.location.pathname + '?refresh=1' + (currentLang === 'en' ? '&lang=en' : '');
+      window.location.href = refreshUrl;
     }
 
     function loadMorePosts(username) {
@@ -3521,9 +3544,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta property="og:locale" content="${isEn ? 'en_US' : 'ru_RU'}">
   <meta property="og:locale:alternate" content="${isEn ? 'ru_RU' : 'en_US'}">
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr46-2026-09-22-ux">
-  <link rel="alternate icon" href="/favicon.ico?v=pr46-2026-09-22-ux">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr46-2026-09-22-ux">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr47-2026-09-22-ux">
+  <link rel="alternate icon" href="/favicon.ico?v=pr47-2026-09-22-ux">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr47-2026-09-22-ux">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');

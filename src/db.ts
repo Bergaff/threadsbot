@@ -2,7 +2,7 @@ import { LIMITS, type Env, excludedIds } from "./config";
 
 const now = () => new Date().toISOString();
 const since = (ms: number) => new Date(Date.now() - ms).toISOString();
-export type StateName = "last_button" | "last_username" | "waiting_support" | "admin_reply" | "fetch_lock";
+export type StateName = "last_button" | "last_username" | "waiting_support" | "admin_reply" | "fetch_lock" | "last_daily_probe";
 
 export class Database {
   constructor(private readonly env: Env) {}
@@ -149,8 +149,19 @@ export class Database {
   async cache<T>(username:string, mode:string, page=0): Promise<T|null> {
     if (!this.db?.prepare) return null;
     const row = await this.db.prepare("SELECT data,cached_at FROM cache WHERE username=? AND mode=? AND page=?").bind(username,mode,page).first<{data:string;cached_at:string}>();
-    if (!row || Date.now()-new Date(row.cached_at).getTime() >= LIMITS.cacheMinutes*60_000) return null;
-    return JSON.parse(row.data) as T;
+    if (!row) return null;
+    const age = Date.now() - new Date(row.cached_at).getTime();
+    if (age >= LIMITS.cacheMinutes * 60_000) return null;
+    try {
+      const parsed = JSON.parse(row.data) as any;
+      if (parsed && (parsed.notFound || parsed.status === "user_not_found")) {
+        // Отрицательный кеш (не найден) живет максимум 2 минуты (120 секунд), чтобы не блокировать профили при временных сбоях
+        if (age >= 120_000) return null;
+      }
+      return parsed as T;
+    } catch {
+      return null;
+    }
   }
   setCache(username:string, mode:string, data:unknown, page=0) {
     if (!this.db?.prepare) return Promise.resolve() as any;

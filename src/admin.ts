@@ -163,6 +163,18 @@ export async function handleAdminRoute(request: Request, env: Env): Promise<Resp
     return Response.json({ ok: true });
   }
 
+  // Admin API Action: Clear Profile Cache
+  if (path === "/admin/api/cache/clear" && request.method === "POST") {
+    const user = (url.searchParams.get("username") || "").replace(/^@/, "").toLowerCase();
+    if (user) {
+      await db.deleteCache(user, "web_profile");
+      await db.deleteCache(user, "text");
+      await db.deleteCache(user, "img");
+      return Response.json({ ok: true, cleared: user });
+    }
+    return Response.json({ ok: false, error: "Не указан username" }, { status: 400 });
+  }
+
   // Admin API Action: Get Telegram Webhook Status
   if (path === "/admin/api/webhook/status") {
     try {

@@ -54,7 +54,7 @@ type Opened = { browser: any; context: BrowserContext; page: Page; startedAt: nu
 const FREE_BROWSER_INTERVAL_MS = 3_000;
 const BASE = (env: Env) => env.BASE_URL || "https://www.threads.com";
 const iso = () => new Date().toISOString();
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 class BrowserBusyError extends Error {}
 
