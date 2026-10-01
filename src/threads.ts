@@ -44,6 +44,10 @@ export interface ProfileMeta {
 export interface ProfileData {
   profile: ProfileMeta;
   posts: Post[];
+  /** Данные собраны из публичной HTML-разметки, а не через браузер. Постов может быть меньше. */
+  partial?: boolean;
+  /** Источник данных - для логов и отладки. */
+  source?: "browser" | "http";
 }
 
 export interface Comment { author: string; text: string; avatar?: string; top?: number }
@@ -538,11 +542,27 @@ async function checkProfile(page: Page, env: Env, username: string): Promise<Pro
   // 4. Считываем DOM один раз
   const snapshot = await page.evaluate(() => {
     const body = document.body ? document.body.innerText : "";
+    const q = (sel: string) => Boolean(document.querySelector(sel));
     return {
       body,
       title: document.title || "",
       url: location.href,
-      hasContent: Boolean(document.querySelector('div[data-pressable-container="true"],article,div[role="article"],header,div[role="banner"],main')),
+      hasContent: q('div[data-pressable-container="true"],article,div[role="article"],header,div[role="banner"],main'),
+      // Признаки АВТОРИЗОВАННОЙ сессии: таких элементов у гостя нет вообще
+      authedNav: q(
+        '[aria-label="Your profile"],[aria-label="Ваш профиль"],' +
+        'a[href="/settings"],[aria-label="Settings"],[aria-label="Настройки"],' +
+        '[aria-label="Notifications"],[aria-label="Уведомления"],' +
+        '[aria-label="Create post"],[aria-label="Новый пост"],' +
+        '[aria-label="Search"],[aria-label="Поиск"]'
+      ),
+      // Признаки ГОСТЯ: ссылки на вход и регистрацию
+      loginLink: q('a[href*="/login"],a[href*="accounts/login"],a[href*="instagram.com/accounts/login"]'),
+      signupLink: q('a[href*="signup"],a[href*="/register"]'),
+      // Профиль пользователя присутствует в DOM (h1/h2 с handle или ссылка на профиль)
+      hasProfileHandle: Boolean(
+        Array.from(document.querySelectorAll('a[href^="/@"]')).some((a) => (a.getAttribute("href") || "").length > 2)
+      ),
     };
   }).catch(() => null);
 
@@ -551,8 +571,11 @@ async function checkProfile(page: Page, env: Env, username: string): Promise<Pro
     return "inconclusive";
   }
 
-  // 5. Форма входа на странице = сессия мертва (даже если URL не сменился)
-  if (hasLoggedOutMarkers(snapshot.body) || hasLoggedOutMarkers(snapshot.title)) {
+  // 5. Структурная проверка авторизации. ВАЖНО: она идёт ПЕРЕД любыми выводами
+  //    о существовании профиля, потому что гостю Threads показывает совсем другую страницу.
+  const loggedOutText = hasLoggedOutMarkers(snapshot.body) || hasLoggedOutMarkers(snapshot.title);
+  if (!snapshot.authedNav && (loggedOutText || snapshot.loginLink || snapshot.signupLink)) {
+    await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: аккаунт фактически разлогинен (authedNav=false, loginLink=${snapshot.loginLink}, signupLink=${snapshot.signupLink}, текстВхода=${loggedOutText}) на ${currentUrl}`);
     return "session_expired";
   }
 
@@ -594,6 +617,8 @@ type VerdictState = {
   notFoundVotes: string[];
   inconclusiveAccounts: string[];
   requiredVotes: number;
+  /** Кеш независимой HTTP-проверки, чтобы не дёргать её на каждом аккаунте */
+  httpCheck?: PublicProfileResult | null;
 };
 
 async function newVerdictState(env: Env): Promise<VerdictState> {
@@ -614,6 +639,7 @@ async function newVerdictState(env: Env): Promise<VerdictState> {
 type VerdictOutcome =
   | { action: "proceed" }
   | { action: "rotate" }
+  | { action: "http_data"; data: ProfileData }
   | { action: "return"; status: ThreadsStatus; account?: string; error?: string };
 
 /**
@@ -646,11 +672,21 @@ async function resolveVerdict(
 
   // verdict === "user_not_found"
   // ВЕТО: независимая HTTP-проверка публичной страницы профиля без браузера и без куки.
-  const existsPublicly = await publicProfileExists(username);
+  // Результат кешируется в state, чтобы не дёргать сеть на каждом аккаунте.
+  const pub = state.httpCheck ?? (state.httpCheck = await fetchPublicProfile(username));
+  const existsPublicly = pub.exists;
   if (existsPublicly === true) {
     state.inconclusiveAccounts.push(account.name);
-    await logSystem(env, "warn", "scraper", `Аккаунт [${account.name}] сообщил, что @${username} не найден, но публичная страница Threads подтверждает существование профиля. Вердикт отклонён, пробуем другой аккаунт`);
-    await markTransientError(env, account.name, new Error("Ложный user_not_found: профиль существует публично"));
+    // Аккаунт не видит профиль, который заведомо существует. Значит сессия нерабочая -
+    // помечаем её мёртвой, чтобы она больше не участвовала в ротации и не тратила время.
+    await markSessionExpired(env, account.name);
+    await logSystem(env, "warn", "scraper", `Аккаунт [${account.name}] сообщил, что @${username} не найден, но публичная страница Threads подтверждает существование профиля (${pub.detail || "данные получены"}). Аккаунт помечен мёртвым, вердикт отклонён`);
+
+    // Если HTTP-источник уже дал посты - нет смысла жечь оставшиеся запуски браузера.
+    if (pub.profile && (pub.posts?.length || 0) > 0) {
+      await logSystem(env, "info", "scraper", `@${username}: отдаём данные из публичного HTTP-источника (${pub.posts!.length} постов), остальные аккаунты не опрашиваем`);
+      return { action: "http_data", data: { profile: pub.profile, posts: pub.posts!, partial: true, source: "http" } };
+    }
     return { action: "rotate" };
   }
 
@@ -690,36 +726,282 @@ function verdictOnExhaustion(username: string, state: VerdictState, tried: strin
  *
  * Возвращает: true - профиль точно существует, false - точно отсутствует (404), null - неизвестно.
  */
-async function publicProfileExists(username: string): Promise<boolean | null> {
-  const clean = username.toLowerCase().replace(/^@/, "");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9_000);
-  try {
-    const res = await fetch(`https://www.threads.net/@${clean}`, {
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "accept-language": "en-US,en;q=0.9",
-      },
-    });
-    if (res.status === 404) return false;
-    if (!res.ok) return null;
-    const html = await res.text();
-    if (!html) return null;
-    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-    const ogTitleMatch = html.match(/property=["']og:title["'][^>]*content=["']([\s\S]*?)["']/i)
-      || html.match(/content=["']([\s\S]*?)["'][^>]*property=["']og:title["']/i);
-    const haystack = `${titleMatch?.[1] || ""} ${ogTitleMatch?.[1] || ""}`.toLowerCase();
-    if (haystack.includes(clean)) return true;
-    if (isUserNotFoundPage(html.slice(0, 20_000))) return false;
-    return null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
+/** Результат независимого HTTP-запроса публичной страницы профиля. */
+export type PublicProfileResult = {
+  /** true - профиль существует, false - точно отсутствует (404), null - неизвестно */
+  exists: boolean | null;
+  profile?: ProfileMeta;
+  posts?: Post[];
+  /** Короткое описание того, что удалось достать - для логов */
+  detail?: string;
+};
+
+function decodeEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#(\d+);/g, (_, n) => {
+      try { return String.fromCodePoint(Number(n)); } catch { return ""; }
+    })
+    .replace(/\\"/g, '"')
+    .replace(/\\u00([0-9a-fA-F]{2})/g, (_, h) => {
+      try { return String.fromCodePoint(parseInt(h, 16)); } catch { return ""; }
+    })
+    .trim();
+}
+
+function metaContent(html: string, property: string): string {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp(`property=["']${escaped}["'][^>]*content=["']([\\s\\S]*?)["']`, "i"),
+    new RegExp(`content=["']([\\s\\S]*?)["'][^>]*property=["']${escaped}["']`, "i"),
+    new RegExp(`name=["']${escaped}["'][^>]*content=["']([\\s\\S]*?)["']`, "i"),
+    new RegExp(`content=["']([\\s\\S]*?)["'][^>]*name=["']${escaped}["']`, "i"),
+  ];
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (m && m[1]) return decodeEntities(m[1]);
   }
+  return "";
+}
+
+function jsonLdBlocks(html: string): any[] {
+  const out: any[] = [];
+  const re = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const raw = decodeEntities(m[1]).trim();
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      out.push(parsed);
+    } catch {
+      // Некоторые блоки содержат несколько объектов подряд - пробуем починить
+      try { out.push(JSON.parse(`[${raw.replace(/}\s*{/g, "},{")}]`)); } catch { /* skip */ }
+    }
+  }
+  return out;
+}
+
+function jsonScriptBlocks(html: string): any[] {
+  const out: any[] = [];
+  const re = /<script[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const raw = m[1].trim();
+    if (!raw || raw.length < 20) continue;
+    try { out.push(JSON.parse(raw)); } catch { /* skip */ }
+  }
+  return out;
+}
+
+function flattenLdJson(blocks: any[]): any[] {
+  const out: any[] = [];
+  const walk = (node: any, depth = 0) => {
+    if (!node || depth > 6) return;
+    if (Array.isArray(node)) { for (const item of node) walk(item, depth + 1); return; }
+    if (typeof node === "object") {
+      out.push(node);
+      for (const key of Object.keys(node)) walk(node[key], depth + 1);
+    }
+  };
+  for (const b of blocks) walk(b);
+  return out;
+}
+
+function looksLikePost(node: any): boolean {
+  if (!node || typeof node !== "object") return false;
+  const text = node.text || node.text_post_app_info?.headline;
+  if (typeof text !== "string" || text.length < 1) return false;
+  return Boolean(node.code || node.id || node.pk || node.caption);
+}
+
+function normalizePost(node: any, ownerUsername: string): Post | null {
+  if (!looksLikePost(node)) return null;
+  const text = String(node.text || node.text_post_app_info?.headline || node.caption || "").trim();
+  if (!text) return null;
+  const code = String(node.code || node.id || node.pk || "").trim();
+  const author = String(node.user?.username || node.owner?.username || node.username || ownerUsername);
+  const likes = node.like_count ?? node.like_and_view_counts_disabled === false ? String(node.like_count ?? "") : "";
+  const replies = node.replies_count ?? node.text_post_app_info?.direct_reply_count;
+  const images: string[] = [];
+  const addImage = (v: any) => {
+    if (!v) return;
+    if (typeof v === "string") { if (v.startsWith("http")) images.push(v); return; }
+    if (Array.isArray(v)) { for (const x of v) addImage(x); return; }
+    if (typeof v === "object") addImage(v.url || v.src || v.candidate_url || v.display_url);
+  };
+  addImage(node.image_url || node.thumbnail_url || node.carousel_media || node.display_url);
+
+  const ts = node.taken_at || node.taken_at_timestamp || node.caption?.created_at;
+  let date = "";
+  if (typeof ts === "number") date = new Date(ts < 1e11 ? ts * 1000 : ts).toISOString();
+  else if (typeof ts === "string") date = ts;
+
+  return {
+    id: code || undefined,
+    text,
+    has_image: images.length > 0,
+    has_video: Boolean(node.video_url || node.video_versions?.length),
+    videoUrl: node.video_url ? String(node.video_url) : undefined,
+    imageUrl: images[0],
+    images: images.length ? images : undefined,
+    postUrl: code ? `https://www.threads.com/@${author}/post/${code}` : undefined,
+    likes: String(likes || ""),
+    replies: replies != null ? String(replies) : "",
+    date: date || undefined,
+    author: author.toLowerCase(),
+  };
+}
+
+function walkForPosts(root: any, ownerUsername: string, seen: Set<string>, out: Post[], depth = 0) {
+  if (!root || depth > 14 || out.length >= 40) return;
+  if (Array.isArray(root)) {
+    for (const item of root) walkForPosts(item, ownerUsername, seen, out, depth + 1);
+    return;
+  }
+  if (typeof root !== "object") return;
+  const post = normalizePost(root, ownerUsername);
+  if (post) {
+    const key = (post.id || post.text.slice(0, 80)).toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(post);
+    }
+  }
+  for (const key of Object.keys(root)) walkForPosts(root[key], ownerUsername, seen, out, depth + 1);
+}
+
+/**
+ * Независимый HTTP-запрос публичной страницы профиля.
+ * Работает БЕЗ браузера и БЕЗ куки технических аккаунтов - Threads отдаёт
+ * публичные профили поисковым краулерам в виде готового HTML с метаданными.
+ *
+ * Используется и как вето на ложный user_not_found, и как фолбэк-источник данных,
+ * когда все аккаунты-скраперы не дали достоверного ответа.
+ */
+async function fetchPublicProfile(username: string): Promise<PublicProfileResult> {
+  const clean = username.toLowerCase().replace(/^@/, "");
+  const hosts = ["https://www.threads.net", "https://www.threads.com"];
+  const uas = [
+    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  ];
+
+  for (const host of hosts) {
+    for (const ua of uas) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9_000);
+      try {
+        const res = await fetch(`${host}/@${clean}`, {
+          redirect: "follow",
+          signal: controller.signal,
+          headers: {
+            "user-agent": ua,
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "accept-language": "en-US,en;q=0.9",
+          },
+        });
+        if (res.status === 404) return { exists: false, detail: `${host}: HTTP 404` };
+        if (!res.ok) continue;
+        if (isLoginUrl(res.url || "")) continue;
+
+        const html = await res.text();
+        if (!html || html.length < 200) continue;
+
+        const ogTitle = metaContent(html, "og:title");
+        const ogDesc = metaContent(html, "og:description");
+        const ogImage = metaContent(html, "og:image");
+        const titleTag = decodeEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "");
+        const haystack = `${titleTag} ${ogTitle}`.toLowerCase();
+
+        const ldNodes = flattenLdJson(jsonLdBlocks(html));
+        const ldProfile = ldNodes.find((n) => {
+          const t = String(n["@type"] || "").toLowerCase();
+          return t === "profilepage" || t === "person" || t.includes("profile");
+        });
+
+        const profileConfirmed = haystack.includes(clean) || Boolean(ldProfile);
+        if (!profileConfirmed) {
+          if (isUserNotFoundPage(html.slice(0, 30_000))) return { exists: false, detail: `${host}: маркер "не найдено" в HTML` };
+          continue;
+        }
+
+        // Собираем метаданные профиля
+        let displayName = clean;
+        const fromOg = ogTitle.match(/^(.*?)\s*\(@/);
+        if (fromOg && fromOg[1].trim()) displayName = fromOg[1].trim();
+        else if (ldProfile?.name) displayName = String(ldProfile.name);
+        else if (ogTitle && !ogTitle.toLowerCase().startsWith("threads")) displayName = ogTitle.split("•")[0].trim() || clean;
+
+        let bio = "";
+        if (ldProfile?.description) bio = String(ldProfile.description);
+        else if (ogDesc && !ogDesc.toLowerCase().includes("threads")) bio = ogDesc;
+
+        let followers = "";
+        const stat = ldProfile?.interactionStatistic || ldProfile?.interaction_count;
+        if (Array.isArray(stat)) {
+          const follow = stat.find((s: any) => String(s?.interactionType || "").toLowerCase().includes("follow"));
+          if (follow && follow.userInteractionCount != null) followers = String(follow.userInteractionCount);
+        } else if (typeof stat === "number") {
+          followers = String(stat);
+        }
+        if (!followers) {
+          const fm = ogDesc.match(/([\d.,]+\s?[KMB]?)\s*(?:followers|подписчик)/i);
+          if (fm) followers = fm[1];
+        }
+
+        const profile: ProfileMeta = {
+          username: clean,
+          displayName,
+          bio,
+          avatar: ogImage,
+          followers,
+          verified: /verified|подтверждён/i.test(ogTitle),
+        };
+
+        // Пробуем достать посты из встроенных JSON-блоков
+        const posts: Post[] = [];
+        const seen = new Set<string>();
+        for (const block of jsonScriptBlocks(html)) walkForPosts(block, clean, seen, posts);
+        for (const node of ldNodes) {
+          if (node?.text && (node.code || node.id)) {
+            const p = normalizePost(node, clean);
+            if (p) {
+              const key = (p.id || p.text.slice(0, 80)).toLowerCase();
+              if (!seen.has(key)) { seen.add(key); posts.push(p); }
+            }
+          }
+        }
+        posts.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+
+        return {
+          exists: true,
+          profile,
+          posts: posts.slice(0, 20),
+          detail: `${host}: имя="${displayName}", bio=${bio.length} симв., avatar=${ogImage ? "есть" : "нет"}, постов=${posts.length}`,
+        };
+      } catch {
+        // таймаут или блок - пробуем следующую комбинацию
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+  return { exists: null, detail: "ни один хост не дал однозначного ответа" };
+}
+
+/**
+ * Вето на user_not_found. Возвращает:
+ * true - профиль точно существует, false - точно отсутствует (404), null - неизвестно.
+ */
+async function publicProfileExists(username: string): Promise<boolean | null> {
+  const result = await fetchPublicProfile(username);
+  return result.exists;
 }
 
 async function chooseAccount(env: Env, tried: string[]): Promise<Account | null> {
@@ -865,7 +1147,7 @@ export async function fetchProfileWithPosts(
   while (true) {
     const account = await chooseAccount(env, tried);
     if (!account) {
-      // Аккаунты закончились. Решаем по накопленным голосам.
+      // Аккаунты закончились. Финальная консультация с независимым HTTP-источником.
       const outcome = verdictOnExhaustion(username, state, tried);
       await logSystem(
         env,
@@ -873,8 +1155,39 @@ export async function fetchProfileWithPosts(
         "scraper",
         `@${username}: аккаунты исчерпаны (проверено: ${tried.join(", ") || "нет доступных"}). ` +
         `Голосов за отсутствие: ${state.notFoundVotes.length}/${state.requiredVotes}, ` +
-        `недостоверных: ${state.inconclusiveAccounts.length}. Итог: ${outcome.status}`
+        `недостоверных: ${state.inconclusiveAccounts.length}. Предварительный итог: ${outcome.status}`
       );
+
+      const pub = state.httpCheck ?? (state.httpCheck = await fetchPublicProfile(username));
+      await logSystem(env, "info", "scraper", `@${username}: HTTP-фолбэк публичной страницы -> exists=${pub.exists === null ? "неизвестно" : pub.exists}${pub.detail ? `, ${pub.detail}` : ""}`);
+
+      if (pub.exists === true && pub.profile) {
+        // Профиль существует и данные получены без браузера. Возвращаем их,
+        // а не ошибку: для пользователя это рабочий ответ.
+        const posts = pub.posts || [];
+        await logSystem(env, "info", "scraper", `@${username}: профиль собран через публичный HTTP-источник (${posts.length} постов) - браузерные аккаунты не понадобились`);
+        return {
+          data: { profile: pub.profile, posts, partial: true, source: "http" },
+          status: "ok",
+          account: "public-http",
+        };
+      }
+
+      if (pub.exists === false) {
+        await logSystem(env, "warn", "scraper", `@${username}: отсутствие профиля подтверждено независимым HTTP-запросом (404). Возвращаем user_not_found`);
+        return { data: null, status: "user_not_found", account: outcome.account, error: outcome.error };
+      }
+
+      // HTTP тоже не дал ответа. Если браузерных голосов за отсутствие нет -
+      // это временная проблема, отрицательный кеш писать нельзя.
+      if (state.notFoundVotes.length === 0 && state.inconclusiveAccounts.length > 0) {
+        return {
+          data: null,
+          status: "service_error",
+          account: state.inconclusiveAccounts.join(", "),
+          error: "Аккаунты-скраперы не смогли достоверно проверить профиль",
+        };
+      }
       return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
     }
     tried.push(account.name);
@@ -897,6 +1210,9 @@ export async function fetchProfileWithPosts(
       const verdict = await checkProfile(opened.page, env, username);
       const outcome = await resolveVerdict(env, account, username, verdict, state);
       if (outcome.action === "rotate") continue;
+      if (outcome.action === "http_data") {
+        return { data: outcome.data, status: "ok", account: "public-http" };
+      }
       if (outcome.action === "return") {
         return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
       }
@@ -950,6 +1266,9 @@ export async function fetchPosts(env: Env, username: string, mode: "text" | "img
       const verdict = await checkProfile(opened.page, env, username);
       const outcome = await resolveVerdict(env, account, username, verdict, state);
       if (outcome.action === "rotate") continue;
+      if (outcome.action === "http_data") {
+        return { data: outcome.data.posts, status: "ok", account: "public-http" };
+      }
       if (outcome.action === "return") return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
       let data = await collectPosts(opened.page, amount, username);
       if (!data.length) return { data: null, status: "no_posts", account: account.name };
@@ -1059,7 +1378,9 @@ export async function fetchComments(env: Env, username: string, index: number, a
       opened = await openBrowser(env, account);
       const verdict = await checkProfile(opened.page, env, username);
       const outcome = await resolveVerdict(env, account, username, verdict, state);
-      if (outcome.action === "rotate") continue;
+      // Комментарии доступны только через браузер: HTTP-фолбэк их не отдаёт,
+      // поэтому просто пробуем следующий аккаунт.
+      if (outcome.action === "rotate" || outcome.action === "http_data") continue;
       if (outcome.action === "return") return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
       const posts = await collectPosts(opened.page, index + 3, username);
       if (index >= posts.length) return { data: null, status: "post_not_found", account: account.name };

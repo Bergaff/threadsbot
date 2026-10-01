@@ -1977,7 +1977,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr49-2026-09-22-ux";
+  const ver = env.VERSION || "pr50-2026-09-22-ux";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2433,6 +2433,14 @@ export function renderProfilePage(
     return p.author.toLowerCase() === cleanUser;
   });
   const hasData = Boolean(initialData && (initialData.profile || posts.length > 0));
+  // Данные получены из публичной HTML-разметки Threads, а не через браузер.
+  // Постов может не быть - это не значит, что автор ничего не публиковал.
+  const isPartial = Boolean((initialData as any)?.partial);
+  const emptyFeedNote = posts.length === 0 && isPartial
+    ? (lang === 'en'
+      ? 'Profile data loaded from the public Threads page. Posts are temporarily unavailable because the scraper accounts need a session refresh.'
+      : 'Данные профиля получены с публичной страницы Threads. Посты временно недоступны: техническим аккаунтам нужно обновить сессию.')
+    : (lang === 'en' ? 'No posts in this profile yet.' : 'В этом профиле пока нет постов.');
 
   const targetPost = targetPostId
     ? (posts.find((p, i) => (p.id && String(p.id) === targetPostId) || String(i) === targetPostId) || null)
@@ -2505,7 +2513,7 @@ export function renderProfilePage(
       </article>
     `;
   }).join("")
-    : (hasData ? `<div class="status-card" style="text-align:center;padding:24px 16px;"><p style="color:#777;">${lang === 'en' ? 'No posts in this profile yet.' : 'В этом профиле пока нет постов.'}</p></div>` : "");
+    : (hasData ? `<div class="status-card" style="text-align:center;padding:24px 16px;"><p style="color:#777;">${emptyFeedNote}</p></div>` : "");
 
   const snippet = targetPost ? (targetPost.text ? targetPost.text.slice(0, 140).trim() : (lang === "en" ? "Post with media" : "Пост с медиа")) : "";
   const pageTitle = targetPost
@@ -2559,9 +2567,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr49-2026-09-22-ux')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr49-2026-09-22-ux')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr49-2026-09-22-ux')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr50-2026-09-22-ux')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr50-2026-09-22-ux')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr50-2026-09-22-ux')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3562,9 +3570,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta property="og:locale" content="${isEn ? 'en_US' : 'ru_RU'}">
   <meta property="og:locale:alternate" content="${isEn ? 'ru_RU' : 'en_US'}">
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr49-2026-09-22-ux">
-  <link rel="alternate icon" href="/favicon.ico?v=pr49-2026-09-22-ux">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr49-2026-09-22-ux">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr50-2026-09-22-ux">
+  <link rel="alternate icon" href="/favicon.ico?v=pr50-2026-09-22-ux">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr50-2026-09-22-ux">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
