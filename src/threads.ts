@@ -464,18 +464,20 @@ async function checkProfile(page: Page, env: Env, username: string): Promise<Thr
   await sleep(1800);
   const currentUrl = page.url();
 
-  // 1. Проверка на редирект на /login (незалогиненная сессия или блок)
+  // 1. Проверка на редирект на /login (сессия истекла, куки недействительны или Meta требует авторизацию)
   if (isLoginUrl(currentUrl)) {
-    // Несуществующий @username часто редиректит на /login.
-    // Проверяем главную — если там залогинены, профиль просто не существует.
-    await page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {});
-    await sleep(1000);
-    if (isLoginUrl(page.url())) return "session_expired";
-    return "user_not_found";
+    return "session_expired";
   }
 
-  // 2. Проверка на редирект в общую ленту / главную страницу (Threads редиректит авторизованную сессию с несуществующих профилей)
+  // 2. Проверка на редирект в общую ленту / главную страницу
   if (isHomeRedirect(currentUrl, cleanUser)) {
+    const isLoggedOut = await page.evaluate(() => {
+      const body = (document.body ? document.body.innerText : "").toLowerCase();
+      return body.includes("log in with instagram") || body.includes("войти через instagram") || body.includes("войти с помощью instagram");
+    }).catch(() => false);
+    if (isLoggedOut) {
+      return "session_expired";
+    }
     return "user_not_found";
   }
 
@@ -492,8 +494,8 @@ async function checkProfile(page: Page, env: Env, username: string): Promise<Thr
     }
   }
 
-  // 4. Проверка наличия контента
-  const hasContent = await page.evaluate(() => {
+  // 4. Проверка наличия контента (даем время SPA React дорендерить элементы)
+  let hasContent = await page.evaluate(() => {
     return Boolean(
       document.querySelector('div[data-pressable-container="true"],article,div[role="article"]') ||
       document.querySelector('header,div[role="banner"],main')
@@ -501,7 +503,25 @@ async function checkProfile(page: Page, env: Env, username: string): Promise<Thr
   }).catch(() => false);
 
   if (!hasContent) {
-    return "user_not_found";
+    await sleep(2000);
+    hasContent = await page.evaluate(() => {
+      return Boolean(
+        document.querySelector('div[data-pressable-container="true"],article,div[role="article"]') ||
+        document.querySelector('header,div[role="banner"],main')
+      );
+    }).catch(() => false);
+  }
+
+  if (!hasContent) {
+    const checkSecond = await page.evaluate(() => {
+      const body = (document.body ? document.body.innerText : "");
+      const title = document.title || "";
+      return { body, title };
+    }).catch(() => null);
+    if (checkSecond && (isUserNotFoundPage(checkSecond.body) || isUserNotFoundPage(checkSecond.title))) {
+      return "user_not_found";
+    }
+    return "service_error";
   }
 
   return null;
@@ -886,12 +906,18 @@ export async function probeAccount(env: Env, name: string): Promise<{ name: stri
   try {
     await logSystem(env, "info", "probe", `Запуск теста сессии для [${name}] в браузере Threads...`);
     opened = await openBrowser(env, account);
-    await opened.page.goto(`${BASE(env)}/`, { waitUntil: "domcontentloaded", timeout: 20_000 }).catch(() => {});
+    await opened.page.goto(`${BASE(env)}/@zuck`, { waitUntil: "domcontentloaded", timeout: 20_000 }).catch(() => {});
     await sleep(2000);
-    if (isLoginUrl(opened.page.url())) {
+    const probeUrl = opened.page.url();
+    const isLoggedOut = isLoginUrl(probeUrl) || await opened.page.evaluate(() => {
+      const body = (document.body ? document.body.innerText : "").toLowerCase();
+      return body.includes("log in with instagram") || body.includes("войти через instagram") || body.includes("войти с помощью instagram");
+    }).catch(() => false);
+
+    if (isLoggedOut) {
       await markSessionExpired(env, name);
-      await logSystem(env, "error", "probe", `Тест [${name}] провален: сессия истекла (редирект на /login)`);
-      return { name, ok: false, message: "Сессия истекла в Threads (редирект на /login)" };
+      await logSystem(env, "error", "probe", `Тест [${name}] провален: сессия истекла (требуется вход в аккаунт)`);
+      return { name, ok: false, message: "Сессия истекла в Threads (требуется вход в аккаунт)" };
     }
     let updated: string | null = null;
     try {

@@ -621,7 +621,11 @@ export default {
         ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
       }
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
-      const cached = await db.cache<any>(username, "web_profile");
+      const forceRefresh = url.searchParams.get("refresh") === "1" || url.searchParams.get("nocache") === "1";
+      if (forceRefresh) {
+        ctx.waitUntil(db.deleteCache(username, "web_profile").catch(() => {}));
+      }
+      const cached = forceRefresh ? null : await db.cache<any>(username, "web_profile");
       if (cached && Array.isArray(cached.posts)) {
         const cleanPosts = cached.posts.filter((p: any) => !p.author || p.author.toLowerCase() === username);
         if (cleanPosts.length !== cached.posts.length) {
@@ -692,7 +696,11 @@ export default {
       }
 
       // Сначала проверяем D1 кеш (включая отрицательный кеш)
-      const cached = await db.cache<any>(username, "web_profile");
+      const forceRefresh = url.searchParams.get("refresh") === "1" || url.searchParams.get("nocache") === "1";
+      if (forceRefresh) {
+        ctx.waitUntil(db.deleteCache(username, "web_profile").catch(() => {}));
+      }
+      const cached = forceRefresh ? null : await db.cache<any>(username, "web_profile");
       if (cached) {
         if (!isAdmin) {
           ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
