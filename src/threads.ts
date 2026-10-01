@@ -813,7 +813,7 @@ function decodeEntities(value: string): string {
     .trim();
 }
 
-function metaContent(html: string, property: string): string {
+export function metaContent(html: string, property: string): string {
   const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const patterns = [
     new RegExp(`property=["']${escaped}["'][^>]*content=["']([\\s\\S]*?)["']`, "i"),
@@ -828,7 +828,7 @@ function metaContent(html: string, property: string): string {
   return "";
 }
 
-function jsonLdBlocks(html: string): any[] {
+export function jsonLdBlocks(html: string): any[] {
   const out: any[] = [];
   const re = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let m: RegExpExecArray | null;
@@ -846,7 +846,43 @@ function jsonLdBlocks(html: string): any[] {
   return out;
 }
 
-function jsonScriptBlocks(html: string): any[] {
+/**
+ * Вытаскивает JSON-объект, начинающийся в позиции start (должна указывать на "{").
+ * Учитывает строки и экранирование, чтобы скобки внутри текста поста не ломали разбор.
+ */
+export function sliceBalancedJson(src: string, start: number, maxLen: number): string | null {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  const end = Math.min(src.length, start + maxLen);
+  for (let i = start; i < end; i++) {
+    const ch = src[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Все JSON-нагрузки, из которых можно достать посты.
+ *
+ * 1. Блоки <script type="application/json"> - основной канал Threads для предзагрузки.
+ * 2. Обычные <script> без атрибута type: Meta Comet складывает предзагруженные ответы
+ *    GraphQL в присваивания вида __bbox = {...} или RelayPrefetchedStreamCache = {...}.
+ *    Раньше regex их не видел, из-за чего посты не парсились вообще.
+ *    Разбор дорог, поэтому пробуем только кандидатов с маркерами постов и с лимитом размера.
+ */
+export function jsonScriptBlocks(html: string): any[] {
   const out: any[] = [];
   const re = /<script[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let m: RegExpExecArray | null;
@@ -855,6 +891,32 @@ function jsonScriptBlocks(html: string): any[] {
     if (!raw || raw.length < 20) continue;
     try { out.push(JSON.parse(raw)); } catch { /* skip */ }
   }
+
+  // Маркеры, по которым стоит вообще пытаться парсить объект: без них это пустая трата CPU.
+  const MARKERS = ['"text_post_app_info"', '"thread_items"', '"edges"', '"shortcode"', '"pk"'];
+  const scriptRe = /<script(?![^>]*type=["']application\/(?:ld\+)?json["'])[^>]*>([\s\S]*?)<\/script>/gi;
+  let candidates = 0;
+  let sm: RegExpExecArray | null;
+  while ((sm = scriptRe.exec(html)) !== null && candidates < 40) {
+    const body = sm[1];
+    if (!body || body.length < 80) continue;
+    if (!MARKERS.some((k) => body.includes(k))) continue;
+
+    // Ищем каждое вхождение "{" и пробуем сбалансированно вырезать объект.
+    let idx = body.indexOf("{");
+    while (idx !== -1 && candidates < 40) {
+      const slice = sliceBalancedJson(body, idx, 400_000);
+      idx = body.indexOf("{", idx + 1);
+      if (!slice || slice.length < 60) continue;
+      if (!MARKERS.some((k) => slice.includes(k))) continue;
+      candidates++;
+      try {
+        const parsed = JSON.parse(slice);
+        if (parsed && typeof parsed === "object") out.push(parsed);
+      } catch { /* skip */ }
+    }
+  }
+
   return out;
 }
 
@@ -879,14 +941,18 @@ function looksLikePost(node: any): boolean {
   return Boolean(node.code || node.id || node.pk || node.caption);
 }
 
-function normalizePost(node: any, ownerUsername: string): Post | null {
+export function normalizePost(node: any, ownerUsername: string): Post | null {
   if (!looksLikePost(node)) return null;
   const text = String(node.text || node.text_post_app_info?.headline || node.caption || "").trim();
   if (!text) return null;
-  const code = String(node.code || node.id || node.pk || "").trim();
+  const code = String(node.code || node.shortcode || node.id || node.pk || "").trim();
   const author = String(node.user?.username || node.owner?.username || node.username || ownerUsername);
-  const likes = node.like_count ?? node.like_and_view_counts_disabled === false ? String(node.like_count ?? "") : "";
-  const replies = node.replies_count ?? node.text_post_app_info?.direct_reply_count;
+  // ВАЖНО: без явных типов здесь срабатывал приоритет операторов -
+  // `a ?? b === false ? c : d` парсится как `(a ?? (b === false)) ? c : d`,
+  // из-за чего счётчик лайков всегда выходил пустым.
+  const likeRaw = node.like_count ?? node.text_post_app_info?.like_count ?? node.like_and_view_count;
+  const likes = typeof likeRaw === "number" || typeof likeRaw === "string" ? String(likeRaw) : "";
+  const replies = node.replies_count ?? node.comment_count ?? node.text_post_app_info?.direct_reply_count;
   const images: string[] = [];
   const addImage = (v: any) => {
     if (!v) return;
@@ -917,8 +983,11 @@ function normalizePost(node: any, ownerUsername: string): Post | null {
   };
 }
 
-function walkForPosts(root: any, ownerUsername: string, seen: Set<string>, out: Post[], depth = 0) {
-  if (!root || depth > 14 || out.length >= 40) return;
+export function walkForPosts(root: any, ownerUsername: string, seen: Set<string>, out: Post[], depth = 0) {
+  // Глубина 24: предзагруженные ответы Meta Comet вложены глубоко
+  // (data -> user -> edge_owner_to_timeline_media -> edges -> node -> ...).
+  // Прежний лимит 14 обрывал обход до того, как доходил до постов.
+  if (!root || depth > 24 || out.length >= 40) return;
   if (Array.isArray(root)) {
     for (const item of root) walkForPosts(item, ownerUsername, seen, out, depth + 1);
     return;
