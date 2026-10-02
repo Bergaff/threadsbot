@@ -82,7 +82,7 @@ describe("site: no prices, ad placeholder, voluntary donations", () => {
     expect(html).not.toContain('id="pricing"');
     expect(html).not.toMatch(/\b129 ₽|\b890 ₽|Тарифы Premium/);
     expect(html).toContain("Здесь может быть ваша реклама");
-    expect(html).toContain("mailto:support@threadsviewer.online");
+    expect(html).toContain("mailto:silviojurk70@gmail.com");
     expect(html).toContain("https://t.me/threadsreaderbot?start=ads");
     expect(html).not.toMatch(/VPN и приватный доступ|Отключить рекламу/);
     expect(html).toContain('href="/donate?lang=ru"');

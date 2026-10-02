@@ -11,7 +11,7 @@ import { DONATIONS, botDonateLink, donationPrice, type Donation, type PayMethod 
 
 type Lang = "ru" | "en";
 
-export const ADS_EMAIL = "support@threadsviewer.online";
+export const ADS_EMAIL = "silviojurk70@gmail.com";
 
 function esc(v: unknown): string {
   return String(v ?? "")
