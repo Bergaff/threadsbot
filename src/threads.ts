@@ -1,6 +1,7 @@
 import type { BrowserContext, Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
 import { diagnoseAccountCookies, playwrightCookies, snapshotHasSession } from "./cookies";
+import { FeedCollector, mergeDomWithFeed } from "./threadsFeed";
 import { isAccountBlockedUrl, isLoginUrl, isProfileUrl, isThreadsHost, isUserNotFoundPage } from "./profile";
 import { cleanPostText } from "./i18n";
 
@@ -48,6 +49,8 @@ export interface ProfileData {
   partial?: boolean;
   /** Источник данных - для логов и отладки. */
   source?: "browser" | "http";
+  /** Threads сам подтвердил (page_info.has_next_page=false), что лента автора закончилась. */
+  endReached?: boolean;
 }
 
 export interface Comment { author: string; text: string; avatar?: string; top?: number }
@@ -215,12 +218,63 @@ async function closeBrowser(env: Env, opened?: Opened) {
 // СБОР ПОСТОВ И КОММЕНТАРИЕВ
 // ============================
 
-async function collectPosts(page: Page, target = 20, expectedUsername?: string): Promise<Post[]> {
+/** Прокрутка ленты: колесо мыши (на него реагирует IntersectionObserver ленты) + scroll как запасной путь. */
+async function scrollFeed(page: Page, stall: number): Promise<void> {
+  try { await (page as any).mouse.move(400, 500); } catch {}
+  try { await (page as any).mouse.wheel(0, stall === 0 ? 1600 : 3200); } catch {}
+  if (stall === 0) {
+    await page.evaluate(() => window.scrollBy(0, 600)).catch(() => {});
+  } else {
+    // Небольшой откат вверх и снова вниз - «будит» подгрузку, если наблюдатель уже сработал
+    await page.evaluate(() => window.scrollBy(0, -400)).catch(() => {});
+    await sleep(250);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
+  }
+}
+
+/**
+ * Подписывает страницу на сетевые ответы Threads (GraphQL), чтобы собирать посты
+ * и page_info ленты автора. Вызывать ДО навигации на профиль.
+ */
+export function attachFeedCollector(page: Page, username: string): FeedCollector {
+  const feed = new FeedCollector(username);
+  page.on("response", (resp: any) => {
+    try {
+      const u: string = resp.url();
+      if (!/\/(?:api\/)?graphql/i.test(u)) return;
+      const ct = String(resp.headers()["content-type"] || "");
+      if (ct && !/json|javascript|text/i.test(ct)) return;
+      Promise.resolve(resp.text()).then((t: string) => { feed.ingestText(t); }).catch(() => {});
+    } catch {}
+  });
+  return feed;
+}
+
+/** Предзагруженный JSON страницы (первая порция ленты и её page_info). */
+async function ingestPreloadedJson(page: Page, feed: FeedCollector): Promise<void> {
+  const blobs = await page.evaluate(() => {
+    const out: string[] = [];
+    let total = 0;
+    document.querySelectorAll('script[type="application/json"]').forEach((el) => {
+      const t = el.textContent || "";
+      if (total > 6_000_000 || !t.includes("thread_items")) return;
+      total += t.length;
+      out.push(t);
+    });
+    return out;
+  }).catch(() => [] as string[]);
+  for (const b of blobs as string[]) feed.ingestText(b);
+}
+
+async function collectPosts(page: Page, target = 20, expectedUsername?: string, feed?: FeedCollector): Promise<Post[]> {
   const all: Post[] = [], seen = new Set<string>();
   let stall = 0;
   const cleanExpected = expectedUsername ? expectedUsername.toLowerCase().replace(/^@/, '') : '';
+  if (feed) await ingestPreloadedJson(page, feed);
+  const combined = () => (feed ? mergeDomWithFeed(all, feed.posts as Post[]) : all);
+  let lastTotal = 0;
   // Чем больше постов нужно, тем больше раундов прокрутки (≈2-4 новых поста за раунд).
-  const maxRounds = Math.min(45, Math.max(10, Math.ceil(target / 2) + 6));
+  const maxRounds = Math.min(60, Math.max(10, Math.ceil(target / 2) + 8));
   for (let i = 0; i < maxRounds; i++) {
     const evaluated = await page.evaluate((targetUname: string) => {
       const posts: {
@@ -514,21 +568,20 @@ async function collectPosts(page: Page, target = 20, expectedUsername?: string):
       const key = value.text.slice(0, 120) + (value.has_image ? "_img" : "") + (value.has_video ? "_vid" : "");
       if (!seen.has(key)) { seen.add(key); all.push(value); added++; }
     }
-    if (all.length >= target) break;
-    stall = added ? 0 : stall + 1;
-    // РАНЬШЕ: break после ПЕРВОГО же раунда без новых постов. Threads подгружает
-    // следующую порцию дольше 700 мс, поэтому сбор почти всегда обрывался на 3 постах.
-    // Теперь даём ленте 3 раунда подряд с нарастающим ожиданием и прокруткой до низа.
-    if (stall >= 3) break;
-    if (stall === 0) {
-      await page.evaluate(() => window.scrollBy(0, 1400)).catch(() => {});
-      await sleep(900);
-    } else {
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
-      await sleep(1200 + stall * 600);
-    }
+    void added;
+    const total = combined().length;
+    if (total >= target) break;
+    stall = total > lastTotal ? 0 : stall + 1;
+    lastTotal = total;
+    // Threads сам сообщил, что дальше постов нет - крутить бессмысленно.
+    if (feed && feed.hasNextPage === false && stall >= 1) break;
+    // Без подтверждения от Threads сдаёмся только после 4 пустых раундов подряд
+    // с нарастающим ожиданием: подгрузка порции может занимать несколько секунд.
+    if (stall >= 4) break;
+    await scrollFeed(page, stall);
+    await sleep(stall === 0 ? 900 : 1200 + stall * 700);
   }
-  return all.slice(0, target);
+  return combined().slice(0, target);
 }
 
 /**
@@ -1360,6 +1413,7 @@ export async function fetchProfileWithPosts(
         } catch {}
       });
 
+      const feed = attachFeedCollector(opened.page, username);
       const verdict = await checkProfile(opened.page, env, username);
       const outcome = await resolveVerdict(env, account, username, verdict, state);
       if (outcome.action === "rotate") continue;
@@ -1371,7 +1425,8 @@ export async function fetchProfileWithPosts(
       }
 
       const profile = await collectProfileHeader(opened.page, username);
-      const posts = await collectPosts(opened.page, amount, username);
+      const posts = await collectPosts(opened.page, amount, username, feed);
+      const endReached = feed.hasNextPage === false && posts.length < amount;
       let vIdx = 0;
       for (const p of posts) {
         if (p.has_video && !p.videoUrl && vIdx < capturedVideos.length) {
@@ -1386,8 +1441,8 @@ export async function fetchProfileWithPosts(
         // Safe: never fail if browser or context closed right after scraping
       }
       await markSuccess(env, account.name, posts.length, updated || undefined);
-      await logSystem(env, "info", "scraper", `Успешно загружен профиль @${username}: ${posts.length} постов через [${account.name}]`);
-      return { data: { profile, posts }, status: "ok", account: account.name };
+      await logSystem(env, "info", "scraper", `Успешно загружен профиль @${username}: ${posts.length} постов через [${account.name}] (цель ${amount}; из сети ${feed.posts.length}, JSON-ответов ${feed.responses}, has_next_page=${feed.hasNextPage === null ? "нет данных" : feed.hasNextPage})`);
+      return { data: { profile, posts, source: "browser", endReached }, status: "ok", account: account.name };
     } catch (error) {
       const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 300);
       await logSystem(env, "error", "scraper", `Ошибка сбора @${username} (аккаунт: ${account.name}): ${errMsg}`);

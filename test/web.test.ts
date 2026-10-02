@@ -861,9 +861,21 @@ describe("/api/profile ?more=1 endpoint", () => {
     expect(body.posts.slice(3).map((p: any) => p.text)).toEqual(["post 3", "post 4", "post 5", "post 6", "post 7"]);
   });
 
-  it("reports the end of the feed without launching the scraper", async () => {
+  it("ignores the old unconfirmed exhaustedAt flag (it was set by mistake in pr63)", async () => {
     const worker = (await import("../src/index")).default;
-    const { env } = envWithCache(mk(5), { exhaustedAt: 5 });
+    const { env: base } = envWithCache(mk(5), { exhaustedAt: 5 });
+    const env = { ...base, BROWSER: undefined } as any;
+    // BROWSER убран: значит эндпоинт дошёл до запуска скрапера, а не ответил «конец ленты»
+    const res = await worker.fetch(new Request("https://threadsviewer.online/api/profile/testuser?more=1&have=5"), env, ctx);
+    const body: any = await res.json();
+    expect(res.status).toBe(503);
+    expect(body.ok).toBe(false);
+    expect(body.hasMore).not.toBe(false);
+  });
+
+  it("reports the end of the feed (confirmed by Threads) without launching the scraper", async () => {
+    const worker = (await import("../src/index")).default;
+    const { env } = envWithCache(mk(5), { endReachedAt: 5 });
     const res = await worker.fetch(new Request("https://threadsviewer.online/api/profile/testuser?more=1&have=5"), env, ctx);
     const body: any = await res.json();
     expect(body.ok).toBe(true);

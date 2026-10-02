@@ -1977,7 +1977,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr63-2026-10-02-loadmore";
+  const ver = env.VERSION || "pr64-2026-10-02-realmore";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2567,9 +2567,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr63-2026-10-02-loadmore')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr63-2026-10-02-loadmore')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr63-2026-10-02-loadmore')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr64-2026-10-02-realmore')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr64-2026-10-02-realmore')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr64-2026-10-02-realmore')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2738,7 +2738,7 @@ export function renderProfilePage(
     var loadedPostCount = ${posts.length};
     var currentProfile = ${JSON.stringify(initialData?.profile ? { displayName: initialData.profile.displayName || "", avatar: initialData.profile.avatar || "" } : null).replace(/</g, "\\u003c")};
     var moreBusy = false;
-    var moreExhausted = false;
+    var moreExhausted = ${initialData && (initialData as any).endReached === true ? "true" : "false"};
 
     (function recordProfileHistory() {
       try {
@@ -3193,6 +3193,7 @@ export function renderProfilePage(
             loadedPostCount = (res.posts || []).length;
             var moreSec = document.getElementById('loadMoreSection');
             if (moreSec && loadedPostCount) moreSec.style.display = 'block';
+            if (res.endReached === true) { moreExhausted = true; setMoreButton('done'); }
           } else {
             var box = document.getElementById('loadingBox');
             var title = document.getElementById('loadingStatusTitle');
@@ -3250,11 +3251,14 @@ export function renderProfilePage(
       if (!btn) return;
       if (state === 'busy') {
         btn.disabled = true;
-        btn.innerText = currentLang === 'en' ? 'Loading posts... (up to 30 sec)' : 'Загружаем посты... (до 30 сек)';
+        btn.innerText = currentLang === 'en' ? 'Loading posts... (up to a minute)' : 'Загружаем посты... (до минуты)';
       } else if (state === 'done') {
         btn.disabled = true;
-        btn.innerText = currentLang === 'en' ? 'All available posts are loaded' : 'Загружены все доступные посты';
+        btn.innerText = currentLang === 'en' ? 'No more posts from this author' : 'Больше постов у автора нет';
         if (sec) sec.style.opacity = '0.6';
+      } else if (state === 'retry') {
+        btn.disabled = false;
+        btn.innerText = currentLang === 'en' ? 'Try loading more again' : 'Попробовать загрузить ещё раз';
       } else {
         btn.disabled = false;
         btn.innerText = '${t.load_more}';
@@ -3270,7 +3274,7 @@ export function renderProfilePage(
         .then(function(data) {
           moreBusy = false;
           if (!data || !data.ok) {
-            setMoreButton('idle');
+            setMoreButton('retry');
             showToast((data && data.error) || '${t.toast_error}');
             return;
           }
@@ -3280,17 +3284,21 @@ export function renderProfilePage(
             renderPostsClient(fresh, data.profile || currentProfile, loadedPostCount);
             loadedPostCount += fresh.length;
           }
-          if (!fresh.length || data.hasMore === false) {
+          if (data.hasMore === false) {
+            // Сервер говорит «конец» только когда это подтвердил сам Threads
             moreExhausted = true;
             setMoreButton('done');
             if (!fresh.length) showToast('${t.toast_all_loaded}');
+          } else if (!fresh.length) {
+            setMoreButton('retry');
+            showToast(data.notice || (currentLang === 'en' ? 'Threads did not return new posts yet. Tap again.' : 'Threads пока не отдал новые посты. Нажмите ещё раз.'));
           } else {
             setMoreButton('idle');
           }
         })
         .catch(function() {
           moreBusy = false;
-          setMoreButton('idle');
+          setMoreButton('retry');
           showToast('${t.toast_error}');
         });
     }
@@ -3606,9 +3614,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta property="og:locale" content="${isEn ? 'en_US' : 'ru_RU'}">
   <meta property="og:locale:alternate" content="${isEn ? 'ru_RU' : 'en_US'}">
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr63-2026-10-02-loadmore">
-  <link rel="alternate icon" href="/favicon.ico?v=pr63-2026-10-02-loadmore">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr63-2026-10-02-loadmore">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr64-2026-10-02-realmore">
+  <link rel="alternate icon" href="/favicon.ico?v=pr64-2026-10-02-realmore">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr64-2026-10-02-realmore">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');

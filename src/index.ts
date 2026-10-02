@@ -731,7 +731,9 @@ export default {
           await logSystem(env, "info", "api", `[API_MORE] @${username}: отдано из кеша ${basePosts.length - have} новых постов (было ${have})`);
           return Response.json({ ok: true, cached: true, profile: cachedOk?.profile || null, posts: basePosts, hasMore: true }, { headers: noStore });
         }
-        if (have >= MORE_POSTS_MAX || (cachedOk?.exhaustedAt && Number(cachedOk.exhaustedAt) >= have)) {
+        // Конец ленты отмечаем ТОЛЬКО если его подтвердил сам Threads (has_next_page=false).
+        // Старый флаг exhaustedAt (pr63) ставился по косвенным признакам и игнорируется.
+        if (have >= MORE_POSTS_MAX || (cachedOk?.endReachedAt && Number(cachedOk.endReachedAt) >= have) || (cachedOk?.endReached === true && basePosts.length <= have)) {
           return Response.json({ ok: true, cached: true, profile: cachedOk?.profile || null, posts: basePosts, hasMore: false }, { headers: noStore });
         }
 
@@ -766,22 +768,38 @@ export default {
             await logSystem(env, "warn", "api", `[API_MORE] @${username}: скрапер вернул ${fresh.status}`);
             return Response.json({ ok: false, status: fresh.status, error: "Не удалось догрузить посты. Попробуйте ещё раз через минуту." }, { status: 502, headers: noStore });
           }
+          if (fresh.data.source === "http") {
+            // Браузерные аккаунты не сработали, а публичная HTML-страница не умеет листать ленту.
+            await logSystem(env, "warn", "api", `[API_MORE] @${username}: браузер недоступен, HTTP-источник не листает ленту`);
+            return Response.json({ ok: false, retry: true, error: "Сейчас не удалось догрузить посты. Попробуйте ещё раз через минуту." }, { status: 503, headers: noStore });
+          }
           const freshPosts = (fresh.data.posts || []).filter((p: any) => !p.author || String(p.author).toLowerCase() === username);
           const merged = mergePostLists(basePosts, freshPosts);
           const added = merged.length - basePosts.length;
-          // Скрапер дошёл до конца ленты (собрал меньше цели) или это HTTP-источник без прокрутки
-          const reachedEnd = freshPosts.length < target || fresh.data.source === "http";
-          const hasMore = merged.length > have && !reachedEnd;
+          const shownNew = Math.max(0, merged.length - have);
+          const reachedEnd = fresh.data.endReached === true;
           const toCache: any = {
             ...(cachedOk || {}),
             ...fresh.data,
             profile: fresh.data.profile || cachedOk?.profile || null,
             posts: merged,
           };
-          if (reachedEnd) toCache.exhaustedAt = merged.length; else delete toCache.exhaustedAt;
+          delete toCache.exhaustedAt;
+          delete toCache.endReached;
+          if (reachedEnd) toCache.endReachedAt = merged.length; else delete toCache.endReachedAt;
           await db.setCache(username, "web_profile", toCache);
-          await logSystem(env, "info", "api", `[API_MORE] @${username}: +${added} постов (всего ${merged.length}, ещё есть: ${hasMore ? "да" : "нет"})`);
-          return Response.json({ ok: true, cached: false, profile: toCache.profile, posts: merged, hasMore }, { headers: noStore });
+          await logSystem(env, "info", "api", `[API_MORE] @${username}: +${added} в кеш, клиенту новых ${shownNew} (всего ${merged.length}, конец ленты подтверждён Threads: ${reachedEnd ? "да" : "нет"})`);
+          return Response.json({
+            ok: true,
+            cached: false,
+            profile: toCache.profile,
+            posts: merged,
+            // false - только когда Threads сам подтвердил конец ленты
+            hasMore: !reachedEnd,
+            notice: shownNew === 0 && !reachedEnd
+              ? "Threads не успел отдать следующую порцию постов. Нажмите «Загрузить ещё» ещё раз."
+              : undefined,
+          }, { headers: noStore });
         } catch (error) {
           await logSystem(env, "error", "api", `[API_MORE] @${username}: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}`);
           return Response.json({ ok: false, error: "Не удалось догрузить посты. Попробуйте ещё раз через минуту." }, { status: 500, headers: noStore });
