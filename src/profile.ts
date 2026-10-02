@@ -9,6 +9,29 @@ export function isLoginUrl(url: string): boolean {
   }
 }
 
+/**
+ * Threads увёл сессию на служебную страницу блокировки аккаунта-скрапера
+ * (/accounts/suspended, /accounts/disabled, /challenge, /checkpoint).
+ * Это проблема САМОГО технического аккаунта, а не запрошенного профиля:
+ * без ручного вмешательства такой аккаунт больше ничего не откроет.
+ */
+export function isAccountBlockedUrl(url: string): boolean {
+  if (!url) return false;
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    return (
+      path.startsWith("/accounts/suspended") ||
+      path.startsWith("/accounts/disabled") ||
+      path.startsWith("/challenge") ||
+      path.startsWith("/accounts/challenge") ||
+      path.startsWith("/checkpoint") ||
+      path.startsWith("/accounts/checkpoint")
+    );
+  } catch {
+    return false;
+  }
+}
+
 const NOT_FOUND_MARKERS = [
   "page not found",
   "страница не найдена",

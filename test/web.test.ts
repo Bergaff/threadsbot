@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   detectLanguage,
+  FALLBACK_JS,
+  renderFallbackScript,
   handleImageProxy,
   renderHomePage,
   renderNotFoundPage,
@@ -767,5 +769,23 @@ describe("Web Viewer SSR & Routing", () => {
       // The valid post by 4a.cev must be displayed
       expect(html).toContain("My own valid post by 4a.cev");
     });
+  });
+});
+
+describe("fallback.js for ad network", () => {
+  it("serves a harmless JS stub with JS content-type", async () => {
+    const res = renderFallbackScript(new Request("https://threadsviewer.online/fallback.js"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/javascript; charset=utf-8");
+    expect(res.headers.get("cache-control")).toContain("max-age=");
+    const body = await res.text();
+    expect(body).toBe(FALLBACK_JS);
+    expect(() => new Function(body)).not.toThrow();
+  });
+
+  it("answers HEAD without a body", async () => {
+    const res = renderFallbackScript(new Request("https://threadsviewer.online/fallback.js", { method: "HEAD" }));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("");
   });
 });

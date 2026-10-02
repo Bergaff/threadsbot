@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectBotType, isHomeRedirect, isLoginUrl, isProfileUrl, isThreadsHost, isUserNotFoundPage } from "../src/profile";
+import { detectBotType, isAccountBlockedUrl, isHomeRedirect, isLoginUrl, isProfileUrl, isThreadsHost, isUserNotFoundPage } from "../src/profile";
 
 describe("detectBotType", () => {
   it("detects search bots and SEO crawlers correctly", () => {
@@ -87,5 +87,22 @@ describe("isProfileUrl", () => {
     expect(isProfileUrl("https://www.threads.com/checkpoint/", "xuxukit")).toBe(false);
     expect(isProfileUrl("about:blank", "xuxukit")).toBe(false);
     expect(isProfileUrl("", "xuxukit")).toBe(false);
+  });
+});
+
+describe("isAccountBlockedUrl", () => {
+  it("detects Meta suspension / checkpoint pages of the scraper account", () => {
+    expect(isAccountBlockedUrl("https://www.threads.com/accounts/suspended/?next=https%3A%2F%2Fwww.threads.com%2F%40one.kazakhstan%3F__coig_ufac%3D1")).toBe(true);
+    expect(isAccountBlockedUrl("https://www.threads.com/accounts/disabled/")).toBe(true);
+    expect(isAccountBlockedUrl("https://www.threads.com/challenge/?next=/")).toBe(true);
+    expect(isAccountBlockedUrl("https://www.threads.net/checkpoint/123")).toBe(true);
+  });
+
+  it("does not fire on profiles, feed or empty urls", () => {
+    expect(isAccountBlockedUrl("https://www.threads.com/@one.kazakhstan")).toBe(false);
+    expect(isAccountBlockedUrl("https://www.threads.com/@suspended")).toBe(false);
+    expect(isAccountBlockedUrl("https://www.threads.com/")).toBe(false);
+    expect(isAccountBlockedUrl("about:blank")).toBe(false);
+    expect(isAccountBlockedUrl("")).toBe(false);
   });
 });

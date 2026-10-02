@@ -24,6 +24,7 @@ import {
   renderRobotsTxt,
   renderSitemap,
   renderTermsPage,
+  renderFallbackScript,
 } from "./web";
 import { createJhpayPayment } from "./payment";
 
@@ -120,6 +121,15 @@ export default {
         status: 200,
         headers: { "content-type": "text/plain; charset=UTF-8" },
       });
+    }
+
+    // ==========================================
+    // FALLBACK-СКРИПТ РЕКЛАМНОЙ СЕТИ
+    // Сеть подгружает его, когда ей нечего показать. Отдаём безобидную заглушку.
+    // Стоит в самом начале: до аналитики, антибот-фильтра и профильных роутов.
+    // ==========================================
+    if (lowerPath === "/fallback.js") {
+      return renderFallbackScript(request);
     }
 
     // ==========================================

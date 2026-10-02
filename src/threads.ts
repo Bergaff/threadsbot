@@ -1,7 +1,7 @@
 import type { BrowserContext, Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
 import { diagnoseAccountCookies, playwrightCookies, snapshotHasSession } from "./cookies";
-import { isLoginUrl, isProfileUrl, isThreadsHost, isUserNotFoundPage } from "./profile";
+import { isAccountBlockedUrl, isLoginUrl, isProfileUrl, isThreadsHost, isUserNotFoundPage } from "./profile";
 import { cleanPostText } from "./i18n";
 
 export {
@@ -586,6 +586,14 @@ async function checkProfile(page: Page, env: Env, username: string): Promise<Pro
 
   // 2. Редирект на /login = мертвая сессия аккаунта-скрапера
   if (isLoginUrl(currentUrl)) {
+    return "session_expired";
+  }
+
+  // 2a. Редирект на /accounts/suspended, /challenge, /checkpoint = Meta заблокировала
+  //     САМ технический аккаунт. Раньше это уходило в "inconclusive": аккаунт оставался
+  //     «Активен» и на каждом запросе сжигал ~8 секунд браузера перед ротацией.
+  if (isAccountBlockedUrl(currentUrl)) {
+    await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: Threads заблокировал технический аккаунт (редирект на ${currentUrl}) - аккаунт выводится из ротации`);
     return "session_expired";
   }
 
