@@ -130,6 +130,23 @@ export default {
     }
 
     // ==========================================
+    // ВЕРИФИКАЦИЯ OCTOCLICK (ФАЙЛОВАЯ)
+    // Ссылка проверки у OctoClick с двойным слэшем: https://threadsviewer.online//606e...html,
+    // поэтому сравниваем путь без ведущих слэшей.
+    // ==========================================
+    const bareLowerPath = lowerPath.replace(/^\/+/, "");
+    if (
+      bareLowerPath === "606e95d69781b66aad762b85526bb4eb.html" ||
+      bareLowerPath === "606e95d69781b66aad762b85526bb4eb.txt" ||
+      bareLowerPath === "606e95d69781b66aad762b85526bb4eb"
+    ) {
+      return new Response("606e95d69781b66aad762b85526bb4eb", {
+        status: 200,
+        headers: { "content-type": "text/html; charset=UTF-8", "cache-control": "no-store" },
+      });
+    }
+
+    // ==========================================
     // FALLBACK-СКРИПТ РЕКЛАМНОЙ СЕТИ
     // Сеть подгружает его, когда ей нечего показать. Отдаём безобидную заглушку.
     // Стоит в самом начале: до аналитики, антибот-фильтра и профильных роутов.

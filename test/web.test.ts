@@ -270,6 +270,12 @@ describe("Web Viewer SSR & Routing", () => {
     expect(htmlHome).toContain('<meta name="google-site-verification" content="google3ae2b24cd673c270">');
     expect(htmlHome).toContain('<meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">');
     expect(htmlHome).toContain('<meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">');
+    expect(htmlHome).toContain('<meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">');
+    for (const path of ["/606e95d69781b66aad762b85526bb4eb.html", "//606e95d69781b66aad762b85526bb4eb.html"]) {
+      const octo = await worker.fetch(new Request("https://threadsviewer.online" + path), mockEnv, fakeCtx);
+      expect(octo.status).toBe(200);
+      expect(await octo.text()).toBe("606e95d69781b66aad762b85526bb4eb");
+    }
   });
 
   it("serves Threads favicon, OpenGraph banner, and SEO rich snippet markup", async () => {
