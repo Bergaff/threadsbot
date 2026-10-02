@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PLANS, parseBuyPayload, planByDays, rubPerMonth, savingsPercent, botBuyLink } from "../src/plans";
+import { PLANS, DONATIONS, parseBuyPayload, parseDonatePayload, planByDays, rubPerMonth, savingsPercent, botBuyLink, botDonateLink, donationByRub } from "../src/plans";
 import { renderHomePage, renderProfilePage } from "../src/web";
 import { Bot, starsPlanFor } from "../src/bot";
 import worker from "../src/index";
@@ -59,6 +59,13 @@ describe("plans", () => {
     expect(botBuyLink("bot", planByDays(90)!, "stars")).toBe("https://t.me/bot?start=buy_quarter_stars");
   });
 
+  it("parses donation deep links only for fixed amounts", () => {
+    expect(parseDonatePayload("donate_100_crypto")).toMatchObject({ donation: { rub: 100, usd: 1 }, method: "crypto" });
+    expect(parseDonatePayload("donate_300")).toMatchObject({ donation: { rub: 300 }, method: "stars" });
+    expect(parseDonatePayload("donate_1_stars")).toBeNull();
+    expect(botDonateLink("bot", donationByRub(50)!, "stars")).toBe("https://t.me/bot?start=donate_50_stars");
+  });
+
   it("maps paid Stars invoices to the right term, including legacy 7-day invoices", () => {
     expect(starsPlanFor("sub_1_90", 175)).toEqual({ days: 90 });
     expect(starsPlanFor("sub_1_3", 25)).toEqual({ days: 3 });
@@ -69,53 +76,59 @@ describe("plans", () => {
   });
 });
 
-describe("site pricing", () => {
-  it("home shows 4 plans with buy buttons; premium users see no pricing", async () => {
-    const html = await renderHomePage({} as Env, "ru").text();
-    expect(html).toContain('id="pricing"');
-    for (const p of PLANS) expect(html).toContain(`/pay?plan=${p.id}&amp;lang=ru`);
-    expect(html).toContain("39 ₽");
-    expect(html).toContain("890 ₽");
-    expect(html).toContain("экономия 43%");
-    const premium = await renderHomePage({} as Env, "ru", true).text();
-    expect(premium).not.toContain('id="pricing"');
-    expect(premium).not.toContain('class="btn-nav-pricing"');
-    expect(html).toContain('class="btn-nav-pricing"');
+describe("site: no prices, ad placeholder, voluntary donations", () => {
+  it("home has no prices; ad space is a placeholder with email and bot contacts", async () => {
+    const html = await renderHomePage({ BOT_USERNAME: "threadsreaderbot" } as Env, "ru").text();
+    expect(html).not.toContain('id="pricing"');
+    expect(html).not.toMatch(/\b129 ₽|\b890 ₽|Тарифы Premium/);
+    expect(html).toContain("Здесь может быть ваша реклама");
+    expect(html).toContain("mailto:support@threadsviewer.online");
+    expect(html).toContain("https://t.me/threadsreaderbot?start=ads");
+    expect(html).not.toMatch(/VPN и приватный доступ|Отключить рекламу/);
+    expect(html).toContain('href="/donate?lang=ru"');
+    // FAQ честно говорит, что сайт бесплатный
+    expect(html).toContain("Сайт полностью бесплатный");
   });
 
-  it("profile/post pages show a compact promo, not for premium", async () => {
-    expect(await renderProfilePage({} as Env, "zuck", null, null, "ru").text()).toContain("premium-promo");
-    expect(await renderProfilePage({} as Env, "zuck", null, null, "en").text()).toContain("from $0.49");
+  it("profile/post pages show the placeholder and no premium promo", async () => {
+    const html = await renderProfilePage({} as Env, "zuck", null, null, "en").text();
+    expect(html).toContain("Your ad could be here");
+    expect(html).not.toContain("premium-promo");
+    expect(html).not.toContain("from $0.49");
   });
 
-  it("/pricing, /pay and /pay/confirm work end to end", async () => {
+  it("donation page: amounts, methods, clear 'unlocks nothing' note", async () => {
     const { env } = makeEnv();
-    const pricing = await worker.fetch(new Request("https://threadsviewer.online/pricing?lang=ru"), env as any, ctx);
-    expect(pricing.status).toBe(200);
-    const pricingHtml = await pricing.text();
-    expect(pricingHtml).toContain("<h1>Тарифы Premium</h1>");
-    expect(pricingHtml).toContain("Вопросы об оплате");
+    const res = await worker.fetch(new Request("https://threadsviewer.online/donate?amount=300&lang=ru"), env as any, ctx);
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    for (const d of DONATIONS) expect(html).toContain(`/donate?amount=${d.rub}&amp;lang=ru`);
+    expect(html).toContain("Поддержать · 300 ₽");
+    expect(html).toContain("175 ⭐");
+    expect(html).toContain("ничего не открывает");
+    expect(res.headers.get("x-robots-tag")).toContain("noindex");
+    // произвольная сумма не принимается - подставляется сумма по умолчанию
+    expect(await (await worker.fetch(new Request("https://threadsviewer.online/donate?amount=99999&lang=ru"), env as any, ctx)).text()).toContain("Поддержать · 100 ₽");
+  });
 
-    const pay = await worker.fetch(new Request("https://threadsviewer.online/pay?plan=year&lang=ru"), env as any, ctx);
-    const payHtml = await pay.text();
-    expect(pay.status).toBe(200);
-    expect(payHtml).toContain("Перейти к оплате · 890 ₽");
-    expect(payHtml).toContain('name="agree"');
-    expect(payHtml).toContain("500 ⭐");
-    expect(pay.headers.get("x-robots-tag")).toContain("noindex");
+  it("old pricing URLs redirect to /donate", async () => {
+    const { env } = makeEnv();
+    for (const path of ["/pricing?lang=en", "/pay?plan=year", "/buy", "/order", "/pay/confirm?method=stars"]) {
+      const res = await worker.fetch(new Request("https://threadsviewer.online" + path), env as any, ctx);
+      expect(res.status).toBe(301);
+      expect(res.headers.get("location")).toMatch(/^\/donate/);
+    }
+  });
 
-    // Неизвестный тариф -> месяц; старые адреса /buy и /order тоже ведут на оформление
-    expect(await (await worker.fetch(new Request("https://threadsviewer.online/buy?plan=hack&lang=ru"), env as any, ctx)).text()).toContain("129 ₽");
-
-    const stars = await worker.fetch(new Request("https://threadsviewer.online/pay/confirm?plan=quarter&method=stars&agree=1"), env as any, ctx);
+  it("/donate/confirm: Stars/USDT go to the bot, card shows the stub", async () => {
+    const { env } = makeEnv();
+    const stars = await worker.fetch(new Request("https://threadsviewer.online/donate/confirm?amount=500&method=stars"), env as any, ctx);
     expect(stars.status).toBe(302);
-    expect(stars.headers.get("location")).toBe("https://t.me/threadsreaderbot?start=buy_quarter_stars");
-
-    const card = await worker.fetch(new Request("https://threadsviewer.online/pay/confirm?plan=trial&method=card&agree=1&lang=ru"), env as any, ctx);
-    const cardHtml = await card.text();
-    expect(cardHtml).toContain("Оплата картой и СБП подключается");
-    expect(cardHtml).toContain("start=buy_trial_stars");
-    expect(cardHtml).toContain("start=buy_trial_crypto");
+    expect(stars.headers.get("location")).toBe("https://t.me/threadsreaderbot?start=donate_500_stars");
+    const card = await (await worker.fetch(new Request("https://threadsviewer.online/donate/confirm?amount=50&method=card&lang=ru"), env as any, ctx)).text();
+    expect(card).toContain("Оплата картой и СБП подключается");
+    expect(card).toContain("start=donate_50_stars");
+    expect(card).toContain("start=donate_50_crypto");
   });
 });
 
@@ -197,5 +210,49 @@ describe("bot payments", () => {
     await press(43); // чужой счёт
     expect(activations).toHaveLength(1);
     expect(activations[0]).toMatchObject({ uid: 42, method: "crypto", amount: 3.49 });
+  });
+
+  it("a Stars donation thanks the user and does NOT activate a subscription", async () => {
+    const calls = tgMock();
+    const { env, activations } = makeEnv();
+    const bot = new Bot(env);
+    await bot.update({ update_id: 1, message: { message_id: 1, chat: { id: 42 }, from, text: "/start donate_300_stars" } } as any);
+    const inv = calls.find((c) => c.method === "sendInvoice")!;
+    expect(inv.body.payload).toBe("don_42_300");
+    expect(inv.body.prices[0].amount).toBe(175);
+    await bot.update({ update_id: 2, message: { message_id: 2, chat: { id: 42 }, from, successful_payment: { total_amount: 175, invoice_payload: "don_42_300" } } } as any);
+    expect(activations).toHaveLength(0);
+    expect(calls.some((c) => c.method === "sendMessage" && String(c.body.text).includes("Спасибо, что поддержали проект"))).toBe(true);
+  });
+
+  it("a crypto donation is thanked once and never activates a subscription", async () => {
+    const calls = tgMock({ status: "paid", payload: "don:42:100", amount: "1" });
+    const { env, activations } = makeEnv();
+    const press = () => new Bot(env).update({
+      update_id: 1,
+      callback_query: { id: "cb", from, data: "don:check:900", message: { message_id: 5, chat: { id: 42 } } },
+    } as any);
+    await press();
+    await press();
+    expect(activations).toHaveLength(0);
+    expect(calls.filter((c) => c.method === "editMessageText")).toHaveLength(1);
+  });
+
+  it("a donation invoice cannot be redeemed as a subscription via sub:check", async () => {
+    tgMock({ status: "paid", payload: "don:42:100", amount: "1" });
+    const { env, activations } = makeEnv();
+    await new Bot(env).update({
+      update_id: 1,
+      callback_query: { id: "cb", from, data: "sub:check:900", message: { message_id: 5, chat: { id: 42 } } },
+    } as any);
+    expect(activations).toHaveLength(0);
+  });
+
+  it("deep link start=ads asks for an advertising request", async () => {
+    const calls = tgMock();
+    const { env, state } = makeEnv();
+    await new Bot(env).update({ update_id: 1, message: { message_id: 1, chat: { id: 42 }, from, text: "/start ads" } } as any);
+    expect(state.get("42|waiting_support")).toBe("ads");
+    expect(calls.some((c) => String(c.body.text || "").includes("Реклама на threadsviewer.online"))).toBe(true);
   });
 });

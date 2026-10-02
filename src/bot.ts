@@ -6,7 +6,7 @@ import { fetchComments, fetchPosts, probeAccount, resetAccountStatuses, type Com
 import { kb, Telegram, type CallbackQuery, type TelegramUpdate, type TgMessage } from "./telegram";
 import { createAuthToken } from "./auth";
 import { createJhpayPayment } from "./payment";
-import { PLANS, planByDays, parseBuyPayload, planDuration, type Plan } from "./plans";
+import { PLANS, planByDays, parseBuyPayload, parseDonatePayload, planDuration, donationByRub, type Donation, type Plan } from "./plans";
 
 const esc=(v:unknown)=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
 const fmtDate=(d:Date)=>`${String(d.getUTCDate()).padStart(2,'0')}.${String(d.getUTCMonth()+1).padStart(2,'0')}.${d.getUTCFullYear()}`;
@@ -22,6 +22,14 @@ export class Bot {
 
  async update(update:TelegramUpdate){if(update.pre_checkout_query){await this.tg.answerPreCheckoutQuery(update.pre_checkout_query.id);return}if(update.callback_query){await this.callback(update.callback_query);return}if(update.message)await this.message(update.message)}
  private async message(m:TgMessage){if(!m.from)return;const uid=m.from.id,cid=m.chat.id,raw=(m.text||m.caption||"").trim();if(await this.db.isBanned(uid))return;this.tg.sendChatAction(cid,"typing").catch(()=>{});
+  if(m.successful_payment&&String(m.successful_payment.invoice_payload||"").startsWith("don_")){
+    // Пожертвование: подписку НЕ активируем, только благодарим
+    await this.db.logEvent(uid,"donation",`stars:${m.successful_payment.total_amount}`);
+    const lang=await this.lang(uid);
+    await this.tg.sendMessage(cid,lang==="en"?"💛 <b>Thank you for supporting the project!</b>":"💛 <b>Спасибо, что поддержали проект!</b>");
+    await this.notifyAdminsDonation(uid,`${m.successful_payment.total_amount} ⭐`);
+    return;
+  }
   if(m.successful_payment){
     const plan = starsPlanFor(m.successful_payment.invoice_payload || "", m.successful_payment.total_amount);
     if(!plan){
@@ -43,7 +51,7 @@ export class Bot {
   if(isAdmin(this.env,uid)&&/^\d+\s+.+/s.test(raw)){const match=raw.match(/^(\d+)\s+(.+)$/s)!;await this.answerTicket(cid,Number(match[1]),match[2]);return}
   await this.username(m,raw);
  }
- private async start(m:TgMessage){const uid=m.from!.id,cid=m.chat.id;const payload=((m.text||"").trim().split(/\s+/)[1]||"");if(payload.startsWith("track_")){const target=payload.slice(6);await this.track(m,target);return}if(payload==="web_adfree"||payload==="adfree"){await this.webLink(m);return}const buy=parseBuyPayload(payload);if(buy){if(buy.method==="crypto")await this.crypto(cid,uid,buy.plan.days);else await this.starsInvoice(cid,uid,buy.plan);return}if(!await this.db.hasLang(uid)){let lang=(m.from!.language_code||"ru").slice(0,2);if(!languages.includes(lang as any))lang="en";await this.db.setLang(uid,lang);await this.tg.sendMessage(cid,"🌍 Выберите язык / Select language / Sprache wählen:",this.languageKb());return}const [lang,sub,u]=await Promise.all([this.lang(uid),this.db.subscription(uid),this.db.usage(uid)]);const status=sub?.active?text("subscription_active",lang,{days:Number(sub.days_left)}):text("free_limit",lang,{daily:Math.max(0,LIMITS.freeDaily-u.daily),monthly:Math.max(0,LIMITS.freeMonthly-u.monthly)});await this.tg.sendMessage(cid,text("welcome",lang,{status}));this.removeButtons(cid).catch(()=>{});this.db.logEvent(uid,"start").catch(()=>{})}
+ private async start(m:TgMessage){const uid=m.from!.id,cid=m.chat.id;const payload=((m.text||"").trim().split(/\s+/)[1]||"");if(payload.startsWith("track_")){const target=payload.slice(6);await this.track(m,target);return}if(payload==="web_adfree"||payload==="adfree"){await this.webLink(m);return}if(payload==="ads"){await this.adsRequest(m);return}const don=parseDonatePayload(payload);if(don){if(don.method==="crypto")await this.cryptoDonate(cid,uid,don.donation);else await this.starsDonate(cid,uid,don.donation);return}const buy=parseBuyPayload(payload);if(buy){if(buy.method==="crypto")await this.crypto(cid,uid,buy.plan.days);else await this.starsInvoice(cid,uid,buy.plan);return}if(!await this.db.hasLang(uid)){let lang=(m.from!.language_code||"ru").slice(0,2);if(!languages.includes(lang as any))lang="en";await this.db.setLang(uid,lang);await this.tg.sendMessage(cid,"🌍 Выберите язык / Select language / Sprache wählen:",this.languageKb());return}const [lang,sub,u]=await Promise.all([this.lang(uid),this.db.subscription(uid),this.db.usage(uid)]);const status=sub?.active?text("subscription_active",lang,{days:Number(sub.days_left)}):text("free_limit",lang,{daily:Math.max(0,LIMITS.freeDaily-u.daily),monthly:Math.max(0,LIMITS.freeMonthly-u.monthly)});await this.tg.sendMessage(cid,text("welcome",lang,{status}));this.removeButtons(cid).catch(()=>{});this.db.logEvent(uid,"start").catch(()=>{})}
  private languageKb(){return kb([[{text:LANGUAGE_NAMES.ru,callback_data:"set_lang:ru"},{text:LANGUAGE_NAMES.en,callback_data:"set_lang:en"}],[{text:LANGUAGE_NAMES.de,callback_data:"set_lang:de"},{text:LANGUAGE_NAMES.es,callback_data:"set_lang:es"}],[{text:LANGUAGE_NAMES.pt,callback_data:"set_lang:pt"}]])}
  private async language(m:TgMessage){await this.tg.sendMessage(m.chat.id,text("select_language",await this.lang(m.from!.id)),this.languageKb());this.removeButtons(m.chat.id).catch(()=>{})}
  private async help(m:TgMessage){let value=text("help",await this.lang(m.from!.id));if(isAdmin(this.env,m.from!.id))value+="\n\n🔐 /admin\n🧭 /diag\n📂 /accounts\n🩺 /account_check\n🗑 /account_del имя\n📦 /account_export имя\n➕ Пришли JSON файл (подпись = имя аккаунта) — добавить";await this.tg.sendMessage(m.chat.id,value);this.removeButtons(m.chat.id).catch(()=>{})}
@@ -69,7 +77,7 @@ export class Bot {
  private async untrack(m:TgMessage){const uid=m.from!.id,cid=m.chat.id,lang=await this.lang(uid);const raw=(m.text||"").replace(/^\/untrack(@\w+)?/i,"").trim();const target=parseThreadsUsername(raw);if(!target){await this.tg.sendMessage(cid,lang==="en"?"Send: <code>/untrack @username</code>":"Отправьте: <code>/untrack @username</code>");return}const removed=await this.db.removeTrack(uid,target);await this.tg.sendMessage(cid,removed?(lang==="en"?`[-] Stopped tracking @${esc(target)}.`:`[-] Мониторинг @${esc(target)} отключен.`):(lang==="en"?`@${esc(target)} was not in your tracking list.`:`@${esc(target)} не найден в вашем списке отслеживания.`));}
  private async tracksList(m:TgMessage){const uid=m.from!.id,cid=m.chat.id,lang=await this.lang(uid);const sub=await this.db.subscription(uid);const max=sub?.active?5:0;const list=await this.db.getUserTracks(uid);if(!list.length){await this.tg.sendMessage(cid,lang==="en"?`You are not tracking any creators yet (${list.length}/${max}).\n\nAdd one: <code>/track @username</code>`:`У вас пока нет отслеживаемых авторов (${list.length}/${max}).\n\nДобавить: <code>/track @username</code>`);return}const items=list.map(u=>`• @${esc(u)} (<code>/untrack @${esc(u)}</code>)`).join("\n");await this.tg.sendMessage(cid,lang==="en"?`<b>Your tracked creators (${list.length}/${max}):</b>\n\n${items}\n\nAdd: <code>/track @username</code>`:`<b>Ваши анонимные подписки (${list.length}/${max}):</b>\n\n${items}\n\nДобавить: <code>/track @username</code>`);}
  private async support(m:TgMessage){const lang=await this.lang(m.from!.id);await this.buttons(m.chat.id,`<b>${text("support_title",lang)}</b>\n\n• ${text("ask_question",lang)}\n• ${text("suggest_idea",lang)}\n\n${text("choose",lang)} 👇`,kb([[{text:`❓ ${text("question",lang)}`,callback_data:"sup:write:question"}],[{text:`💡 ${text("suggestion",lang)}`,callback_data:"sup:write:suggestion"}],[{text:`📋 ${text("my_tickets",lang)}`,callback_data:"sup:my"}]]))}
- private async supportInput(m:TgMessage,type:string){const value=(m.text||m.caption||"").trim();if(!value){await this.tg.sendMessage(m.chat.id,"❌ Сообщение не может быть пустым.");return}await this.db.clearState(m.from!.id,"waiting_support");const id=await this.db.createTicket(m.from!.id,m.from!.username||String(m.from!.id),value,type);await this.db.logEvent(m.from!.id,"ticket",type);const lang=await this.lang(m.from!.id),label=text(type==="suggestion"?"suggestion":"question",lang);await this.tg.sendMessage(m.chat.id,`✅ <b>${label} #${id}</b>\n\nВаше обращение принято. Спасибо!`);for(const aid of adminIds(this.env))await this.tg.sendMessage(aid,`🆘 ${type==="suggestion"?"💡":"❓"} <b>#${id}</b>\n👤 @${esc(m.from!.username||m.from!.id)} (<code>${m.from!.id}</code>)\n📝 ${esc(value.slice(0,500))}`,kb([[{text:"💬 Reply",callback_data:`ticket:reply:${id}`}]] )).catch(()=>{})}
+ private async supportInput(m:TgMessage,type:string){const value=(m.text||m.caption||"").trim();if(!value){await this.tg.sendMessage(m.chat.id,"❌ Сообщение не может быть пустым.");return}await this.db.clearState(m.from!.id,"waiting_support");const id=await this.db.createTicket(m.from!.id,m.from!.username||String(m.from!.id),value,type);await this.db.logEvent(m.from!.id,"ticket",type);const lang=await this.lang(m.from!.id),label=text(type==="suggestion"?"suggestion":"question",lang);await this.tg.sendMessage(m.chat.id,`✅ <b>${label} #${id}</b>\n\nВаше обращение принято. Спасибо!`);for(const aid of adminIds(this.env))await this.tg.sendMessage(aid,`🆘 ${type==="suggestion"?"💡":type==="ads"?"📣 РЕКЛАМА":"❓"} <b>#${id}</b>\n👤 @${esc(m.from!.username||m.from!.id)} (<code>${m.from!.id}</code>)\n📝 ${esc(value.slice(0,500))}`,kb([[{text:"💬 Reply",callback_data:`ticket:reply:${id}`}]] )).catch(()=>{})}
  private async adminReply(m:TgMessage,id:number){await this.db.clearState(m.from!.id,"admin_reply");await this.answerTicket(m.chat.id,id,(m.text||m.caption||"").trim())}
  private async answerTicket(cid:number,id:number,answer:string){const ticket=await this.db.ticket(id);if(!ticket){await this.tg.sendMessage(cid,"❌ Ticket not found.");return}if(!answer){await this.tg.sendMessage(cid,"❌ Empty answer.");return}await this.db.answerTicket(id,answer);await this.tg.sendMessage(Number(ticket.user_id),`💬 <b>Reply to #${id}</b>\n\n${esc(answer)}`).catch(()=>{});await this.tg.sendMessage(cid,`✅ Reply #${id} sent.`)}
  private async ban(m:TgMessage,enabled:boolean){if(!isAdmin(this.env,m.from!.id))return;const p=(m.text||"").split(/\s+/,3),uid=Number(p[1]);if(!Number.isFinite(uid)){await this.tg.sendMessage(m.chat.id,`<code>/${enabled?'ban':'unban'} ID</code>`);return}if(enabled)await this.db.ban(uid,p[2]||"ban");else await this.db.unban(uid);await this.tg.sendMessage(m.chat.id,`${enabled?'🚫':'✅'} ${uid} ${enabled?'banned':'unbanned'}`)}
@@ -99,7 +107,7 @@ export class Bot {
  }
  private async username(m:TgMessage,raw:string){const username=parseThreadsUsername(raw),uid=m.from!.id,lang=await this.lang(uid);if(!username){await this.tg.sendMessage(m.chat.id,text("invalid_username",lang));return}const access=await this.access(uid);if(!access.ok){await this.db.logEvent(uid,"free_exhausted",access.kind);await this.buttons(m.chat.id,`${access.note}\n\n<b>${text("subscribe_unlocks",lang)}</b>`,kb([[{text:text("subscribe_btn",lang),callback_data:"sub:choose"}]]));return}const [limited,counts]=await Promise.all([this.db.rateLimit(uid),this.db.accountCounts()]);if(limited){await this.tg.sendMessage(m.chat.id,`⏳ ${limited}`);return}if(!counts.alive){await this.alert("Все аккаунты мертвы!");await this.tg.sendMessage(m.chat.id,text("no_accounts",lang));return}await this.buttons(m.chat.id,`🔍 <b>@${esc(username)}</b> — ${text("format",lang)}:${access.note?`\n${access.note}`:""}`,kb([[{text:text("text_btn",lang),callback_data:`text:${username}:0`},{text:text("screens_btn",lang),callback_data:`img:${username}:0`}]])) }
 
- private async callback(cb:CallbackQuery){if(!cb.data||!cb.message)return;const d=cb.data,uid=cb.from.id,cid=cb.message.chat.id;if(!d.startsWith("sub:check:")&&!d.startsWith("set_lang:"))await this.tg.answerCallbackQuery(cb.id).catch(()=>{});if(d.startsWith("set_lang:")){const lang=d.split(":")[1];await this.db.setLang(uid,languages.includes(lang as any)?lang:"en");await this.tg.answerCallbackQuery(cb.id,{text:text("language_set",lang)}).catch(()=>{});await this.tg.deleteMessage(cid,cb.message.message_id).catch(()=>{});const fake:{message_id:number;chat:{id:number};from:any}={message_id:0,chat:{id:cid},from:cb.from};await this.start(fake);return}  if(d==="sub:choose"){
+ private async callback(cb:CallbackQuery){if(!cb.data||!cb.message)return;const d=cb.data,uid=cb.from.id,cid=cb.message.chat.id;if(!d.startsWith("sub:check:")&&!d.startsWith("don:check:")&&!d.startsWith("set_lang:"))await this.tg.answerCallbackQuery(cb.id).catch(()=>{});if(d.startsWith("set_lang:")){const lang=d.split(":")[1];await this.db.setLang(uid,languages.includes(lang as any)?lang:"en");await this.tg.answerCallbackQuery(cb.id,{text:text("language_set",lang)}).catch(()=>{});await this.tg.deleteMessage(cid,cb.message.message_id).catch(()=>{});const fake:{message_id:number;chat:{id:number};from:any}={message_id:0,chat:{id:cid},from:cb.from};await this.start(fake);return}  if(d==="sub:choose"){
     const lang=await this.lang(uid);
     const isEn = lang==="en";
     const title = isEn ? "Choose a plan and payment method (Telegram Stars or USDT):" : "Выберите тариф и способ оплаты (Звёзды или USDT):";
@@ -110,7 +118,6 @@ export class Bot {
     ]);
     await this.buttons(cid, title, kb([
       ...rows,
-      [{text: isEn ? `🌐 Pricing on the website` : `🌐 Тарифы на сайте`, url: `${siteUrl}/pricing${isEn ? "?lang=en" : ""}`}],
       [{text: isEn ? `📄 Terms & Refund Policy` : `📄 Оферта и условия возврата`, url: `${siteUrl}/terms`}],
     ]));
     return;
@@ -133,6 +140,9 @@ export class Bot {
   if(d==="sub:crypto" || d.startsWith("sub:crypto:")){
     const plan = planByDays(Number(d.split(":")[2])) || planByDays(LIMITS.subscriptionDays)!;
     return this.crypto(cid,uid,plan.days);
+  }
+  if(d.startsWith("don:check:")){
+    return this.cryptoDonateCheck(cb, Number(d.split(":")[2]));
   }
   if(d.startsWith("sub:check:")){
     const id = Number(d.split(":")[2]);
@@ -187,6 +197,48 @@ export class Bot {
    await this.tg.answerCallbackQuery(cb.id,{text:"✅!",show_alert:true}).catch(()=>{});
    await this.tg.editText(cb.message!.chat.id,cb.message!.message_id,`🎉 <b>${text("paid",lang)}!</b> ${text("until",lang)} ${fmtDate(exp)}`);
    await this.webLink({message_id:0,chat:{id:cb.message!.chat.id},from:cb.from} as any).catch(()=>{});
+ }
+ private async starsDonate(cid:number,uid:number,d:Donation){
+   const lang=await this.lang(uid);
+   const title=lang==="en"?"Donation to Threads Viewer":"Пожертвование проекту Threads Viewer";
+   const desc=lang==="en"?"Voluntary donation. It does not unlock any features.":"Добровольное пожертвование. Не открывает платных функций.";
+   await this.tg.sendInvoice(cid,title,desc,`don_${uid}_${d.rub}`,d.stars);
+ }
+ private async cryptoDonate(cid:number,uid:number,d:Donation){
+   const lang=await this.lang(uid);
+   const response=await fetch("https://pay.crypt.bot/api/createInvoice",{
+     method:"POST",
+     headers:{"content-type":"application/json","Crypto-Pay-API-Token":this.env.CRYPTO_BOT_TOKEN},
+     body:JSON.stringify({asset:"USDT",amount:String(d.usd),description:"Threads Viewer — donation",payload:`don:${uid}:${d.rub}`,paid_btn_name:"callback",paid_btn_url:`https://t.me/${(await this.tg.getMe()).username}`})
+   });
+   const data:any=await response.json().catch(()=>null);
+   if(!data?.ok){await this.tg.sendMessage(cid,"❌ Error.");return}
+   await this.buttons(cid,lang==="en"?`💛 <b>Donation ${d.usd} USDT</b>\nVoluntary, unlocks nothing. Thank you!`:`💛 <b>Пожертвование ${d.usd} USDT</b>\nДобровольное, ничего не открывает. Спасибо!`,kb([[{text:`💎 ${text("pay",lang)}`,url:data.result.pay_url}],[{text:`✅ ${text("i_paid",lang)}`,callback_data:`don:check:${data.result.invoice_id}`}]]));
+ }
+ private async cryptoDonateCheck(cb:CallbackQuery,id:number){
+   const lang=await this.lang(cb.from.id);
+   const notPaid=()=>this.tg.answerCallbackQuery(cb.id,{text:`⏳ ${text("not_found",lang)}`,show_alert:true}).catch(()=>{});
+   if(!Number.isFinite(id)||id<=0){await notPaid();return}
+   const response=await fetch(`https://pay.crypt.bot/api/getInvoices?invoice_ids=${id}`,{headers:{"Crypto-Pay-API-Token":this.env.CRYPTO_BOT_TOKEN}});
+   const data:any=await response.json().catch(()=>null);
+   const inv=data?.ok?data.result?.items?.[0]:null;
+   const [kind,payUid]=String(inv?.payload||"").split(":");
+   if(!inv||inv.status!=="paid"||kind!=="don"||Number(payUid)!==cb.from.id){await notPaid();return}
+   if(await this.db.state(`cinv:${id}`,"paid_invoice")){await this.tg.answerCallbackQuery(cb.id,{text:"💛",show_alert:false}).catch(()=>{});return}
+   await this.db.setState(`cinv:${id}`,"paid_invoice",String(cb.from.id));
+   await this.db.logEvent(cb.from.id,"donation",`crypto:${inv.amount}`);
+   await this.tg.answerCallbackQuery(cb.id,{text:"💛",show_alert:false}).catch(()=>{});
+   await this.tg.editText(cb.message!.chat.id,cb.message!.message_id,lang==="en"?"💛 <b>Thank you for supporting the project!</b>":"💛 <b>Спасибо, что поддержали проект!</b>");
+   await this.notifyAdminsDonation(cb.from.id,`${inv.amount} USDT`);
+ }
+ private async notifyAdminsDonation(uid:number,amount:string){
+   for(const aid of adminIds(this.env))await this.tg.sendMessage(aid,`💛 Пожертвование ${esc(amount)} от <code>${uid}</code>`).catch(()=>{});
+ }
+ /** Запрос на размещение рекламы (кнопка «Написать в Telegram» в рекламной заглушке на сайте). */
+ private async adsRequest(m:TgMessage){
+   const uid=m.from!.id,lang=await this.lang(uid);
+   await this.db.setState(uid,"waiting_support","ads");
+   await this.buttons(m.chat.id,lang==="en"?"📣 <b>Advertising on threadsviewer.online</b>\n\nDescribe what you want to advertise, the format and your contacts in one message. Or email support@threadsviewer.online.":"📣 <b>Реклама на threadsviewer.online</b>\n\nОпишите одним сообщением, что хотите рекламировать, формат и как с вами связаться. Или напишите на support@threadsviewer.online.",kb([[{text:"❌ Cancel",callback_data:"sup:cancel"}]]));
  }
  private async supportCallback(cb:CallbackQuery){const d=cb.data!,uid=cb.from.id,cid=cb.message!.chat.id,lang=await this.lang(uid);if(d.startsWith("sup:write:")){const type=d.split(":")[2];await this.db.setState(uid,"waiting_support",type);await this.buttons(cid,`${type==="suggestion"?"💡":"❓"} <b>${text(type==="suggestion"?"suggestion":"question",lang)}</b>\n\nSend your message:`,kb([[{text:"❌ Cancel",callback_data:"sup:cancel"}]]));return}if(d==="sup:cancel"){await this.db.clearState(uid,"waiting_support");await this.tg.editText(cid,cb.message!.message_id,"❌ Cancelled.");return}const tickets=await this.db.tickets(uid);let value=tickets.length?`📋 <b>${text("my_tickets",lang)}:</b>\n\n`: `📋 ${text("my_tickets",lang)}: —`;for(const t of tickets)value+=`${t.status==="answered"?"✅":"⏳"}${t.ticket_type==="suggestion"?"💡":"❓"} <b>#${t.id}</b> (${String(t.created_at).slice(0,10)})\n   ${esc(String(t.message).slice(0,80))}\n${t.answer?`   💬 ${esc(String(t.answer).slice(0,80))}\n`:""}\n`;await this.buttons(cid,value,kb([[{text:`❓ ${text("question",lang)}`,callback_data:"sup:write:question"},{text:`💡 ${text("suggestion",lang)}`,callback_data:"sup:write:suggestion"}]]))}
  private async ticketCallback(cb:CallbackQuery){if(!isAdmin(this.env,cb.from.id))return;if(cb.data==="ticket:cancel"){await this.db.clearState(cb.from.id,"admin_reply");await this.tg.editText(cb.message!.chat.id,cb.message!.message_id,"❌ Cancelled.");return}const id=Number(cb.data!.split(":")[2]);await this.db.setState(cb.from.id,"admin_reply",String(id));await this.buttons(cb.message!.chat.id,`💬 Reply to <b>#${id}</b>:`,kb([[{text:"❌ Cancel",callback_data:"ticket:cancel"}]]))}

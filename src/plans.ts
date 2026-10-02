@@ -1,6 +1,6 @@
 /**
- * Единый источник тарифов: сайт (/pricing, /pay, главная), Telegram-бот (Stars / USDT),
- * оферта и проверка платежей берут цены ТОЛЬКО отсюда.
+ * Единый источник цен: подписка в Telegram-боте (Stars / USDT), суммы пожертвований на сайте (/donate),
+ * оферта и проверка платежей берут цены ТОЛЬКО отсюда. На сайте подписка не продаётся.
  *
  * Звёзды пересчитаны примерно по цене покупки Stars в Telegram (~1,7 ₽ за звезду),
  * USDT - по рыночному курсу с округлением до «красивых» цен.
@@ -81,4 +81,40 @@ export function parseBuyPayload(payload: string): { plan: Plan; method: "stars" 
   const plan = planById(m[1]);
   if (!plan) return null;
   return { plan, method: (m[2] as "stars" | "crypto") || "stars" };
+}
+
+// ---------------------------------------------------------------------------
+// Добровольные пожертвования (сайт). Ничего не открывают: сайт бесплатный для всех.
+// Фиксированные суммы, чтобы ссылки в бота нельзя было подделать на произвольную сумму.
+// ---------------------------------------------------------------------------
+export interface Donation { rub: number; usd: number; stars: number }
+
+export const DONATIONS: readonly Donation[] = [
+  { rub: 50, usd: 0.5, stars: 30 },
+  { rub: 100, usd: 1, stars: 60 },
+  { rub: 300, usd: 3, stars: 175 },
+  { rub: 500, usd: 5, stars: 300 },
+] as const;
+
+export const DEFAULT_DONATION = 100;
+
+export function donationByRub(rub: number | string | null | undefined): Donation | undefined {
+  return DONATIONS.find((d) => d.rub === Number(rub));
+}
+
+export function donationPrice(d: Donation, lang: "ru" | "en"): string {
+  return lang === "en" ? `$${d.usd % 1 ? d.usd.toFixed(2) : d.usd}` : `${d.rub} ₽`;
+}
+
+/** Deep-link в бота на пожертвование: бот выставит счёт на эту сумму. */
+export function botDonateLink(botUsername: string, d: Donation, method: Exclude<PayMethod, "card">): string {
+  return `https://t.me/${botUsername}?start=donate_${d.rub}_${method}`;
+}
+
+/** Разбор payload `/start donate_<rub>_<method>`. */
+export function parseDonatePayload(payload: string): { donation: Donation; method: "stars" | "crypto" } | null {
+  const m = /^donate_(\d+)(?:_(stars|crypto))?$/.exec(payload || "");
+  const donation = m ? donationByRub(m[1]) : undefined;
+  if (!donation) return null;
+  return { donation, method: (m![2] as "stars" | "crypto") || "stars" };
 }

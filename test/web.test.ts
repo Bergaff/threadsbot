@@ -223,14 +223,15 @@ describe("Web Viewer SSR & Routing", () => {
     const homeHtml = await homeRes.text();
     expect(homeHtml).toContain("cookieBanner");
     expect(homeHtml).toContain("Политика конфиденциальности");
-    expect(homeHtml).toContain('href="/pricing?lang=ru"');
-    expect(homeHtml).toContain('id="pricing"');
+    expect(homeHtml).toContain('href="/donate?lang=ru"');
+    expect(homeHtml).toContain('id="adPlaceholder"');
+    expect(homeHtml).not.toContain('id="pricing"');
 
     const profileRes = renderProfilePage(mockEnv, "zuck", null, null, "ru");
     const profileHtml = await profileRes.text();
     expect(profileHtml).toContain("cookieBanner");
-    expect(profileHtml).toContain('href="/pricing?lang=ru"');
-    expect(profileHtml).toContain("premium-promo");
+    expect(profileHtml).toContain('href="/donate?lang=ru"');
+    expect(profileHtml).toContain('id="adPlaceholder"');
   });
 
   it("renders robots.txt and sitemap.xml for SEO", async () => {
@@ -333,18 +334,17 @@ describe("Web Viewer SSR & Routing", () => {
     expect(htmlProfile).toContain("Премиум активен");
   });
 
-  it("renders geo-targeted sponsor ads for RU vs Global visitors", async () => {
-    const resRu = renderHomePage(mockEnv, "ru", false, "RU");
-    const htmlRu = await resRu.text();
-    expect(htmlRu).toContain('<div class="sponsor-card">');
-    expect(htmlRu).toContain("Партнерский блок");
-    expect(htmlRu).toContain("Быстрый VPN и приватный доступ");
+  it("renders the own 'your ad here' placeholder instead of third-party ads", async () => {
+    const htmlRu = await renderHomePage(mockEnv, "ru", false, "RU").text();
+    expect(htmlRu).toContain('id="adPlaceholder"');
+    expect(htmlRu).toContain("Здесь может быть ваша реклама");
+    expect(htmlRu).not.toContain("Быстрый VPN и приватный доступ");
 
-    const resUs = renderHomePage(mockEnv, "en", false, "US");
-    const htmlUs = await resUs.text();
-    expect(htmlUs).toContain('<div class="sponsor-card">');
-    expect(htmlUs).toContain("Sponsored");
-    expect(htmlUs).toContain("Anonymous Social Feed Proxy");
+    const htmlUs = await renderHomePage(mockEnv, "en", false, "US").text();
+    expect(htmlUs).toContain("Your ad could be here");
+    expect(htmlUs).not.toContain("Anonymous Social Feed Proxy");
+    // подписчикам бота блок не показываем
+    expect(await renderHomePage(mockEnv, "ru", true, "RU").text()).not.toContain('id="adPlaceholder"');
   });
 
   it("creates and verifies web auth tokens", async () => {
@@ -658,28 +658,26 @@ describe("Web Viewer SSR & Routing", () => {
       const enHtml = await enHome.text();
       expect(enHtml).toContain("Anonymous Threads Viewer");
 
-      // 9. Pricing terms and pay endpoint maintenance notice
-      const termsRes = renderTermsPage("ru", "https://threadsviewer.online");
-      const termsHtml = await termsRes.text();
-      expect(termsHtml).toContain('99');
-      expect(termsHtml).toContain('129');
-      expect(termsHtml).toContain('299');
-      expect(termsHtml).toContain('890');
+      // 9. Terms: free site, voluntary donations, bot subscription prices (Stars/USDT)
+      const termsHtml = await renderTermsPage("ru", "https://threadsviewer.online").text();
+      expect(termsHtml).toContain("Добровольные пожертвования");
+      expect(termsHtml).toContain("не открывает никаких функций");
+      expect(termsHtml).toContain("75 Stars / 1,49 USDT");
+      expect(termsHtml).toContain("500 Stars / 9,99 USDT");
+      expect(termsHtml).toContain('href="/donate?lang=ru"');
+      expect(termsHtml).not.toContain("отключение рекламы");
       expect(termsHtml).toContain('threadsreaderbot');
 
-      const termsEnRes = renderTermsPage("en", "https://threadsviewer.online");
-      const termsEnHtml = await termsEnRes.text();
-      expect(termsEnHtml).toContain('$0.49');
-      expect(termsEnHtml).toContain('$1.49');
-      expect(termsEnHtml).toContain('$3.49');
-      expect(termsEnHtml).toContain('$9.99');
+      const termsEnHtml = await renderTermsPage("en", "https://threadsviewer.online").text();
+      expect(termsEnHtml).toContain('0.49 USDT');
+      expect(termsEnHtml).toContain('3.49 USDT');
+      expect(termsEnHtml).toContain('9.99 USDT');
+      expect(termsEnHtml).toContain("does not unlock any features");
       expect(termsEnHtml).toContain('threadsreaderbot');
 
-      const payReq = new Request("https://threadsviewer.online/pay?plan=90");
-      const payRes = await worker.fetch(payReq, mockEnv, {} as any);
-      expect(payRes.status).toBe(200);
-      const payHtml = await payRes.text();
-      expect(payHtml).toContain("threadsreaderbot");
+      const payRes = await worker.fetch(new Request("https://threadsviewer.online/pay?plan=90"), mockEnv, {} as any);
+      expect(payRes.status).toBe(301);
+      expect(payRes.headers.get("location")).toBe("/donate");
     });
 
     it("serves custom styled 404 page for unknown URLs and avoids soft-404 redirects", async () => {

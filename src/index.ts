@@ -27,11 +27,10 @@ import {
   renderSitemap,
   renderTermsPage,
   renderFallbackScript,
-  renderPricingPage,
-  renderCheckoutPage,
-  renderCardStubPage,
+  renderDonatePage,
+  renderDonateCardStubPage,
 } from "./web";
-import { DEFAULT_PLAN, botBuyLink, planByDays, planById } from "./plans";
+import { DEFAULT_DONATION, botDonateLink, donationByRub, planByDays } from "./plans";
 
 /** Сравнение секретов без утечки по времени. */
 function timingSafeEqualStr(a: string, b: string): boolean {
@@ -325,30 +324,34 @@ export default {
     }
 
     // ==========================================
-    // ТАРИФЫ И ОФОРМЛЕНИЕ ЗАКАЗА
-    // /pricing - витрина, /pay?plan= - заказ, /pay/confirm - выбор способа.
+    // ДОБРОВОЛЬНЫЕ ПОЖЕРТВОВАНИЯ (/donate)
+    // Сайт бесплатный, пожертвование ничего не открывает.
     // Карта/СБП - заглушка (шлюз не подключён), Stars/USDT - deep-link в бота со счётом.
+    // Старые адреса тарифов (/pricing, /pay, /buy, /order) ведут сюда.
     // ==========================================
-    if (lowerPath === "/pricing" || lowerPath === "/prices" || lowerPath === "/tariffs") {
-      const shopLang = url.searchParams.get("lang") === "en" ? "en" : (url.searchParams.get("lang") === "ru" ? "ru" : detectLanguage(request));
-      const { isPremium } = await checkPremiumUser(request, env);
-      return renderPricingPage(env, shopLang, url.origin, isPremium);
+    if (["/pricing", "/prices", "/tariffs", "/pay", "/pay/confirm", "/buy", "/order"].includes(lowerPath)) {
+      const q = url.searchParams.get("lang");
+      return new Response(null, {
+        status: 301,
+        headers: { Location: `/donate${q === "en" || q === "ru" ? `?lang=${q}` : ""}`, "cache-control": "public, max-age=3600" },
+      });
     }
-    if (lowerPath === "/pay" || lowerPath === "/buy" || lowerPath === "/order" || lowerPath === "/pay/confirm") {
-      const shopLang = url.searchParams.get("lang") === "en" ? "en" : (url.searchParams.get("lang") === "ru" ? "ru" : detectLanguage(request));
-      const plan = planById(url.searchParams.get("plan")) || planById(DEFAULT_PLAN)!;
-      if (lowerPath === "/pay/confirm") {
+    if (lowerPath === "/donate" || lowerPath === "/donate/confirm") {
+      const q = url.searchParams.get("lang");
+      const shopLang = q === "en" ? "en" : (q === "ru" ? "ru" : detectLanguage(request));
+      const donation = donationByRub(url.searchParams.get("amount")) || donationByRub(DEFAULT_DONATION)!;
+      if (lowerPath === "/donate/confirm") {
         const method = url.searchParams.get("method");
         if (method === "stars" || method === "crypto") {
           return new Response(null, {
             status: 302,
-            headers: { Location: botBuyLink(env.BOT_USERNAME || "threadsreaderbot", plan, method), "cache-control": "no-store" },
+            headers: { Location: botDonateLink(env.BOT_USERNAME || "threadsreaderbot", donation, method), "cache-control": "no-store" },
           });
         }
-        return renderCardStubPage(env, shopLang, url.origin, plan);
+        return renderDonateCardStubPage(env, shopLang, url.origin, donation);
       }
       const { isPremium } = await checkPremiumUser(request, env);
-      return renderCheckoutPage(env, shopLang, url.origin, plan, isPremium);
+      return renderDonatePage(env, shopLang, url.origin, donation, isPremium);
     }
 
     // ==========================================
