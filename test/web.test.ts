@@ -269,6 +269,7 @@ describe("Web Viewer SSR & Routing", () => {
     expect(htmlHome).toContain('<meta name="google-site-verification" content="cgAMWfV193QZiRMRVEtwzGA4JFcCR6sfixu2ws2TLBg">');
     expect(htmlHome).toContain('<meta name="google-site-verification" content="google3ae2b24cd673c270">');
     expect(htmlHome).toContain('<meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">');
+    expect(htmlHome).toContain('<meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">');
   });
 
   it("serves Threads favicon, OpenGraph banner, and SEO rich snippet markup", async () => {
