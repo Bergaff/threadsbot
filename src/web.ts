@@ -1977,7 +1977,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr62-2026-10-02-fallback";
+  const ver = env.VERSION || "pr63-2026-10-02-loadmore";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2567,9 +2567,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr62-2026-10-02-fallback')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr62-2026-10-02-fallback')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr62-2026-10-02-fallback')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr63-2026-10-02-loadmore')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr63-2026-10-02-loadmore')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr63-2026-10-02-loadmore')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2705,8 +2705,8 @@ export function renderProfilePage(
       </div>
     </div>
 
-    <div style="text-align: center; margin: 20px 0;" id="loadMoreSection" style="${hasData ? "" : "display:none;"}">
-      <button class="btn-sharp" style="width: 100%; max-width: 260px; justify-content: center;" onclick="loadMorePosts('${esc(cleanUser)}')">
+    <div id="loadMoreSection" style="text-align: center; margin: 20px 0;${posts.length > 0 ? "" : " display:none;"}">
+      <button id="loadMoreBtn" class="btn-sharp" style="width: 100%; max-width: 260px; justify-content: center;" onclick="loadMorePosts()">
         ${t.load_more}
       </button>
     </div>
@@ -2735,6 +2735,10 @@ export function renderProfilePage(
     var currentUsername = "${esc(cleanUser)}";
     var currentLang = "${lang}";
     var isLoaded = ${hasData ? "true" : "false"};
+    var loadedPostCount = ${posts.length};
+    var currentProfile = ${JSON.stringify(initialData?.profile ? { displayName: initialData.profile.displayName || "", avatar: initialData.profile.avatar || "" } : null).replace(/</g, "\\u003c")};
+    var moreBusy = false;
+    var moreExhausted = false;
 
     (function recordProfileHistory() {
       try {
@@ -3050,16 +3054,20 @@ export function renderProfilePage(
       }
     }
 
-    function renderPostsClient(posts, profile) {
+    function renderPostsClient(posts, profile, startIdx) {
       var feed = document.getElementById('postsFeed');
       if (!feed) return;
-      if (!posts || !posts.length) {
+      startIdx = startIdx || 0;
+      if (startIdx > 0) {
+        if (!posts || !posts.length) return;
+      } else if (!posts || !posts.length) {
         feed.innerHTML = '<div class="status-card" style="text-align:center;padding:24px 16px;"><p style="color:#777;">' + (currentLang === 'en' ? 'No posts in this profile yet.' : 'В этом профиле пока нет постов.') + '</p></div>';
         return;
       }
       var html = '';
-      for (var idx = 0; idx < posts.length; idx++) {
-        var post = posts[idx];
+      for (var pi = 0; pi < posts.length; pi++) {
+        var idx = startIdx + pi;
+        var post = posts[pi];
         var postDate = formatDisplayDate(post.date || '');
         var authorName = post.author || (profile ? profile.displayName : '') || currentUsername;
         var authorAvatar = post.authorAvatar || (profile ? profile.avatar : '') || '';
@@ -3109,7 +3117,8 @@ export function renderProfilePage(
           '<div class="comments-box" id="comments-' + idx + '"></div>' +
         '</article>';
       }
-      feed.innerHTML = html;
+      if (startIdx > 0) feed.insertAdjacentHTML('beforeend', html);
+      else feed.innerHTML = html;
     }
 
     if (!isLoaded) {
@@ -3179,9 +3188,11 @@ export function renderProfilePage(
               }
             }
 
+            currentProfile = res.profile || null;
             renderPostsClient(res.posts || [], res.profile);
+            loadedPostCount = (res.posts || []).length;
             var moreSec = document.getElementById('loadMoreSection');
-            if (moreSec && res.posts && res.posts.length) moreSec.style.display = 'block';
+            if (moreSec && loadedPostCount) moreSec.style.display = 'block';
           } else {
             var box = document.getElementById('loadingBox');
             var title = document.getElementById('loadingStatusTitle');
@@ -3233,31 +3244,56 @@ export function renderProfilePage(
       window.location.href = refreshUrl;
     }
 
-    function loadMorePosts(username) {
-      showToast('${t.toast_loading}');
-      fetch('/api/profile/' + encodeURIComponent(username) + '?page=1')
+    function setMoreButton(state) {
+      var btn = document.getElementById('loadMoreBtn');
+      var sec = document.getElementById('loadMoreSection');
+      if (!btn) return;
+      if (state === 'busy') {
+        btn.disabled = true;
+        btn.innerText = currentLang === 'en' ? 'Loading posts... (up to 30 sec)' : 'Загружаем посты... (до 30 сек)';
+      } else if (state === 'done') {
+        btn.disabled = true;
+        btn.innerText = currentLang === 'en' ? 'All available posts are loaded' : 'Загружены все доступные посты';
+        if (sec) sec.style.opacity = '0.6';
+      } else {
+        btn.disabled = false;
+        btn.innerText = '${t.load_more}';
+      }
+    }
+
+    function loadMorePosts() {
+      if (moreBusy || moreExhausted) return;
+      moreBusy = true;
+      setMoreButton('busy');
+      fetch('/api/profile/' + encodeURIComponent(currentUsername) + '?more=1&have=' + loadedPostCount)
         .then(function(r) { return r.json(); })
         .then(function(data) {
-          if (data.ok && data.posts && data.posts.length) {
-            showToast('${t.toast_updated}');
+          moreBusy = false;
+          if (!data || !data.ok) {
+            setMoreButton('idle');
+            showToast((data && data.error) || '${t.toast_error}');
+            return;
+          }
+          var all = Array.isArray(data.posts) ? data.posts : [];
+          var fresh = all.slice(loadedPostCount);
+          if (fresh.length) {
+            renderPostsClient(fresh, data.profile || currentProfile, loadedPostCount);
+            loadedPostCount += fresh.length;
+          }
+          if (!fresh.length || data.hasMore === false) {
+            moreExhausted = true;
+            setMoreButton('done');
+            if (!fresh.length) showToast('${t.toast_all_loaded}');
           } else {
-            showToast('${t.toast_all_loaded}');
+            setMoreButton('idle');
           }
         })
         .catch(function() {
+          moreBusy = false;
+          setMoreButton('idle');
           showToast('${t.toast_error}');
         });
     }
-
-    window.addEventListener('scroll', function() {
-      if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 300) {
-        var loadBtn = document.querySelector('#loadMoreSection button');
-        if (loadBtn && !loadBtn.dataset.busy) {
-          loadBtn.dataset.busy = '1';
-          loadMorePosts(currentUsername);
-        }
-      }
-    });
   </script>
   ${renderCookieBanner(lang)}
 </body>
@@ -3570,9 +3606,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta property="og:locale" content="${isEn ? 'en_US' : 'ru_RU'}">
   <meta property="og:locale:alternate" content="${isEn ? 'ru_RU' : 'en_US'}">
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr62-2026-10-02-fallback">
-  <link rel="alternate icon" href="/favicon.ico?v=pr62-2026-10-02-fallback">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr62-2026-10-02-fallback">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr63-2026-10-02-loadmore">
+  <link rel="alternate icon" href="/favicon.ico?v=pr63-2026-10-02-loadmore">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr63-2026-10-02-loadmore">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');

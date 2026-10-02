@@ -125,3 +125,28 @@ export function detectBotType(ua: string): string | null {
   if (s.includes("crawler") || s.includes("spider") || s.includes("headless") || s.includes("crawl") || s.includes("bot/")) return "Bot";
   return null;
 }
+
+/** Ключ поста для дедупликации: ссылка на пост, иначе начало текста + тип медиа. */
+function postKey(p: any): string {
+  if (p && typeof p.postUrl === "string" && p.postUrl) {
+    const m = p.postUrl.match(/\/post\/([A-Za-z0-9_-]+)/);
+    if (m) return "u:" + m[1];
+  }
+  return "t:" + String(p?.text || "").slice(0, 120) + (p?.has_image ? "_img" : "") + (p?.has_video ? "_vid" : "");
+}
+
+/**
+ * Объединяет кеш и свежий скрап. Порядок уже показанных постов не меняется
+ * (клиент дорисовывает хвост по индексу), новые посты дописываются в конец.
+ */
+export function mergePostLists(base: any[], fresh: any[]): any[] {
+  const out = base.slice();
+  const seen = new Set(out.map(postKey));
+  for (const p of fresh) {
+    const k = postKey(p);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(p);
+  }
+  return out;
+}

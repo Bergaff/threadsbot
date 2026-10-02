@@ -11,7 +11,7 @@ import { fetchComments, fetchProfileWithPosts, logSystem, probeAccount, refreshA
 /** Сколько аккаунтов прогревать за один запуск cron, чтобы не выбирать лимит Browser Rendering. */
 const KEEPALIVE_BATCH = 3;
 import { verifyAuthToken } from "./auth";
-import { detectBotType } from "./profile";
+import { detectBotType, mergePostLists } from "./profile";
 import {
   detectLanguage,
   esc,
@@ -91,6 +91,9 @@ async function notifyError(env: Env, error: unknown) {
     adminIds(env).map(id => telegram.sendMessage(id, value).catch(() => {})),
   );
 }
+
+const MORE_POSTS_STEP = 20;
+const MORE_POSTS_MAX = 100;
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -705,6 +708,83 @@ export default {
           ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
           ctx.waitUntil(db.logEvent(0, "web_human_country", country).catch(() => {}));
           await logSystem(env, "info", "api", `[API_REQ] Запрос профиля /api/profile/${username} (человек, ${country || "unknown"})`);
+        }
+      }
+
+      // ==========================================
+      // «ЗАГРУЗИТЬ ЕЩЁ ПОСТЫ»: /api/profile/:user?more=1&have=N
+      // Клиент уже показал N постов. Возвращаем полный список, где первые N постов
+      // идут в том же порядке, что и в кеше, а новые дописаны в конец - клиент
+      // просто дорисует posts.slice(N). Если в кеше постов не больше N, запускаем
+      // скрапер глубже (N + 20) и объединяем результат с кешем.
+      // ==========================================
+      if (url.searchParams.get("more") === "1") {
+        const have = Math.max(0, Math.min(MORE_POSTS_MAX, parseInt(url.searchParams.get("have") || "0", 10) || 0));
+        const noStore = { "cache-control": "no-store" };
+        const cachedRaw = await db.cache<any>(username, "web_profile");
+        const cachedOk = cachedRaw && !cachedRaw.notFound && cachedRaw.status !== "user_not_found" ? cachedRaw : null;
+        const basePosts: any[] = Array.isArray(cachedOk?.posts)
+          ? cachedOk.posts.filter((p: any) => !p.author || String(p.author).toLowerCase() === username)
+          : [];
+
+        if (basePosts.length > have) {
+          await logSystem(env, "info", "api", `[API_MORE] @${username}: отдано из кеша ${basePosts.length - have} новых постов (было ${have})`);
+          return Response.json({ ok: true, cached: true, profile: cachedOk?.profile || null, posts: basePosts, hasMore: true }, { headers: noStore });
+        }
+        if (have >= MORE_POSTS_MAX || (cachedOk?.exhaustedAt && Number(cachedOk.exhaustedAt) >= have)) {
+          return Response.json({ ok: true, cached: true, profile: cachedOk?.profile || null, posts: basePosts, hasMore: false }, { headers: noStore });
+        }
+
+        if (!env.BROWSER) {
+          return Response.json({ ok: false, error: "Сервис временно недоступен. Повторите попытку позже." }, { status: 503, headers: noStore });
+        }
+        const clientIp = request.headers.get("cf-connecting-ip") || "unknown";
+        const { isPremium: morePremium } = await checkPremiumUser(request, env);
+        if (!isAdmin && !morePremium && !isSearchBot) {
+          const rate = checkScraperRateLimit(clientIp, 20, 300_000);
+          if (!rate.allowed) {
+            return Response.json({
+              ok: false,
+              error: "Лимит запросов (20 за 5 минут) превышен. Повторите через пару минут или откройте профиль в Telegram-боте @threadsreaderbot.",
+              retryAfter: rate.retryAfter,
+            }, { status: 429, headers: { "Retry-After": String(rate.retryAfter), ...noStore } });
+          }
+        }
+
+        const target = Math.min(MORE_POSTS_MAX, Math.max(have, basePosts.length) + MORE_POSTS_STEP);
+        const flightKey = `${username}#more${target}`;
+        let morePromise = inFlightProfileFetches.get(flightKey);
+        if (!morePromise) {
+          await logSystem(env, "info", "api", `[API_MORE] @${username}: догружаем посты (есть ${have}, цель ${target})`);
+          morePromise = fetchProfileWithPosts(env, username, target);
+          inFlightProfileFetches.set(flightKey, morePromise);
+          morePromise.finally(() => inFlightProfileFetches.delete(flightKey));
+        }
+        try {
+          const fresh = await morePromise;
+          if (fresh.status !== "ok" || !fresh.data) {
+            await logSystem(env, "warn", "api", `[API_MORE] @${username}: скрапер вернул ${fresh.status}`);
+            return Response.json({ ok: false, status: fresh.status, error: "Не удалось догрузить посты. Попробуйте ещё раз через минуту." }, { status: 502, headers: noStore });
+          }
+          const freshPosts = (fresh.data.posts || []).filter((p: any) => !p.author || String(p.author).toLowerCase() === username);
+          const merged = mergePostLists(basePosts, freshPosts);
+          const added = merged.length - basePosts.length;
+          // Скрапер дошёл до конца ленты (собрал меньше цели) или это HTTP-источник без прокрутки
+          const reachedEnd = freshPosts.length < target || fresh.data.source === "http";
+          const hasMore = merged.length > have && !reachedEnd;
+          const toCache: any = {
+            ...(cachedOk || {}),
+            ...fresh.data,
+            profile: fresh.data.profile || cachedOk?.profile || null,
+            posts: merged,
+          };
+          if (reachedEnd) toCache.exhaustedAt = merged.length; else delete toCache.exhaustedAt;
+          await db.setCache(username, "web_profile", toCache);
+          await logSystem(env, "info", "api", `[API_MORE] @${username}: +${added} постов (всего ${merged.length}, ещё есть: ${hasMore ? "да" : "нет"})`);
+          return Response.json({ ok: true, cached: false, profile: toCache.profile, posts: merged, hasMore }, { headers: noStore });
+        } catch (error) {
+          await logSystem(env, "error", "api", `[API_MORE] @${username}: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}`);
+          return Response.json({ ok: false, error: "Не удалось догрузить посты. Попробуйте ещё раз через минуту." }, { status: 500, headers: noStore });
         }
       }
 

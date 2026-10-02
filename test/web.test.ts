@@ -789,3 +789,85 @@ describe("fallback.js for ad network", () => {
     expect(await res.text()).toBe("");
   });
 });
+
+describe("Load more posts (profile page)", () => {
+  const data: any = {
+    profile: { username: "testuser", displayName: "Test </script><b>", avatar: "https://cdn/x.jpg" },
+    posts: [
+      { text: "first post", has_image: false, has_video: false, author: "testuser" },
+      { text: "second post", has_image: false, has_video: false, author: "testuser" },
+      { text: "third post", has_image: false, has_video: false, author: "testuser" },
+    ],
+  };
+
+  function inlineScripts(html: string): string[] {
+    return Array.from(html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi))
+      .map(m => m[1])
+      .filter(code => code.trim() && !code.trim().startsWith("{"));
+  }
+
+  it("button really requests more posts and appends them, scripts parse", async () => {
+    for (const initial of [data, null]) {
+      const html = await renderProfilePage(mockEnv, "testuser", initial, null, "ru").text();
+      expect(html).toContain("?more=1&have=");
+      expect(html).toContain("insertAdjacentHTML('beforeend'");
+      expect(html).toContain('id="loadMoreBtn"');
+      // раньше у секции было два атрибута style, и второй (display:none) игнорировался
+      expect(html).not.toMatch(/id="loadMoreSection" style="[^"]*"\s+style=/);
+      expect(html).toContain(`var loadedPostCount = ${initial ? 3 : 0};`);
+      for (const code of inlineScripts(html)) {
+        expect(() => new Function(code)).not.toThrow();
+      }
+    }
+  });
+
+  it("does not let profile data break out of the script tag", async () => {
+    const html = await renderProfilePage(mockEnv, "testuser", data, null, "ru").text();
+    const line = html.split("\n").find(l => l.includes("var currentProfile ="))!;
+    expect(line).not.toContain("</script>");
+    expect(line).toContain("\\u003c/script>");
+  });
+});
+
+describe("/api/profile ?more=1 endpoint", () => {
+  function envWithCache(posts: any[], extra: Record<string, unknown> = {}) {
+    const writes: string[] = [];
+    const row = { data: JSON.stringify({ profile: { username: "testuser" }, posts, ...extra }), cached_at: new Date().toISOString() };
+    const DB: any = {
+      prepare(sql: string) {
+        const stmt: any = {
+          bind: () => stmt,
+          first: async () => (/FROM cache/i.test(sql) ? row : null),
+          run: async () => { writes.push(sql); return {}; },
+          all: async () => ({ results: [] }),
+        };
+        return stmt;
+      },
+    };
+    return { env: { ...mockEnv, DB } as Env, writes };
+  }
+  const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as any;
+  const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ text: `post ${i}`, author: "testuser", postUrl: `https://www.threads.com/@testuser/post/P${i}` }));
+
+  it("returns cached posts beyond what the client already shows", async () => {
+    const worker = (await import("../src/index")).default;
+    const { env } = envWithCache(mk(8));
+    const res = await worker.fetch(new Request("https://threadsviewer.online/api/profile/testuser?more=1&have=3"), env, ctx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const body: any = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.posts.length).toBe(8);
+    expect(body.posts.slice(3).map((p: any) => p.text)).toEqual(["post 3", "post 4", "post 5", "post 6", "post 7"]);
+  });
+
+  it("reports the end of the feed without launching the scraper", async () => {
+    const worker = (await import("../src/index")).default;
+    const { env } = envWithCache(mk(5), { exhaustedAt: 5 });
+    const res = await worker.fetch(new Request("https://threadsviewer.online/api/profile/testuser?more=1&have=5"), env, ctx);
+    const body: any = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.hasMore).toBe(false);
+    expect(body.posts.length).toBe(5);
+  });
+});

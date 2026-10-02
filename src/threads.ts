@@ -219,7 +219,9 @@ async function collectPosts(page: Page, target = 20, expectedUsername?: string):
   const all: Post[] = [], seen = new Set<string>();
   let stall = 0;
   const cleanExpected = expectedUsername ? expectedUsername.toLowerCase().replace(/^@/, '') : '';
-  for (let i = 0; i < 10; i++) {
+  // Чем больше постов нужно, тем больше раундов прокрутки (≈2-4 новых поста за раунд).
+  const maxRounds = Math.min(45, Math.max(10, Math.ceil(target / 2) + 6));
+  for (let i = 0; i < maxRounds; i++) {
     const evaluated = await page.evaluate((targetUname: string) => {
       const posts: {
         text: string;
@@ -514,10 +516,17 @@ async function collectPosts(page: Page, target = 20, expectedUsername?: string):
     }
     if (all.length >= target) break;
     stall = added ? 0 : stall + 1;
-    if (stall >= 1 && all.length > 0) break;
-    if (stall >= 2) break;
-    await page.evaluate(() => window.scrollBy(0, 1100));
-    await sleep(700);
+    // РАНЬШЕ: break после ПЕРВОГО же раунда без новых постов. Threads подгружает
+    // следующую порцию дольше 700 мс, поэтому сбор почти всегда обрывался на 3 постах.
+    // Теперь даём ленте 3 раунда подряд с нарастающим ожиданием и прокруткой до низа.
+    if (stall >= 3) break;
+    if (stall === 0) {
+      await page.evaluate(() => window.scrollBy(0, 1400)).catch(() => {});
+      await sleep(900);
+    } else {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
+      await sleep(1200 + stall * 600);
+    }
   }
   return all.slice(0, target);
 }

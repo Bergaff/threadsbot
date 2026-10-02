@@ -106,3 +106,23 @@ describe("isAccountBlockedUrl", () => {
     expect(isAccountBlockedUrl("")).toBe(false);
   });
 });
+
+describe("mergePostLists", () => {
+  it("keeps already shown posts in order and appends only new ones", async () => {
+    const { mergePostLists } = await import("../src/profile");
+    const base = [
+      { text: "a", postUrl: "https://www.threads.com/@u/post/AAA" },
+      { text: "b", postUrl: "https://www.threads.com/@u/post/BBB" },
+    ];
+    const fresh = [
+      { text: "new on top", postUrl: "https://www.threads.com/@u/post/NEW" },
+      { text: "a (edited)", postUrl: "https://www.threads.com/@u/post/AAA" },
+      { text: "b", postUrl: "https://www.threads.com/@u/post/BBB" },
+      { text: "c without url" },
+      { text: "c without url" },
+    ];
+    const merged = mergePostLists(base, fresh);
+    expect(merged.map((p: any) => p.text)).toEqual(["a", "b", "new on top", "c without url"]);
+    expect(base.length).toBe(2);
+  });
+});
