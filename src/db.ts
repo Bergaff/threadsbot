@@ -488,9 +488,10 @@ export class Database {
     const jsDays = sum((x) => x.js);
     const robots = sum((x) => x.robots);
     const firstTs = firstRows[0]?.ts ? String(firstRows[0].ts) : null;
+    const daysWithData = daily.filter((x) => x.pv > 0 || x.uv > 0).length;
     const activeDays = firstTs
       ? Math.max(1, Math.min(d, Math.ceil((Date.now() - new Date(firstTs).getTime()) / 86_400_000)))
-      : 0;
+      : daysWithData;
 
     const share = (rows: Array<{ k: string; c: number }>) => {
       const total = rows.reduce((a, r) => a + Number(r.c || 0), 0);
