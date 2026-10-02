@@ -10,6 +10,9 @@ export interface Env {
   BASE_URL?: string;
   VERSION?: string;
   ADMIN_PASSWORD?: string;
+  /** Запасной логин/пароль страницы /stats, если в админке доступ не настроен */
+  STATS_LOGIN?: string;
+  STATS_PASSWORD?: string;
   BOT_USERNAME?: string;
   SITE_URL?: string;
   SITE_DOMAIN?: string;

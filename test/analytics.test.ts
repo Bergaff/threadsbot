@@ -55,11 +55,13 @@ describe("classifyTraffic", () => {
 });
 
 describe("trackRequest", () => {
-  it("a human page view writes exactly one view, one country and one visitor id", async () => {
+  it("a human page view writes exactly one view, one country, one visitor id, device and source", async () => {
     const { env, rows } = captureEnv();
     const req = new Request("https://threadsviewer.online/@zuck", { headers: { "user-agent": CHROME, "cf-connecting-ip": "1.2.3.4" } });
     await trackRequest(env, req, "profile", "ru");
-    expect(rows.map(r => r.type).sort()).toEqual(["web_geo", "web_pv", "web_uv"]);
+    expect(rows.map(r => r.type).sort()).toEqual(["web_dev", "web_geo", "web_pv", "web_ref", "web_uv"]);
+    expect(rows.find(r => r.type === "web_dev")!.data).toBe("desktop|Windows");
+    expect(rows.find(r => r.type === "web_ref")!.data).toBe("direct");
     expect(rows.find(r => r.type === "web_geo")!.data).toBe("RU");
     const uv = rows.find(r => r.type === "web_uv")!.data;
     expect(uv).toMatch(/^[0-9a-f]{16}$/);

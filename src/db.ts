@@ -13,7 +13,13 @@ export type StateName =
   /** Карта {токен: ISO-дата истечения} активных админских сессий. */
   | "admin_sessions"
   /** Счётчик неудачных попыток входа в админку для защиты от перебора. */
-  | "admin_login_fails";
+  | "admin_login_fails"
+  /** Логин и PBKDF2-хеш пароля страницы статистики для рекламодателей */
+  | "stats_access"
+  /** Сессии страницы статистики {токен: ISO-дата истечения} */
+  | "stats_sessions"
+  /** Счётчик неудачных входов на страницу статистики */
+  | "stats_login_fails";
 
 export class Database {
   constructor(private readonly env: Env) {}
@@ -433,6 +439,108 @@ export class Database {
     return out;
   }
 
+  /**
+   * Отчёт для рекламодателей за N дней. Только люди (роботы отфильтрованы и показаны одной цифрой).
+   * Уникальные посетители считаются по суткам (суточный хеш), поэтому за период отдаём
+   * сумму и среднее суточных уникальных - без выдуманной «месячной аудитории».
+   */
+  async advertiserReport(days: number): Promise<AdvertiserReport> {
+    const d = Math.max(1, Math.min(30, Math.floor(days) || 7));
+    const from = since(d * 86_400_000);
+    const excluded = excludedIds(this.env);
+    const marks = excluded.map(() => "?").join(",");
+    const tgClause = ` AND user_id<>0${excluded.length ? ` AND user_id NOT IN (${marks})` : ""}`;
+    const all = async <T>(sql: string, ...args: unknown[]): Promise<T[]> => {
+      try { return ((await this.db.prepare(sql).bind(...args).all<T>())?.results || []) as T[]; } catch { return []; }
+    };
+    const [dailyRows, geoRows, devRows, refRows, kindRows, dcRows, tgRows, tgTotalRows, firstRows] = await Promise.all([
+      all<{ day: string; t: string; c: number; u: number }>(
+        "SELECT substr(timestamp,1,10) day, event_type t, COUNT(*) c, COUNT(DISTINCT event_data) u FROM user_events " +
+        "WHERE event_type IN ('web_pv','web_uv','web_js','web_robot') AND timestamp>? GROUP BY day, event_type", from),
+      all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_geo' AND timestamp>? GROUP BY event_data ORDER BY c DESC", from),
+      all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_dev' AND timestamp>? GROUP BY event_data", from),
+      all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_ref' AND timestamp>? GROUP BY event_data ORDER BY c DESC", from),
+      all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_pv' AND timestamp>? GROUP BY event_data", from),
+      all<{ c: number }>("SELECT COUNT(*) c FROM user_events WHERE event_type='web_dc' AND timestamp>?", from),
+      all<{ c: number }>(`SELECT COUNT(DISTINCT user_id) c FROM user_events WHERE event_type='request' AND timestamp>?${tgClause}`, from, ...excluded),
+      all<{ c: number }>("SELECT COUNT(*) c FROM user_settings"),
+      all<{ ts: string }>("SELECT MIN(timestamp) ts FROM user_events WHERE event_type='web_pv'"),
+    ]);
+
+    const byDay = new Map<string, { day: string; pv: number; uv: number; js: number; robots: number }>();
+    const getDay = (k: string) => byDay.get(k) || (byDay.set(k, { day: k, pv: 0, uv: 0, js: 0, robots: 0 }), byDay.get(k)!);
+    for (const r of dailyRows) {
+      const x = getDay(String(r.day));
+      if (r.t === "web_pv") x.pv = Number(r.c || 0);
+      else if (r.t === "web_uv") x.uv = Number(r.u || 0);
+      else if (r.t === "web_js") x.js = Number(r.u || 0);
+      else if (r.t === "web_robot") x.robots = Number(r.c || 0);
+    }
+    // Непрерывный ряд дат (дни без данных - нули, а не пропуски)
+    const daily: AdvertiserReport["daily"] = [];
+    for (let i = d - 1; i >= 0; i--) {
+      const key = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+      daily.push(byDay.get(key) || { day: key, pv: 0, uv: 0, js: 0, robots: 0 });
+    }
+    const sum = (f: (x: { pv: number; uv: number; js: number; robots: number }) => number) => daily.reduce((a, x) => a + f(x), 0);
+    const pageviews = sum((x) => x.pv);
+    const visitorDays = sum((x) => x.uv);
+    const jsDays = sum((x) => x.js);
+    const robots = sum((x) => x.robots);
+    const firstTs = firstRows[0]?.ts ? String(firstRows[0].ts) : null;
+    const activeDays = firstTs
+      ? Math.max(1, Math.min(d, Math.ceil((Date.now() - new Date(firstTs).getTime()) / 86_400_000)))
+      : 0;
+
+    const share = (rows: Array<{ k: string; c: number }>) => {
+      const total = rows.reduce((a, r) => a + Number(r.c || 0), 0);
+      return { total, list: rows.map((r) => ({ key: String(r.k || ""), count: Number(r.c || 0), percent: total ? (Number(r.c || 0) / total) * 100 : 0 })) };
+    };
+    const geo = share(geoRows);
+    const devAgg = new Map<string, number>(), osAgg = new Map<string, number>();
+    for (const r of devRows) {
+      const [dev = "desktop", os = "Другая"] = String(r.k || "").split("|");
+      devAgg.set(dev, (devAgg.get(dev) || 0) + Number(r.c || 0));
+      osAgg.set(os, (osAgg.get(os) || 0) + Number(r.c || 0));
+    }
+    const toRows = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k, c]) => ({ k, c }));
+    // Источники: только входы на сайт (внутренние переходы исключаем)
+    const srcAgg = new Map<string, number>();
+    const refAgg = new Map<string, number>();
+    for (const r of refRows) {
+      const k = String(r.k || "direct");
+      if (k === "internal") continue;
+      const group = k.split(":")[0];
+      srcAgg.set(group, (srcAgg.get(group) || 0) + Number(r.c || 0));
+      if (k.includes(":")) refAgg.set(k, (refAgg.get(k) || 0) + Number(r.c || 0));
+    }
+    const pvKinds: Record<string, number> = {};
+    for (const r of kindRows) pvKinds[String(r.k)] = Number(r.c || 0);
+
+    return {
+      days: d,
+      activeDays,
+      since: firstTs,
+      pageviews,
+      pvKinds,
+      visitorDays,
+      avgDailyVisitors: activeDays ? visitorDays / activeDays : 0,
+      jsVisitorDays: jsDays,
+      pagesPerVisitor: visitorDays ? pageviews / visitorDays : 0,
+      robotsFiltered: robots,
+      vpnViews: Number(dcRows[0]?.c || 0),
+      geo: geo.list.slice(0, 15),
+      geoTotal: geo.total,
+      devices: share(toRows(devAgg)).list,
+      os: share(toRows(osAgg)).list,
+      sources: share(toRows(srcAgg)).list,
+      topReferrers: share(toRows(refAgg)).list.slice(0, 10),
+      tgActiveUsers: Number(tgRows[0]?.c || 0),
+      tgTotalUsers: Number(tgTotalRows[0]?.c || 0),
+      daily,
+    };
+  }
+
   async getSystemLogs(limit = 40): Promise<{ id: number; data: string; timestamp: string }[]> {
     const res = await this.db.prepare(
       "SELECT id, event_data as data, timestamp FROM user_events WHERE event_type='system_log' ORDER BY id DESC LIMIT ?"
@@ -737,4 +845,29 @@ export interface SiteTruth {
   daily: DailyTruth[];
   /** Когда появились первые события новой аналитики */
   since: string | null;
+}
+
+export interface ShareRow { key: string; count: number; percent: number }
+export interface AdvertiserReport {
+  days: number;
+  /** Сколько дней из периода реально покрыто новой статистикой */
+  activeDays: number;
+  since: string | null;
+  pageviews: number;
+  pvKinds: Record<string, number>;
+  visitorDays: number;
+  avgDailyVisitors: number;
+  jsVisitorDays: number;
+  pagesPerVisitor: number;
+  robotsFiltered: number;
+  vpnViews: number;
+  geo: ShareRow[];
+  geoTotal: number;
+  devices: ShareRow[];
+  os: ShareRow[];
+  sources: ShareRow[];
+  topReferrers: ShareRow[];
+  tgActiveUsers: number;
+  tgTotalUsers: number;
+  daily: Array<{ day: string; pv: number; uv: number; js: number; robots: number }>;
 }

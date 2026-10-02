@@ -102,6 +102,63 @@ export async function visitorId(request: Request, env: Env): Promise<string> {
   return (await sha256Hex(`${ip}|${ua}|${day}|${salt}`)).slice(0, 16);
 }
 
+export interface DeviceInfo { device: "mobile" | "tablet" | "desktop"; os: string }
+
+/** Тип устройства и ОС по User-Agent (для отчёта рекламодателям). */
+export function parseDevice(ua: string): DeviceInfo {
+  const s = ua || "";
+  let os = "Другая";
+  if (/android/i.test(s)) os = "Android";
+  else if (/iphone|ipad|ipod/i.test(s)) os = "iOS";
+  else if (/windows/i.test(s)) os = "Windows";
+  else if (/cros/i.test(s)) os = "ChromeOS";
+  else if (/mac os x|macintosh/i.test(s)) os = "macOS";
+  else if (/linux/i.test(s)) os = "Linux";
+  let device: DeviceInfo["device"] = "desktop";
+  if (/ipad|tablet|kindle|silk|playbook/i.test(s) || (/android/i.test(s) && !/mobile/i.test(s))) device = "tablet";
+  else if (/mobi|iphone|ipod|android.*mobile|windows phone/i.test(s)) device = "mobile";
+  return { device, os };
+}
+
+const SEARCH_HOSTS: Array<[RegExp, string]> = [
+  [/(^|\.)google\./, "Google"], [/(^|\.)yandex\.|(^|\.)ya\.ru$/, "Яндекс"], [/(^|\.)bing\.com$/, "Bing"],
+  [/(^|\.)duckduckgo\.com$/, "DuckDuckGo"], [/(^|\.)search\.yahoo\./, "Yahoo"], [/(^|\.)baidu\.com$/, "Baidu"],
+  [/(^|\.)ecosia\.org$/, "Ecosia"], [/(^|\.)search\.brave\.com$/, "Brave Search"], [/(^|\.)mail\.ru$/, "Mail.ru"],
+  [/(^|\.)perplexity\.ai$/, "Perplexity"], [/(^|\.)chatgpt\.com$|(^|\.)openai\.com$/, "ChatGPT"],
+];
+const SOCIAL_HOSTS: Array<[RegExp, string]> = [
+  [/(^|\.)t\.me$|(^|\.)telegram\.(org|me)$|org\.telegram/, "Telegram"], [/(^|\.)vk\.(com|ru)$/, "VK"],
+  [/(^|\.)threads\.(net|com)$/, "Threads"], [/(^|\.)instagram\.com$/, "Instagram"], [/(^|\.)facebook\.com$|(^|\.)fb\.com$/, "Facebook"],
+  [/(^|\.)(x|twitter)\.com$|(^|\.)t\.co$/, "X/Twitter"], [/(^|\.)reddit\.com$/, "Reddit"], [/(^|\.)youtube\.com$/, "YouTube"],
+  [/(^|\.)tiktok\.com$/, "TikTok"], [/(^|\.)whatsapp\.com$/, "WhatsApp"], [/(^|\.)ok\.ru$/, "Одноклассники"], [/(^|\.)dzen\.ru$/, "Дзен"],
+];
+
+/**
+ * Откуда пришёл посетитель. Сайт отдаёт <meta name="referrer" content="no-referrer">,
+ * поэтому внутренние переходы приходят БЕЗ Referer - их отличаем по Sec-Fetch-Site,
+ * который браузеры шлют независимо от referrer-policy.
+ *   internal | direct | search:<имя> | social:<имя> | referral:<домен> | hidden
+ */
+export function classifySource(request: Request): string {
+  const site = (request.headers.get("sec-fetch-site") || "").toLowerCase();
+  const ref = request.headers.get("referer") || request.headers.get("referrer") || "";
+  let selfHost = "";
+  try { selfHost = new URL(request.url).hostname.replace(/^www\./, ""); } catch {}
+  let host = "";
+  if (ref) {
+    if (/^android-app:\/\/org\.telegram/i.test(ref)) return "social:Telegram";
+    try { host = new URL(ref).hostname.toLowerCase().replace(/^www\./, ""); } catch { host = ""; }
+  }
+  if (site === "same-origin" || (host && selfHost && host === selfHost)) return "internal";
+  if (host) {
+    for (const [re, name] of SEARCH_HOSTS) if (re.test(host)) return `search:${name}`;
+    for (const [re, name] of SOCIAL_HOSTS) if (re.test(host)) return `social:${name}`;
+    return `referral:${host.slice(0, 60)}`;
+  }
+  if (site === "cross-site" || site === "same-site") return "hidden";
+  return "direct";
+}
+
 export type PageKind = "home" | "profile" | "post" | "api" | "comments" | "more";
 
 async function insertEvents(env: Env, rows: Array<[string, string]>): Promise<void> {
@@ -127,6 +184,8 @@ async function insertEvents(env: Env, rows: Array<[string, string]>): Promise<vo
  *   web_geo     country         - страна, ОДНА на просмотр страницы
  *   web_uv      visitorId       - для подсчёта уникальных посетителей (DISTINCT)
  *   web_dc      asOrganization  - просмотр человеком из дата-центра/VPN
+ *   web_dev     device|os       - тип устройства и ОС (с pr66)
+ *   web_ref     источник        - internal|direct|search:X|social:X|referral:домен|hidden (с pr66)
  *   web_robot   kind:name:page  - любой не-человек
  * Старые события web_api / web_comments / web_bot_crawl продолжают писаться вызывающим кодом.
  */
@@ -145,6 +204,9 @@ export async function trackRequest(
     rows.push(["web_pv", page]);
     rows.push(["web_geo", (country || "XX").toUpperCase()]);
     rows.push(["web_uv", await visitorId(request, env)]);
+    const dev = parseDevice(ua);
+    rows.push(["web_dev", `${dev.device}|${dev.os}`]);
+    rows.push(["web_ref", classifySource(request)]);
     const org = String((request as any).cf?.asOrganization || "");
     if (isDatacenterOrg(org)) rows.push(["web_dc", org.slice(0, 80)]);
   }

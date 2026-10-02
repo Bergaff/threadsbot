@@ -2,6 +2,7 @@ import { adminPassword, type Env } from "./config";
 import { Database, type SiteTruth } from "./db";
 import { diagnoseAccountCookies, normalizeCookiesJson } from "./cookies";
 import { probeAccount, refreshAccountCookies, resetAccountStatuses } from "./threads";
+import { clearStatsAccess, setStatsAccess, statsAccessInfo } from "./statsPage";
 
 function esc(value: unknown): string {
   return String(value ?? "")
@@ -420,8 +421,26 @@ export async function handleAdminRoute(request: Request, env: Env): Promise<Resp
     }
   }
 
+  // Доступ к странице статистики для рекламодателей (/stats)
+  if (path === "/admin/api/stats-access" && request.method === "POST") {
+    const form = await request.formData().catch(() => null);
+    const action = String(form?.get("action") || "save");
+    let flash = "saved";
+    if (action === "disable") {
+      await clearStatsAccess(env);
+      flash = "disabled";
+    } else {
+      const res = await setStatsAccess(env, String(form?.get("login") || ""), String(form?.get("password") || ""));
+      flash = res.ok ? "saved" : `error:${res.error || "ошибка"}`;
+    }
+    return new Response(null, {
+      status: 303,
+      headers: { Location: `/admin?stats=${encodeURIComponent(flash)}#stats-access` },
+    });
+  }
+
   // Render Admin Dashboard HTML
-  return await renderDashboardPage(env, db);
+  return await renderDashboardPage(env, db, url.searchParams.get("stats") || "");
 }
 
 const ADMIN_STYLES = `
@@ -1087,14 +1106,15 @@ function renderTruthSections(env: Env, t: SiteTruth, analytics: any, retention: 
   `;
 }
 
-async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
-  const [counts, stats, system, analytics, retention, truth] = await Promise.all([
+async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Promise<Response> {
+  const [counts, stats, system, analytics, retention, truth, statsAccess] = await Promise.all([
     db.accountCounts(),
     db.accountStats() as Promise<any[]>,
     db.systemStats(),
     db.analytics(),
     db.repeatRequestStats(),
     db.siteTruth(),
+    statsAccessInfo(env).catch(() => null),
   ]);
   const workingAccounts24h = Object.values(truth.accounts).filter(a => a.ok > 0).length;
 
@@ -1288,6 +1308,8 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
     </section>
 
     ${renderTruthSections(env, truth, analytics, retention)}
+
+    ${renderStatsAccessSection(env, statsAccess, statsFlash)}
 
     <section class="admin-card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #242424;padding-bottom:6px;">
@@ -1853,4 +1875,37 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
 </html>`;
 
   return new Response(html, { headers: { "content-type": "text/html; charset=UTF-8" } });
+}
+
+/** Админка: управление логином/паролем страницы /stats для рекламодателей. */
+export function renderStatsAccessSection(
+  env: Env,
+  info: { login: string; source: "admin" | "env" } | null,
+  flash: string
+): string {
+  const link = `https://${env.SITE_DOMAIN || "threadsviewer.online"}/stats`;
+  const status = info
+    ? `<span style="color:#22c55e;font-weight:600;">Включена</span> · логин <code>${esc(info.login)}</code>${info.source === "env" ? " (из переменных STATS_LOGIN / STATS_PASSWORD)" : ""}`
+    : `<span style="color:#f59e0b;font-weight:600;">Не настроена</span> - задайте логин и пароль ниже`;
+  let msg = "";
+  if (flash === "saved") msg = `<div style="background:#12301c;border:1px solid #1f5130;color:#86efac;padding:8px 10px;margin-bottom:10px;font-size:0.82rem;">Логин и пароль сохранены. Все прежние сессии на /stats завершены.</div>`;
+  else if (flash === "disabled") msg = `<div style="background:#2a2412;border:1px solid #514a1f;color:#fde68a;padding:8px 10px;margin-bottom:10px;font-size:0.82rem;">Доступ из админки отключён${info?.source === "env" ? " (но остаётся вход по STATS_LOGIN / STATS_PASSWORD)" : ""}.</div>`;
+  else if (flash.startsWith("error:")) msg = `<div style="background:#331515;border:1px solid #552222;color:#fca5a5;padding:8px 10px;margin-bottom:10px;font-size:0.82rem;">${esc(flash.slice(6))}</div>`;
+  return `
+    <section class="admin-card" id="stats-access">
+      <div class="admin-card-title">Страница статистики для рекламодателей</div>
+      ${msg}
+      <div style="font-size:0.85rem;color:#bbb;line-height:1.7;margin-bottom:12px;">
+        Адрес: <a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a> (английская версия: <a href="${esc(link)}?lang=en" target="_blank" rel="noopener">?lang=en</a>)<br>
+        Статус: ${status}<br>
+        <span style="color:#888;">Отдельный логин и пароль, не пароль админки. На странице только сводные цифры о людях-посетителях (аудитория, просмотры, география, устройства, источники), без аккаунтов, логов и технических данных. Пароль хранится как PBKDF2-хеш; при смене пароля открытые сессии завершаются.</span>
+      </div>
+      <form method="POST" action="/admin/api/stats-access" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <input type="hidden" name="action" value="save">
+        <div class="form-group" style="margin:0;"><label for="statsLogin">Логин</label><input id="statsLogin" name="login" value="${esc(info?.source === "admin" ? info.login : "")}" required minlength="3" maxlength="64" autocomplete="off"></div>
+        <div class="form-group" style="margin:0;"><label for="statsPassword">Новый пароль (от 8 символов)</label><input id="statsPassword" name="password" type="password" required minlength="8" autocomplete="new-password"></div>
+        <button type="submit" class="btn-admin btn-admin-primary">Сохранить доступ</button>
+      </form>
+      ${info?.source === "admin" ? `<form method="POST" action="/admin/api/stats-access" style="margin-top:10px;" onsubmit="return confirm('Отключить доступ к /stats?');"><input type="hidden" name="action" value="disable"><button type="submit" class="btn-admin btn-admin-danger">Отключить доступ</button></form>` : ""}
+    </section>`;
 }

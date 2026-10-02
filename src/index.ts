@@ -1,4 +1,5 @@
 import { handleAdminRoute, verifyAdmin } from "./admin";
+import { handleStatsRoute } from "./statsPage";
 import { FAVICON_SVG, FAVICON_ICO_BASE64, FAVICON_DATA_URL } from "./assets";
 import { matchEdgeCache, putEdgeCache } from "./cache";
 import { Bot } from "./bot";
@@ -265,6 +266,11 @@ export default {
     // ==========================================
     if (url.pathname.startsWith("/admin")) {
       return handleAdminRoute(request, env);
+    }
+
+    // Страница статистики для рекламодателей (отдельный логин/пароль, не считается в статистике)
+    if (lowerPath === "/stats" || lowerPath.startsWith("/stats/")) {
+      return handleStatsRoute(request, env);
     }
 
     // ==========================================
