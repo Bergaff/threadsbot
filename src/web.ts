@@ -1,4 +1,6 @@
 import type { Env } from "./config";
+import { PRICING_CSS, renderCardStubBody, renderCheckoutBody, renderPremiumPromo, renderPricingSection } from "./pricing";
+import { PLANS, type Plan } from "./plans";
 import type { Comment, Post, ProfileData } from "./threads";
 
 export type Lang = "ru" | "en";
@@ -72,6 +74,7 @@ function getBotUsername(env?: Env): string {
 }
 
 const COMMON_STYLES = `
+${PRICING_CSS}
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     --s: 180px;
@@ -148,6 +151,7 @@ const COMMON_STYLES = `
     flex-shrink: 0;
   }
   .btn-nav-tg,
+  .btn-nav-pricing,
   .btn-lang-toggle,
   .btn-theme-toggle {
     height: 32px;
@@ -171,6 +175,14 @@ const COMMON_STYLES = `
     font-family: inherit;
     box-shadow: none;
   }
+  .btn-nav-pricing {
+    background: #1d4ed8;
+    border-color: #2563eb !important;
+    color: #ffffff !important;
+    font-weight: 700;
+  }
+  .btn-nav-pricing:hover { background: #2563eb; }
+  @media (max-width: 480px) { .btn-nav-pricing { display: none !important; } }
   .btn-nav-tg {
     background: #2a2a2a;
     border-color: #444444;
@@ -1712,7 +1724,7 @@ const I18N = {
     faq_q4: "Как работает официальный Telegram-бот?",
     faq_a4: "Наш Telegram-бот @threadsreaderbot позволяет читать треды прямо в мессенджере. Вы можете отправить боту никнейм автора (например, @zuck) и получать свежие посты. Кроме того, в боте доступна функция анонимного мониторинга: бот уведомит вас о публикации новых тредов интересующих вас авторов.",
     faq_q5: "Как отключить рекламу на сайте?",
-    faq_a5: "Для отключения рекламных блоков достаточно оформить подписку в нашем Telegram-боте через команду /subscribe и перейти на сайт по персональной ссылке из команды /web.",
+    faq_a5: "Оформите Premium на странице «Тарифы» (от 39 ₽ за 3 дня, 129 ₽ в месяц) или в Telegram-боте командой /subscribe. После оплаты бот пришлёт персональную ссылку /web, по которой сайт открывается без рекламы.",
     tos: "Условия и тарифы",
     privacy: "Политика конфиденциальности",
     footer_text: "Threads Viewer. Независимый сервис. Не аффилирован с Meta Platforms Inc.",
@@ -1791,7 +1803,7 @@ const I18N = {
     faq_q4: "How does the Telegram bot work?",
     faq_a4: "Our Telegram bot @threadsreaderbot allows you to read Threads directly inside Telegram. Send any username (e.g., @zuck) to get posts. You can also enable anonymous creator monitoring to receive instant push alerts when new posts are published.",
     faq_q5: "How to browse without ads?",
-    faq_a5: "To disable all sponsor units, activate a subscription via our Telegram bot using /subscribe and open your personal ad-free link using the /web command.",
+    faq_a5: "Get Premium on the Pricing page (from $0.49 for 3 days, $1.49 per month) or in our Telegram bot with /subscribe. After payment the bot sends a personal /web link that opens the site without ads.",
     tos: "Terms & Tariffs",
     privacy: "Privacy Policy",
     footer_text: "Threads Viewer. Independent service. Not affiliated with Meta Platforms Inc.",
@@ -1818,6 +1830,7 @@ function renderNavbar(env: Env, lang: Lang, searchDefault = "", isPremium = fals
       </div>
       <div class="navbar-actions">
         ${premiumTag}
+        ${isPremium ? "" : `<a href="/pricing?lang=${lang}" class="btn-nav-pricing">${lang === 'en' ? 'Pricing' : 'Тарифы'}</a>`}
         <button type="button" class="btn-theme-toggle" id="themeToggleBtn" onclick="toggleTheme()" title="Switch theme">
           <span id="themeToggleText">${lang === 'en' ? 'Light' : 'Светлая'}</span>
         </button>
@@ -1890,7 +1903,7 @@ function renderSponsorSlot(env: Env, lang: Lang, isPremium = false, country = ""
     sponsorBtn = "Learn more";
   }
 
-  const adFreeUrl = `https://t.me/${esc(tgUser)}?start=web_adfree`;
+  const adFreeUrl = `/pricing?lang=${lang}`;
   const adFreeText = lang === "en" ? "Disable ads" : "Отключить рекламу";
 
   return `
@@ -1899,7 +1912,7 @@ function renderSponsorSlot(env: Env, lang: Lang, isPremium = false, country = ""
         <span>${sponsorTag}</span>
         <div style="display:inline-flex;align-items:center;gap:8px;">
           <a href="${esc(sponsorUrl)}" target="_blank" rel="noopener" style="color: #777; text-decoration: underline;">${sponsorAdLabel}</a>
-          <a href="${esc(adFreeUrl)}" target="_blank" rel="noopener" class="ad-free-link" style="color:#60a5fa;font-weight:700;" title="${lang === 'en' ? 'Get ad-free browsing via Telegram bot' : 'Отключить рекламу через Telegram-бота'}">${lang === 'en' ? 'Disable ads' : 'Отключить рекламу'}</a>
+          <a href="${esc(adFreeUrl)}" rel="nofollow" class="ad-free-link" style="color:#60a5fa;font-weight:700;" title="${lang === 'en' ? 'Premium plans without ads' : 'Тарифы Premium без рекламы'}">${lang === 'en' ? 'Disable ads' : 'Отключить рекламу'}</a>
         </div>
       </div>
       <div class="sponsor-card-inner">
@@ -1977,7 +1990,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr68-2026-10-02-octofile";
+  const ver = env.VERSION || "pr69-2026-10-02-pricing";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2156,6 +2169,8 @@ export function renderHomePage(
 
     ${renderSponsorSlot(env, lang, isPremium, country)}
 
+    ${isPremium ? "" : renderPricingSection(lang, { showAllLink: true })}
+
     <div class="faq-card">
       <h2 class="faq-main-title">${t.faq_main_title}</h2>
       <div class="faq-list">
@@ -2189,6 +2204,7 @@ export function renderHomePage(
     <div class="footer-links-row">
       <a href="/?lang=${lang}">Главная</a>
       <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener">${t.bot_link_text}</a>
+      <a href="/pricing?lang=${lang}">${lang === 'en' ? 'Pricing' : 'Тарифы'}</a>
       <a href="/terms?lang=${lang}">${t.tos}</a>
       <a href="/privacy?lang=${lang}">${t.privacy}</a>
     </div>
@@ -2579,9 +2595,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr68-2026-10-02-octofile')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr68-2026-10-02-octofile')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr68-2026-10-02-octofile')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr69-2026-10-02-pricing')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr69-2026-10-02-pricing')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr69-2026-10-02-pricing')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2700,6 +2716,8 @@ export function renderProfilePage(
 
     ${renderSponsorSlot(env, lang, isPremium, country)}
 
+    ${isPremium ? "" : renderPremiumPromo(lang)}
+
     <section class="feed" id="postsFeed">
       ${postsHtml}
     </section>
@@ -2737,6 +2755,7 @@ export function renderProfilePage(
     <div class="footer-links-row">
       <a href="/?lang=${lang}">Главная</a>
       <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener">${t.bot_link_text}</a>
+      <a href="/pricing?lang=${lang}">${lang === 'en' ? 'Pricing' : 'Тарифы'}</a>
       <a href="/terms?lang=${lang}">${t.tos}</a>
       <a href="/privacy?lang=${lang}">${t.privacy}</a>
     </div>
@@ -3338,7 +3357,7 @@ export function renderProfilePage(
 export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsviewer.online"): Response {
   const isEn = lang === "en";
   const title = isEn ? "Terms of Service & Usage Limits" : "Пользовательское соглашение и лимиты сервиса";
-  const date = isEn ? "Last updated: 2026-09-22" : "Дата обновления: 22 сентября 2026 г.";
+  const date = isEn ? "Last updated: 2026-10-02" : "Дата обновления: 2 октября 2026 г.";
   const backBtn = isEn ? "Back to Home" : "Вернуться на главную";
   const canonicalUrl = `${origin}/terms${isEn ? '?lang=en' : ''}`;
 
@@ -3363,11 +3382,12 @@ export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsview
     <p>- Real-time anonymous author tracking with instant delivery to Telegram;</p>
     <p>- Unrestricted browsing of deep comment threads and high-resolution media.</p>
     <p><b>Subscription Plans & Pricing:</b></p>
-    <p>- Trial Plan (7 days access): $0.99</p>
-    <p>- Standard Plan (30 days access): $1.49</p>
-    <p>- Quarterly Plan (90 days access): $3.49</p>
-    <p>- Annual Plan (365 days access): $9.99</p>
-    <p>Payment methods: Bank cards, Faster Payments System (SBP), Telegram Stars, Cryptocurrency. Direct online card processing is currently undergoing maintenance as we connect a new payment gateway. Subscriptions can be activated via our official Telegram bot: <a href="https://t.me/threadsreaderbot?start=web_adfree" target="_blank" rel="noopener">@threadsreaderbot</a>.</p>
+    <p>- Trial Plan (3 days access): 39 RUB / $0.49 / 25 Telegram Stars</p>
+    <p>- Monthly Plan (30 days access): 129 RUB / $1.49 / 75 Telegram Stars</p>
+    <p>- Quarterly Plan (90 days access): 299 RUB / $3.49 / 175 Telegram Stars</p>
+    <p>- Annual Plan (365 days access): 890 RUB / $9.99 / 500 Telegram Stars</p>
+    <p>All plans are one-time payments without automatic renewal. Buying a plan while a subscription is active extends it. Current prices are always listed on the <a href="/pricing?lang=en">Pricing</a> page.</p>
+    <p>Payment methods: Telegram Stars and cryptocurrency (USDT via @CryptoBot) through our official Telegram bot <a href="https://t.me/threadsreaderbot" target="_blank" rel="noopener">@threadsreaderbot</a> - available now, the subscription is activated automatically right after payment. Bank card payments on the website are being connected. Checkout starts on the <a href="/pricing?lang=en">Pricing</a> page.</p>
 
     <h2>5. Order Fulfillment & Delivery Policy</h2>
     <p>All services provided by the Service are entirely digital. Service activation (digital delivery) occurs immediately and automatically upon confirmation of successful transaction by the payment provider. No physical shipment is required.</p>
@@ -3405,12 +3425,12 @@ export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsview
     <p>- Анонимный мониторинг авторов Threads в реальном времени с доставкой постов в Telegram;</p>
     <p>- Просмотр всех веток комментариев и медиафайлов без ограничений.</p>
     <p><b>Тарифные планы и стоимость:</b></p>
-    <p>- Тариф "Пробный" (7 дней доступа): 99 руб.</p>
-    <p>- Тариф "Стандартный" (30 дней доступа): 129 руб.</p>
-    <p>- Тариф "Квартальный" (90 дней доступа): 299 руб.</p>
-    <p>- Тариф "Годовой" (365 дней доступа): 890 руб.</p>
-    <p>Способы оплаты: Банковские карты (МИР, Visa, Mastercard), СБП (Система быстрых платежей), Telegram Stars, криптовалюта. Прямой онлайн-эквайринг на сайте временно находится на плановом обновлении (подключение нового платёжного шлюза). Оформить подписку в данный момент можно через нашего официального Telegram-бота: <a href="https://t.me/threadsreaderbot?start=web_adfree" target="_blank" rel="noopener">@threadsreaderbot</a>.</p>
-    <p>Способы оплаты: Банковские карты (МИР, Visa, Mastercard), СБП (Система быстрых платежей), Telegram Stars, криптовалюта. Все расчеты производятся через защищенные шлюзы сертифицированных платёжных операторов.</p>
+    <p>- Тариф "Пробный" (3 дня доступа): 39 руб. / 25 Telegram Stars</p>
+    <p>- Тариф "Месяц" (30 дней доступа): 129 руб. / 75 Telegram Stars</p>
+    <p>- Тариф "3 месяца" (90 дней доступа): 299 руб. / 175 Telegram Stars</p>
+    <p>- Тариф "Год" (365 дней доступа): 890 руб. / 500 Telegram Stars</p>
+    <p>Все тарифы - разовый платёж без автоматического продления. Покупка тарифа при действующей подписке продлевает её. Актуальные цены всегда указаны на странице <a href="/pricing?lang=ru">«Тарифы»</a>.</p>
+    <p>Способы оплаты: Telegram Stars и криптовалюта (USDT через @CryptoBot) в нашем официальном Telegram-боте <a href="https://t.me/threadsreaderbot" target="_blank" rel="noopener">@threadsreaderbot</a> - доступны сейчас, подписка активируется автоматически сразу после оплаты. Оплата банковскими картами (МИР, Visa, Mastercard) и через СБП на сайте находится в процессе подключения. Оформление заказа начинается на странице <a href="/pricing?lang=ru">«Тарифы»</a>.</p>
 
     <h2>5. Порядок оформления и доставки цифровых услуг</h2>
     <p>Оказываемые услуги носят исключительно цифровой характер. Предоставление доступа (доставка услуги) происходит мгновенно в автоматическом режиме сразу после подтверждения успешной оплаты банком или платёжным шлюзом. Никакой физической доставки не требуется.</p>
@@ -3640,9 +3660,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr68-2026-10-02-octofile">
-  <link rel="alternate icon" href="/favicon.ico?v=pr68-2026-10-02-octofile">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr68-2026-10-02-octofile">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr69-2026-10-02-pricing">
+  <link rel="alternate icon" href="/favicon.ico?v=pr69-2026-10-02-pricing">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr69-2026-10-02-pricing">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3863,3 +3883,154 @@ export function renderFallbackScript(request: Request): Response {
   if (request.method === "HEAD") return new Response(null, { status: 200, headers });
   return new Response(FALLBACK_JS, { status: 200, headers });
 }
+
+// ==========================================
+// ТАРИФЫ И ОФОРМЛЕНИЕ ЗАКАЗА (/pricing, /pay, /pay/confirm)
+// ==========================================
+
+function renderShopShell(
+  env: Env,
+  lang: Lang,
+  opts: { title: string; description: string; canonical: string; body: string; isPremium?: boolean; noindex?: boolean; path: string }
+): Response {
+  const t = I18N[lang];
+  const tgUser = getBotUsername(env);
+  const html = `<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${esc(opts.title)}</title>
+  <meta name="description" content="${esc(opts.description)}">
+  ${opts.noindex ? '<meta name="robots" content="noindex, nofollow">' : '<meta name="robots" content="index, follow">'}
+  <link rel="canonical" href="${esc(opts.canonical)}">
+  <link rel="alternate" hreflang="ru" href="${esc(opts.canonical.replace(/\?lang=en$/, ""))}">
+  <link rel="alternate" hreflang="en" href="${esc(opts.canonical.replace(/\?lang=en$/, ""))}?lang=en">
+  <meta property="og:title" content="${esc(opts.title)}">
+  <meta property="og:description" content="${esc(opts.description)}">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr69-2026-10-02-pricing">
+  <script>
+    (function(){
+      var t = localStorage.getItem("threads_theme");
+      if (t === "light" || (!t && window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches)) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+  <style>${COMMON_STYLES}</style>
+</head>
+<body>
+  ${renderNavbar(env, lang, "", Boolean(opts.isPremium)).replace(`href="?lang=${t.other_lang_code}"`, `href="${opts.path}${opts.path.includes("?") ? "&amp;" : "?"}lang=${t.other_lang_code}"`)}
+  <main class="container">
+    ${opts.body}
+  </main>
+  <footer class="footer-block">
+    <div class="footer-links-row">
+      <a href="/?lang=${lang}">${lang === "en" ? "Home" : "Главная"}</a>
+      <a href="https://t.me/${esc(tgUser)}" target="_blank" rel="noopener">${t.bot_link_text}</a>
+      <a href="/pricing?lang=${lang}">${lang === "en" ? "Pricing" : "Тарифы"}</a>
+      <a href="/terms?lang=${lang}">${t.tos}</a>
+      <a href="/privacy?lang=${lang}">${t.privacy}</a>
+    </div>
+    <p>${t.footer_text}</p>
+  </footer>
+  <script>
+    var currentLang = "${lang}";
+    function setLangCookie(code) { document.cookie = "lang=" + code + ";path=/;max-age=31536000"; }
+    function handleNavSearch(e) {
+      e.preventDefault();
+      var v = (document.getElementById("navSearchInput").value || "").trim();
+      var m = v.match(/@?([A-Za-z0-9._]+)\\/?$/);
+      if (m) window.location.href = "/@" + encodeURIComponent(m[1]) + (currentLang === "en" ? "?lang=en" : "");
+    }
+    function updateThemeBtnText() {
+      var el = document.getElementById("themeToggleText");
+      if (!el) return;
+      var isLight = document.documentElement.getAttribute("data-theme") === "light";
+      el.innerText = currentLang === "en" ? (isLight ? "Dark" : "Light") : (isLight ? "Темная" : "Светлая");
+    }
+    function toggleTheme() {
+      var isLight = document.documentElement.getAttribute("data-theme") === "light";
+      if (isLight) { document.documentElement.removeAttribute("data-theme"); localStorage.setItem("threads_theme", "dark"); }
+      else { document.documentElement.setAttribute("data-theme", "light"); localStorage.setItem("threads_theme", "light"); }
+      updateThemeBtnText();
+    }
+    updateThemeBtnText();
+  </script>
+  ${renderCookieBanner(lang)}
+</body>
+</html>`;
+  return new Response(html, {
+    headers: {
+      "content-type": "text/html; charset=UTF-8",
+      ...(opts.noindex ? { "x-robots-tag": "noindex, nofollow", "cache-control": "no-store" } : {}),
+    },
+  });
+}
+
+/** Страница тарифов /pricing. */
+export function renderPricingPage(env: Env, lang: Lang, origin: string, isPremium = false): Response {
+  const isEn = lang === "en";
+  const title = isEn ? "Pricing - Threads Viewer Premium" : "Тарифы Premium - Threads Viewer";
+  const description = isEn
+    ? "Threads Viewer Premium: ad-free website, tracking of up to 5 creators with Telegram alerts and unlimited bot requests. From $0.49."
+    : "Threads Viewer Premium: сайт без рекламы, мониторинг до 5 авторов с уведомлениями в Telegram и безлимит в боте. От 39 ₽.";
+  const premiumNote = isPremium
+    ? `<div class="premium-promo" style="max-width:920px;margin:24px auto 0;"><span><b>${isEn ? "Your Premium is active." : "Ваш Premium активен."}</b> ${isEn ? "Buying another plan extends it." : "Покупка тарифа продлит текущую подписку."}</span></div>`
+    : "";
+  const faq = isEn
+    ? [
+        ["Is the subscription renewed automatically?", "No. Every plan is a one-time payment. When it ends, the site simply shows ads again."],
+        ["How do I get the ad-free site after payment?", "The Telegram bot sends a personal link (command /web). Open it once and the browser remembers Premium."],
+        ["Can I get a refund?", "Yes, within the terms of the refund policy described in the Terms of Service."],
+      ]
+    : [
+        ["Подписка продлевается автоматически?", "Нет. Любой тариф - разовый платёж. Когда срок закончится, сайт просто снова покажет рекламу."],
+        ["Как получить сайт без рекламы после оплаты?", "Telegram-бот пришлёт персональную ссылку (команда /web). Откройте её один раз, и браузер запомнит Premium."],
+        ["Можно вернуть деньги?", "Да, на условиях политики возврата из пользовательского соглашения."],
+      ];
+  const body = `
+    ${premiumNote}
+    ${renderPricingSection(lang, { heading: "h1" })}
+    <div class="faq-card" style="max-width:920px;">
+      <h2 class="faq-main-title">${isEn ? "Questions about payment" : "Вопросы об оплате"}</h2>
+      <div class="faq-list">${faq.map(([q, a], i) => `
+        <details class="faq-item"${i === 0 ? " open" : ""}><summary class="faq-question">${esc(q)}</summary><div class="faq-answer">${esc(a)}</div></details>`).join("")}
+      </div>
+    </div>`;
+  return renderShopShell(env, lang, {
+    title, description, body, isPremium,
+    canonical: `${origin}/pricing${isEn ? "?lang=en" : ""}`,
+    path: "/pricing",
+  });
+}
+
+/** Оформление заказа /pay?plan=... */
+export function renderCheckoutPage(env: Env, lang: Lang, origin: string, plan: Plan, isPremium = false): Response {
+  const isEn = lang === "en";
+  return renderShopShell(env, lang, {
+    title: isEn ? "Checkout - Threads Viewer Premium" : "Оформление подписки - Threads Viewer",
+    description: isEn ? "Checkout for Threads Viewer Premium." : "Оформление подписки Threads Viewer Premium.",
+    canonical: `${origin}/pay?plan=${plan.id}${isEn ? "&lang=en" : ""}`,
+    body: renderCheckoutBody(lang, plan),
+    isPremium,
+    noindex: true,
+    path: `/pay?plan=${plan.id}`,
+  });
+}
+
+/** Заглушка оплаты картой (/pay/confirm?method=card). */
+export function renderCardStubPage(env: Env, lang: Lang, origin: string, plan: Plan): Response {
+  const isEn = lang === "en";
+  return renderShopShell(env, lang, {
+    title: isEn ? "Card payment - Threads Viewer" : "Оплата картой - Threads Viewer",
+    description: isEn ? "Card payments are being connected." : "Оплата картой подключается.",
+    canonical: `${origin}/pay?plan=${plan.id}${isEn ? "&lang=en" : ""}`,
+    body: renderCardStubBody(lang, plan, getBotUsername(env)),
+    noindex: true,
+    path: `/pay?plan=${plan.id}`,
+  });
+}
+
+export { PLANS };

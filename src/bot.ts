@@ -6,6 +6,7 @@ import { fetchComments, fetchPosts, probeAccount, resetAccountStatuses, type Com
 import { kb, Telegram, type CallbackQuery, type TelegramUpdate, type TgMessage } from "./telegram";
 import { createAuthToken } from "./auth";
 import { createJhpayPayment } from "./payment";
+import { PLANS, planByDays, parseBuyPayload, planDuration, type Plan } from "./plans";
 
 const esc=(v:unknown)=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
 const fmtDate=(d:Date)=>`${String(d.getUTCDate()).padStart(2,'0')}.${String(d.getUTCMonth()+1).padStart(2,'0')}.${d.getUTCFullYear()}`;
@@ -22,12 +23,16 @@ export class Bot {
  async update(update:TelegramUpdate){if(update.pre_checkout_query){await this.tg.answerPreCheckoutQuery(update.pre_checkout_query.id);return}if(update.callback_query){await this.callback(update.callback_query);return}if(update.message)await this.message(update.message)}
  private async message(m:TgMessage){if(!m.from)return;const uid=m.from.id,cid=m.chat.id,raw=(m.text||m.caption||"").trim();if(await this.db.isBanned(uid))return;this.tg.sendChatAction(cid,"typing").catch(()=>{});
   if(m.successful_payment){
-    const payload = m.successful_payment.invoice_payload || "";
-    const isWeek = payload.endsWith("_7") || m.successful_payment.total_amount <= 50;
-    const days = isWeek ? LIMITS.subscriptionDaysWeek : LIMITS.subscriptionDays;
-    const exp=await this.db.activate(uid,"stars",m.successful_payment.total_amount, days);
-    await this.db.logEvent(uid,"subscribe",`stars:${days}d`);
+    const plan = starsPlanFor(m.successful_payment.invoice_payload || "", m.successful_payment.total_amount);
+    if(!plan){
+      await this.alert(`Stars-платёж без тарифа: uid ${uid}, payload ${m.successful_payment.invoice_payload}, amount ${m.successful_payment.total_amount}`);
+      await this.tg.sendMessage(cid,"⚠️ Оплата получена, но тариф не распознан. Поддержка уже уведомлена и активирует подписку вручную.");
+      return;
+    }
+    const exp=await this.db.activate(uid,"stars",m.successful_payment.total_amount, plan.days);
+    await this.db.logEvent(uid,"subscribe",`stars:${plan.days}d`);
     await this.tg.sendMessage(cid,`🎉 <b>${text("paid",await this.lang(uid))}!</b> ${text("until",await this.lang(uid))} ${fmtDate(exp)}`);
+    await this.webLink(m).catch(()=>{});
     return;
   }
   if(m.reply_to_message?.from?.is_bot){await this.replyComments(m);return}
@@ -38,7 +43,7 @@ export class Bot {
   if(isAdmin(this.env,uid)&&/^\d+\s+.+/s.test(raw)){const match=raw.match(/^(\d+)\s+(.+)$/s)!;await this.answerTicket(cid,Number(match[1]),match[2]);return}
   await this.username(m,raw);
  }
- private async start(m:TgMessage){const uid=m.from!.id,cid=m.chat.id;const payload=((m.text||"").trim().split(/\s+/)[1]||"");if(payload.startsWith("track_")){const target=payload.slice(6);await this.track(m,target);return}if(payload==="web_adfree"||payload==="adfree"){await this.webLink(m);return}if(!await this.db.hasLang(uid)){let lang=(m.from!.language_code||"ru").slice(0,2);if(!languages.includes(lang as any))lang="en";await this.db.setLang(uid,lang);await this.tg.sendMessage(cid,"🌍 Выберите язык / Select language / Sprache wählen:",this.languageKb());return}const [lang,sub,u]=await Promise.all([this.lang(uid),this.db.subscription(uid),this.db.usage(uid)]);const status=sub?.active?text("subscription_active",lang,{days:Number(sub.days_left)}):text("free_limit",lang,{daily:Math.max(0,LIMITS.freeDaily-u.daily),monthly:Math.max(0,LIMITS.freeMonthly-u.monthly)});await this.tg.sendMessage(cid,text("welcome",lang,{status}));this.removeButtons(cid).catch(()=>{});this.db.logEvent(uid,"start").catch(()=>{})}
+ private async start(m:TgMessage){const uid=m.from!.id,cid=m.chat.id;const payload=((m.text||"").trim().split(/\s+/)[1]||"");if(payload.startsWith("track_")){const target=payload.slice(6);await this.track(m,target);return}if(payload==="web_adfree"||payload==="adfree"){await this.webLink(m);return}const buy=parseBuyPayload(payload);if(buy){if(buy.method==="crypto")await this.crypto(cid,uid,buy.plan.days);else await this.starsInvoice(cid,uid,buy.plan);return}if(!await this.db.hasLang(uid)){let lang=(m.from!.language_code||"ru").slice(0,2);if(!languages.includes(lang as any))lang="en";await this.db.setLang(uid,lang);await this.tg.sendMessage(cid,"🌍 Выберите язык / Select language / Sprache wählen:",this.languageKb());return}const [lang,sub,u]=await Promise.all([this.lang(uid),this.db.subscription(uid),this.db.usage(uid)]);const status=sub?.active?text("subscription_active",lang,{days:Number(sub.days_left)}):text("free_limit",lang,{daily:Math.max(0,LIMITS.freeDaily-u.daily),monthly:Math.max(0,LIMITS.freeMonthly-u.monthly)});await this.tg.sendMessage(cid,text("welcome",lang,{status}));this.removeButtons(cid).catch(()=>{});this.db.logEvent(uid,"start").catch(()=>{})}
  private languageKb(){return kb([[{text:LANGUAGE_NAMES.ru,callback_data:"set_lang:ru"},{text:LANGUAGE_NAMES.en,callback_data:"set_lang:en"}],[{text:LANGUAGE_NAMES.de,callback_data:"set_lang:de"},{text:LANGUAGE_NAMES.es,callback_data:"set_lang:es"}],[{text:LANGUAGE_NAMES.pt,callback_data:"set_lang:pt"}]])}
  private async language(m:TgMessage){await this.tg.sendMessage(m.chat.id,text("select_language",await this.lang(m.from!.id)),this.languageKb());this.removeButtons(m.chat.id).catch(()=>{})}
  private async help(m:TgMessage){let value=text("help",await this.lang(m.from!.id));if(isAdmin(this.env,m.from!.id))value+="\n\n🔐 /admin\n🧭 /diag\n📂 /accounts\n🩺 /account_check\n🗑 /account_del имя\n📦 /account_export имя\n➕ Пришли JSON файл (подпись = имя аккаунта) — добавить";await this.tg.sendMessage(m.chat.id,value);this.removeButtons(m.chat.id).catch(()=>{})}
@@ -97,13 +102,15 @@ export class Bot {
  private async callback(cb:CallbackQuery){if(!cb.data||!cb.message)return;const d=cb.data,uid=cb.from.id,cid=cb.message.chat.id;if(!d.startsWith("sub:check:")&&!d.startsWith("set_lang:"))await this.tg.answerCallbackQuery(cb.id).catch(()=>{});if(d.startsWith("set_lang:")){const lang=d.split(":")[1];await this.db.setLang(uid,languages.includes(lang as any)?lang:"en");await this.tg.answerCallbackQuery(cb.id,{text:text("language_set",lang)}).catch(()=>{});await this.tg.deleteMessage(cid,cb.message.message_id).catch(()=>{});const fake:{message_id:number;chat:{id:number};from:any}={message_id:0,chat:{id:cid},from:cb.from};await this.start(fake);return}  if(d==="sub:choose"){
     const lang=await this.lang(uid);
     const isEn = lang==="en";
-    const title = isEn ? "Choose your subscription plan (Telegram Stars or Crypto):" : "Выберите удобный способ оплаты (Звёзды или Криптовалюта):";
+    const title = isEn ? "Choose a plan and payment method (Telegram Stars or USDT):" : "Выберите тариф и способ оплаты (Звёзды или USDT):";
     const siteUrl = this.env.SITE_URL || "https://threadsviewer.online";
+    const rows = PLANS.map((p) => [
+      {text: `${planDuration(p, isEn ? "en" : "ru")} — ${p.stars} ⭐`, callback_data:`sub:stars:${p.days}`},
+      {text: `${planDuration(p, isEn ? "en" : "ru")} — ${p.usd} $`, callback_data:`sub:crypto:${p.days}`},
+    ]);
     await this.buttons(cid, title, kb([
-      [{text: isEn ? `⚡ 7 days — ${LIMITS.priceStarsWeek} ⭐ (Stars)` : `⚡ 7 дней — ${LIMITS.priceStarsWeek} ⭐ (Звёзды)`, callback_data:"sub:stars:7"}],
-      [{text: isEn ? `⚡ 7 days — ${LIMITS.priceCryptoUsdWeek} $ (USDT)` : `⚡ 7 дней — ${LIMITS.priceCryptoUsdWeek} $ (USDT)`, callback_data:"sub:crypto:7"}],
-      [{text: isEn ? `👑 30 days — ${LIMITS.priceStarsMonth} ⭐ (Stars)` : `👑 30 дней — ${LIMITS.priceStarsMonth} ⭐ (Звёзды)`, callback_data:"sub:stars:30"}],
-      [{text: isEn ? `👑 30 days — ${LIMITS.priceCryptoUsdMonth} $ (USDT)` : `👑 30 дней — ${LIMITS.priceCryptoUsdMonth} $ (USDT)`, callback_data:"sub:crypto:30"}],
+      ...rows,
+      [{text: isEn ? `🌐 Pricing on the website` : `🌐 Тарифы на сайте`, url: `${siteUrl}/pricing${isEn ? "?lang=en" : ""}`}],
       [{text: isEn ? `📄 Terms & Refund Policy` : `📄 Оферта и условия возврата`, url: `${siteUrl}/terms`}],
     ]));
     return;
@@ -120,25 +127,26 @@ export class Bot {
     return;
   }
   if(d==="sub:stars" || d.startsWith("sub:stars:")){
-    const days = d.split(":")[2] === "7" ? 7 : 30;
-    const price = days === 7 ? LIMITS.priceStarsWeek : LIMITS.priceStarsMonth;
-    const lang=await this.lang(uid);
-    await this.tg.sendInvoice(cid,`${text("subscription",lang)} Threads Bot (${days} ${text("days",lang)})`,`${days} ${text("days",lang)}`,`sub_${uid}_${days}`,price);
-    return;
+    const plan = planByDays(Number(d.split(":")[2])) || planByDays(LIMITS.subscriptionDays)!;
+    return this.starsInvoice(cid,uid,plan);
   }
   if(d==="sub:crypto" || d.startsWith("sub:crypto:")){
-    const days = d.split(":")[2] === "7" ? 7 : 30;
-    return this.crypto(cid,uid,days);
+    const plan = planByDays(Number(d.split(":")[2])) || planByDays(LIMITS.subscriptionDays)!;
+    return this.crypto(cid,uid,plan.days);
   }
   if(d.startsWith("sub:check:")){
-    const parts = d.split(":");
-    const id = Number(parts[2]);
-    const days = Number(parts[3] || 30);
-    return this.cryptoCheck(cb, id, days);
+    const id = Number(d.split(":")[2]);
+    return this.cryptoCheck(cb, id);
   }if(d.startsWith("sup:"))return this.supportCallback(cb);if(d.startsWith("ticket:"))return this.ticketCallback(cb);if(d.startsWith("adm:"))return this.adminCallback(cb);if(d.startsWith("cmt:"))return this.commentsPage(cb);if(/^(text|img):[\w.]+:\d+$/.test(d))return this.choice(cb)}
+ private async starsInvoice(cid:number,uid:number,plan:Plan){
+   const lang=await this.lang(uid);
+   await this.tg.sendInvoice(cid,`${text("subscription",lang)} Threads Bot (${plan.days} ${text("days",lang)})`,`${plan.days} ${text("days",lang)}`,`sub_${uid}_${plan.days}`,plan.stars);
+ }
  private async crypto(cid:number,uid:number,days=30){
    const lang=await this.lang(uid);
-   const amount = days===7 ? LIMITS.priceCryptoUsdWeek : LIMITS.priceCryptoUsdMonth;
+   const plan = planByDays(days) || planByDays(LIMITS.subscriptionDays)!;
+   days = plan.days;
+   const amount = plan.usd;
    const response=await fetch("https://pay.crypt.bot/api/createInvoice",{
      method:"POST",
      headers:{"content-type":"application/json","Crypto-Pay-API-Token":this.env.CRYPTO_BOT_TOKEN},
@@ -153,21 +161,32 @@ export class Bot {
    });
    const data:any=await response.json();
    if(!data.ok){await this.tg.sendMessage(cid,"❌ Error.");return}
-   await this.buttons(cid,`💎 <b>${amount} USDT (${days} ${text("days",lang)})</b>\n${text("after_payment",lang)} «${text("i_paid",lang)}».`,kb([[{text:`💎 ${text("pay",lang)}`,url:data.result.pay_url}],[{text:`✅ ${text("i_paid",lang)}`,callback_data:`sub:check:${data.result.invoice_id}:${days}`}]]));
+   await this.buttons(cid,`💎 <b>${amount} USDT (${days} ${text("days",lang)})</b>\n${text("after_payment",lang)} «${text("i_paid",lang)}».`,kb([[{text:`💎 ${text("pay",lang)}`,url:data.result.pay_url}],[{text:`✅ ${text("i_paid",lang)}`,callback_data:`sub:check:${data.result.invoice_id}`}]]));
  }
- private async cryptoCheck(cb:CallbackQuery,id:number,days=30){
-   const response=await fetch(`https://pay.crypt.bot/api/getInvoices?invoice_ids=${id}`,{headers:{"Crypto-Pay-API-Token":this.env.CRYPTO_BOT_TOKEN}});
-   const data:any=await response.json();
+ private async cryptoCheck(cb:CallbackQuery,id:number){
    const lang=await this.lang(cb.from.id);
-   if(data.ok&&data.result.items?.[0]?.status==="paid"){
-     const amount = days===7 ? LIMITS.priceCryptoUsdWeek : LIMITS.priceCryptoUsdMonth;
-     const exp=await this.db.activate(cb.from.id,"crypto",amount,days);
-     await this.db.logEvent(cb.from.id,"subscribe",`crypto:${days}d`);
-     await this.tg.answerCallbackQuery(cb.id,{text:"✅!",show_alert:true}).catch(()=>{});
-     await this.tg.editText(cb.message!.chat.id,cb.message!.message_id,`🎉 <b>${text("paid",lang)}!</b> ${text("until",lang)} ${fmtDate(exp)}`);
-   } else {
-     await this.tg.answerCallbackQuery(cb.id,{text:`⏳ ${text("not_found",lang)}`,show_alert:true}).catch(()=>{});
+   const notPaid=()=>this.tg.answerCallbackQuery(cb.id,{text:`⏳ ${text("not_found",lang)}`,show_alert:true}).catch(()=>{});
+   if(!Number.isFinite(id)||id<=0){await notPaid();return}
+   const response=await fetch(`https://pay.crypt.bot/api/getInvoices?invoice_ids=${id}`,{headers:{"Crypto-Pay-API-Token":this.env.CRYPTO_BOT_TOKEN}});
+   const data:any=await response.json().catch(()=>null);
+   const inv=data?.ok?data.result?.items?.[0]:null;
+   if(!inv||inv.status!=="paid"){await notPaid();return}
+   // Срок и получатель берутся из самого счёта (payload "uid:days"), а не из кнопки
+   const [payUid,payDays]=String(inv.payload||"").split(":").map(Number);
+   // 7 дней - старый тариф (до pr69): такие счета могли остаться неоплаченными в чатах
+   const plan=planByDays(payDays)||(payDays===7?{days:7,usd:LIMITS.priceCryptoUsdWeek}:undefined);
+   if(payUid!==cb.from.id||!plan){await notPaid();return}
+   // Один счёт - одна активация: повторное нажатие «Я оплатил» не добавляет дни
+   if(await this.db.state(`cinv:${id}`,"paid_invoice")){
+     await this.tg.answerCallbackQuery(cb.id,{text:lang==="en"?"This invoice is already activated.":"Этот счёт уже активирован.",show_alert:true}).catch(()=>{});
+     return;
    }
+   await this.db.setState(`cinv:${id}`,"paid_invoice",String(cb.from.id));
+   const exp=await this.db.activate(cb.from.id,"crypto",Number(inv.amount)||plan.usd,plan.days);
+   await this.db.logEvent(cb.from.id,"subscribe",`crypto:${plan.days}d`);
+   await this.tg.answerCallbackQuery(cb.id,{text:"✅!",show_alert:true}).catch(()=>{});
+   await this.tg.editText(cb.message!.chat.id,cb.message!.message_id,`🎉 <b>${text("paid",lang)}!</b> ${text("until",lang)} ${fmtDate(exp)}`);
+   await this.webLink({message_id:0,chat:{id:cb.message!.chat.id},from:cb.from} as any).catch(()=>{});
  }
  private async supportCallback(cb:CallbackQuery){const d=cb.data!,uid=cb.from.id,cid=cb.message!.chat.id,lang=await this.lang(uid);if(d.startsWith("sup:write:")){const type=d.split(":")[2];await this.db.setState(uid,"waiting_support",type);await this.buttons(cid,`${type==="suggestion"?"💡":"❓"} <b>${text(type==="suggestion"?"suggestion":"question",lang)}</b>\n\nSend your message:`,kb([[{text:"❌ Cancel",callback_data:"sup:cancel"}]]));return}if(d==="sup:cancel"){await this.db.clearState(uid,"waiting_support");await this.tg.editText(cid,cb.message!.message_id,"❌ Cancelled.");return}const tickets=await this.db.tickets(uid);let value=tickets.length?`📋 <b>${text("my_tickets",lang)}:</b>\n\n`: `📋 ${text("my_tickets",lang)}: —`;for(const t of tickets)value+=`${t.status==="answered"?"✅":"⏳"}${t.ticket_type==="suggestion"?"💡":"❓"} <b>#${t.id}</b> (${String(t.created_at).slice(0,10)})\n   ${esc(String(t.message).slice(0,80))}\n${t.answer?`   💬 ${esc(String(t.answer).slice(0,80))}\n`:""}\n`;await this.buttons(cid,value,kb([[{text:`❓ ${text("question",lang)}`,callback_data:"sup:write:question"},{text:`💡 ${text("suggestion",lang)}`,callback_data:"sup:write:suggestion"}]]))}
  private async ticketCallback(cb:CallbackQuery){if(!isAdmin(this.env,cb.from.id))return;if(cb.data==="ticket:cancel"){await this.db.clearState(cb.from.id,"admin_reply");await this.tg.editText(cb.message!.chat.id,cb.message!.message_id,"❌ Cancelled.");return}const id=Number(cb.data!.split(":")[2]);await this.db.setState(cb.from.id,"admin_reply",String(id));await this.buttons(cb.message!.chat.id,`💬 Reply to <b>#${id}</b>:`,kb([[{text:"❌ Cancel",callback_data:"ticket:cancel"}]]))}
@@ -309,4 +328,19 @@ export class Bot {
   const hint=alive?"":"\n\nsessionid — HttpOnly. Cookie-Editor: включи HttpOnly → Export JSON → пришли файл снова.";
   await this.tg.sendMessage(m.chat.id,`${alive?"✅":"⚠️"} <b>${esc(name)}</b> — cookies в D1${alive?"":" (не живой)"}${warn}${names}${hint}\n\n/accounts — список\n🩺 /account_check`);
  }
+}
+
+/** Старые Stars-счета (до pr69), которые могли быть выставлены и оплачены после обновления. */
+const LEGACY_STARS: Record<number, number> = { 7: 49, 30: 149 };
+
+/** Срок (дней) оплаченного Stars-счёта: из payload sub_<uid>_<days>, сумма должна покрывать цену. */
+export function starsPlanFor(payload: string, amount: number): { days: number } | undefined {
+  const m = /^sub_\d+_(\d+)$/.exec(payload || "");
+  const days = m ? Number(m[1]) : 0;
+  const plan = planByDays(days);
+  if (plan && amount >= plan.stars) return { days: plan.days };
+  if (LEGACY_STARS[days] && amount >= LEGACY_STARS[days]) return { days };
+  // Нестандартный payload - по сумме (самый длинный тариф, который покрывает оплата)
+  const byAmount = [...PLANS].reverse().find((p) => amount >= p.stars);
+  return byAmount ? { days: byAmount.days } : undefined;
 }

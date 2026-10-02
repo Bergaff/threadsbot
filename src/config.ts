@@ -13,6 +13,10 @@ export interface Env {
   /** Запасной логин/пароль страницы /stats, если в админке доступ не настроен */
   STATS_LOGIN?: string;
   STATS_PASSWORD?: string;
+  /** Секрет платёжного вебхука /result.php (передаётся в ссылке колбэка ?key=... или заголовке X-Webhook-Secret) */
+  PAYMENT_WEBHOOK_SECRET?: string;
+  /** Токен магазина RuKassa (только через секреты Cloudflare, не в коде) */
+  RUKASSA_TOKEN?: string;
   BOT_USERNAME?: string;
   SITE_URL?: string;
   SITE_DOMAIN?: string;
@@ -27,21 +31,20 @@ export interface Env {
 }
 
 export const LIMITS = {
-  priceStarsMonth: 149,
+  // Цены тарифов живут в src/plans.ts (PLANS). Здесь - только совместимость со старым кодом.
+  priceStarsMonth: 75,
   priceStarsWeek: 49,
-  priceCryptoUsdMonth: 2.5,
+  priceCryptoUsdMonth: 1.49,
   priceCryptoUsdWeek: 1.0,
-  priceStars: 149,
-  priceCryptoUsd: 2.5,
+  priceStars: 75,
+  priceCryptoUsd: 1.49,
   subscriptionDays: 30,
   subscriptionDaysWeek: 7,
   subscriptionDaysQuarter: 90,
   subscriptionDaysYear: 365,
-  priceRubWeek: 99,
   priceRubMonth: 129,
   priceRubQuarter: 299,
   priceRubYear: 890,
-  priceUsdWeek: 0.99,
   priceUsdMonth: 1.49,
   priceUsdQuarter: 3.49,
   priceUsdYear: 9.99,

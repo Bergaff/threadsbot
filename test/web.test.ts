@@ -223,12 +223,14 @@ describe("Web Viewer SSR & Routing", () => {
     const homeHtml = await homeRes.text();
     expect(homeHtml).toContain("cookieBanner");
     expect(homeHtml).toContain("Политика конфиденциальности");
-    expect(homeHtml).toContain("web_adfree");
+    expect(homeHtml).toContain('href="/pricing?lang=ru"');
+    expect(homeHtml).toContain('id="pricing"');
 
     const profileRes = renderProfilePage(mockEnv, "zuck", null, null, "ru");
     const profileHtml = await profileRes.text();
     expect(profileHtml).toContain("cookieBanner");
-    expect(profileHtml).toContain("web_adfree");
+    expect(profileHtml).toContain('href="/pricing?lang=ru"');
+    expect(profileHtml).toContain("premium-promo");
   });
 
   it("renders robots.txt and sitemap.xml for SEO", async () => {
@@ -667,7 +669,7 @@ describe("Web Viewer SSR & Routing", () => {
 
       const termsEnRes = renderTermsPage("en", "https://threadsviewer.online");
       const termsEnHtml = await termsEnRes.text();
-      expect(termsEnHtml).toContain('$0.99');
+      expect(termsEnHtml).toContain('$0.49');
       expect(termsEnHtml).toContain('$1.49');
       expect(termsEnHtml).toContain('$3.49');
       expect(termsEnHtml).toContain('$9.99');

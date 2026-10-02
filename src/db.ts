@@ -19,7 +19,11 @@ export type StateName =
   /** Сессии страницы статистики {токен: ISO-дата истечения} */
   | "stats_sessions"
   /** Счётчик неудачных входов на страницу статистики */
-  | "stats_login_fails";
+  | "stats_login_fails"
+  /** Отметка «счёт CryptoBot уже активирован» (scope cinv:<id>) */
+  | "paid_invoice"
+  /** Отметка «заказ из платёжного вебхука уже обработан» (scope order:<id>) */
+  | "paid_order";
 
 export class Database {
   constructor(private readonly env: Env) {}

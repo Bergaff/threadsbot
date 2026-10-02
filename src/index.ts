@@ -27,7 +27,19 @@ import {
   renderSitemap,
   renderTermsPage,
   renderFallbackScript,
+  renderPricingPage,
+  renderCheckoutPage,
+  renderCardStubPage,
 } from "./web";
+import { DEFAULT_PLAN, botBuyLink, planByDays, planById } from "./plans";
+
+/** Сравнение секретов без утечки по времени. */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 import { createJhpayPayment } from "./payment";
 
 /**
@@ -234,18 +246,40 @@ export default {
           }
         }
 
-        if (uid > 0 && env.DB && typeof env.DB.prepare === "function") {
+        // Активация ТОЛЬКО для подлинного уведомления: секрет из PAYMENT_WEBHOOK_SECRET должен прийти
+        // в ссылке колбэка (?key=...) или в заголовке X-Webhook-Secret. Без секрета вебхук ничего не активирует
+        // (раньше любой мог прислать uid/days и получить подписку бесплатно).
+        const webhookSecret = String((env as any).PAYMENT_WEBHOOK_SECRET || "");
+        const providedSecret = url.searchParams.get("key") || request.headers.get("x-webhook-secret") || "";
+        const authentic = webhookSecret.length >= 16 && timingSafeEqualStr(providedSecret, webhookSecret);
+        const plan = planByDays(days);
+        const currency = String(params.currency || "RUB").toUpperCase();
+        const amountOk = plan ? (currency === "USD" ? amount >= plan.usd : amount >= plan.rub) : false;
+        const status = String(params.status || "").toUpperCase();
+        const statusOk = !status || status === "PAID" || status === "SUCCESS" || status === "SUCCEEDED";
+
+        if (!authentic) {
+          console.warn(`[Payment Webhook] REJECTED: no/invalid secret (uid=${uid}, days=${days}, amount=${amount})`);
+        } else if (uid > 0 && plan && amountOk && statusOk && env.DB && typeof env.DB.prepare === "function") {
           const db = new Database(env);
-          await db.activate(uid, "kassa", amount, days);
-          console.log(`[Payment Webhook] Activated subscription for user ${uid}, days: ${days}, amount: ${amount}`);
+          const orderKey = `order:${rawOrder || params.id || ""}`;
+          if (rawOrder && (await db.state(orderKey, "paid_order").catch(() => null))) {
+            console.log(`[Payment Webhook] Duplicate order ${rawOrder} ignored`);
+            return new Response("OK", { status: 200, headers: { "content-type": "text/plain; charset=UTF-8" } });
+          }
+          if (rawOrder) await db.setState(orderKey, "paid_order", String(uid)).catch(() => {});
+          await db.activate(uid, "kassa", amount, plan.days);
+          console.log(`[Payment Webhook] Activated subscription for user ${uid}, days: ${plan.days}, amount: ${amount}`);
           if (env.TELEGRAM_TOKEN) {
             try {
               const tg = new Telegram(env.TELEGRAM_TOKEN);
-              await tg.sendMessage(uid, `🎉 <b>Оплата успешно получена!</b>\n\nПодписка активирована на ${days} дн.`);
+              await tg.sendMessage(uid, `🎉 <b>Оплата успешно получена!</b>\n\nПодписка активирована на ${plan.days} дн. Сайт без рекламы: команда /web`);
             } catch (e) {
               console.error("[Payment Webhook] Failed to notify user:", e);
             }
           }
+        } else {
+          console.warn(`[Payment Webhook] Not activated: uid=${uid}, days=${days}, amount=${amount} ${currency}, status=${status}`);
         }
 
         return new Response("OK", {
@@ -291,40 +325,30 @@ export default {
     }
 
     // ==========================================
-    // ОНЛАЙН-ОПЛАТА ПОДПИСКИ (ВРЕМЕННО НА ОБНОВЛЕНИИ)
+    // ТАРИФЫ И ОФОРМЛЕНИЕ ЗАКАЗА
+    // /pricing - витрина, /pay?plan= - заказ, /pay/confirm - выбор способа.
+    // Карта/СБП - заглушка (шлюз не подключён), Stars/USDT - deep-link в бота со счётом.
     // ==========================================
-    if (lowerPath === "/pay" || lowerPath === "/buy" || lowerPath === "/order") {
-      const tgUsername = env.BOT_USERNAME || "threadsreaderbot";
-      const isEn = detectLanguage(request) === "en" || url.searchParams.get("lang") === "en";
-      return new Response(
-        `<!DOCTYPE html>
-<html lang="${isEn ? 'en' : 'ru'}">
-<head>
-  <meta charset="utf-8">
-  <title>${isEn ? 'Subscription - Threads Viewer' : 'Оплата подписки - Threads Viewer'}</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body { font-family: system-ui, -apple-system, sans-serif; background: #131722; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }
-    .card { background: #1e293b; border: 1px solid #3b82f6; padding: 28px; max-width: 520px; text-align: left; }
-    h1 { font-size: 1.25rem; margin-top: 0; color: #fff; }
-    p { color: #cbd5e1; font-size: 0.92rem; line-height: 1.5; margin: 10px 0; }
-    .btn { display: inline-block; background: #2563eb; color: #fff; padding: 10px 20px; text-decoration: none; font-weight: 700; margin-top: 14px; text-align: center; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>${isEn ? 'Payment gateway update in progress' : 'Обновление платёжной системы'}</h1>
-    <p>${isEn ? 'Direct online card payments are temporarily paused while we connect a new payment provider.' : 'Прямая оплата картами на сайте временно приостановлена в связи с подключением новой платёжной системы.'}</p>
-    <p>${isEn ? 'You can instantly activate your subscription and ad-free access via our Telegram bot with Telegram Stars or Crypto:' : 'Вы можете моментально оформить подписку и отключить рекламу через нашего Telegram-бота с помощью Telegram Stars или криптовалюты:'}</p>
-    <div style="margin-top:16px;">
-      <a href="https://t.me/${esc(tgUsername)}?start=web_adfree" class="btn">${isEn ? 'Open Telegram Bot' : 'Перейти в Telegram-бота'}</a>
-    </div>
-    <div style="margin-top: 18px;"><a href="/" style="color:#93c5fd;font-size:0.84rem;">&larr; ${isEn ? 'Back to homepage' : 'Вернуться на сайт'}</a></div>
-  </div>
-</body>
-</html>`,
-        { status: 200, headers: { "content-type": "text/html; charset=UTF-8" } }
-      );
+    if (lowerPath === "/pricing" || lowerPath === "/prices" || lowerPath === "/tariffs") {
+      const shopLang = url.searchParams.get("lang") === "en" ? "en" : (url.searchParams.get("lang") === "ru" ? "ru" : detectLanguage(request));
+      const { isPremium } = await checkPremiumUser(request, env);
+      return renderPricingPage(env, shopLang, url.origin, isPremium);
+    }
+    if (lowerPath === "/pay" || lowerPath === "/buy" || lowerPath === "/order" || lowerPath === "/pay/confirm") {
+      const shopLang = url.searchParams.get("lang") === "en" ? "en" : (url.searchParams.get("lang") === "ru" ? "ru" : detectLanguage(request));
+      const plan = planById(url.searchParams.get("plan")) || planById(DEFAULT_PLAN)!;
+      if (lowerPath === "/pay/confirm") {
+        const method = url.searchParams.get("method");
+        if (method === "stars" || method === "crypto") {
+          return new Response(null, {
+            status: 302,
+            headers: { Location: botBuyLink(env.BOT_USERNAME || "threadsreaderbot", plan, method), "cache-control": "no-store" },
+          });
+        }
+        return renderCardStubPage(env, shopLang, url.origin, plan);
+      }
+      const { isPremium } = await checkPremiumUser(request, env);
+      return renderCheckoutPage(env, shopLang, url.origin, plan, isPremium);
     }
 
     // ==========================================
