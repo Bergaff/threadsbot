@@ -1,5 +1,5 @@
 import { adminPassword, type Env } from "./config";
-import { Database } from "./db";
+import { Database, type SiteTruth } from "./db";
 import { diagnoseAccountCookies, normalizeCookiesJson } from "./cookies";
 import { probeAccount, refreshAccountCookies, resetAccountStatuses } from "./threads";
 
@@ -425,6 +425,7 @@ export async function handleAdminRoute(request: Request, env: Env): Promise<Resp
 }
 
 const ADMIN_STYLES = `
+  .truth-note { background: rgba(251,191,36,0.10); border: 1px solid rgba(251,191,36,0.45); color: #fbbf24; padding: 8px 12px; margin-bottom: 12px; font-size: 0.8rem; line-height: 1.45; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     --s: 180px;
@@ -816,6 +817,31 @@ function renderLoginPage(isError: boolean | string = false): Response {
 
 const COUNTRY_INFO: Record<string, { name: string }> = {
   RU: { name: "Россия" },
+  KG: { name: "Киргизия" },
+  TW: { name: "Тайвань" },
+  HK: { name: "Гонконг" },
+  SG: { name: "Сингапур" },
+  CN: { name: "Китай" },
+  AZ: { name: "Азербайджан" },
+  MD: { name: "Молдова" },
+  LV: { name: "Латвия" },
+  LT: { name: "Литва" },
+  EE: { name: "Эстония" },
+  TJ: { name: "Таджикистан" },
+  AE: { name: "ОАЭ" },
+  TH: { name: "Таиланд" },
+  VN: { name: "Вьетнам" },
+  ID: { name: "Индонезия" },
+  MX: { name: "Мексика" },
+  CZ: { name: "Чехия" },
+  RS: { name: "Сербия" },
+  CY: { name: "Кипр" },
+  ME: { name: "Черногория" },
+  PT: { name: "Португалия" },
+  IE: { name: "Ирландия" },
+  CH: { name: "Швейцария" },
+  AT: { name: "Австрия" },
+  XX: { name: "Не определена" },
   BY: { name: "Беларусь" },
   KZ: { name: "Казахстан" },
   UA: { name: "Украина" },
@@ -867,18 +893,210 @@ function renderBotList(list: Array<{ bot: string; count: number; percent: number
   }).join('');
 }
 
+const ROBOT_KIND_LABEL: Record<string, string> = {
+  search: "Поисковики",
+  preview: "Превью ссылок (мессенджеры)",
+  ai: "ИИ-краулеры",
+  script: "Скрипты / парсеры",
+  monitor: "Мониторинг",
+  other: "Прочие боты (не поисковики)",
+};
+
+/** Миллисекунды -> «1.2 сек». Нет данных -> прочерк (никаких подставных значений). */
+function fmtMs(ms: number, count = 1): string {
+  if (!count || !(ms > 0)) return "-";
+  const sec = ms / 1000;
+  return (sec < 1 ? sec.toFixed(2) : sec < 10 ? sec.toFixed(1) : Math.round(sec).toString()) + " сек";
+}
+function pct(part: number, total: number): string {
+  return total > 0 ? `${Math.round((part / total) * 100)}%` : "-";
+}
+function statBox(label: string, value: string, hint = "", color = ""): string {
+  return `<div class="stat-item"><div class="stat-label">${label}</div><div class="stat-value"${color ? ` style="color:${color};"` : ""}>${value}</div>${hint ? `<div style="font-size:0.72rem;color:#888;margin-top:4px;line-height:1.35;">${hint}</div>` : ""}</div>`;
+}
+
+function renderTruthSections(env: Env, t: SiteTruth, analytics: any, retention: any): string {
+  const sinceStr = t.since ? new Date(t.since).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) : null;
+  const partialNote = (() => {
+    if (!t.since) return `<div class="truth-note">Новая статистика начнёт копиться после деплоя pr65. Старые счётчики были неточными, поэтому здесь они не используются.</div>`;
+    const hours = (Date.now() - new Date(t.since).getTime()) / 3_600_000;
+    return hours < 24
+      ? `<div class="truth-note">Новая статистика собирается с ${esc(sinceStr || "")} (МСК): прошло ${hours.toFixed(1)} ч. из 24, поэтому цифры «за 24ч» пока неполные.</div>`
+      : "";
+  })();
+
+  const humans = t.pv.total;
+  const scr = t.scrape.profile || { total: 0, ok: 0, notFound: 0, failed: 0, posts: 0, ms: { count: 0, median: 0, p95: 0, max: 0 } };
+  const more = t.scrape.more || { total: 0, ok: 0, notFound: 0, failed: 0, posts: 0, ms: { count: 0, median: 0, p95: 0, max: 0 } };
+  const cmt = t.scrape.comments || { total: 0, ok: 0, notFound: 0, failed: 0, posts: 0, ms: { count: 0, median: 0, p95: 0, max: 0 } };
+  const apiFromCache = Math.max(0, t.api24h - scr.total);
+
+  const robotsByKind = Object.entries(t.robots24h.byKind).sort((a, b) => b[1] - a[1])
+    .map(([k, c]) => `<div>- ${esc(ROBOT_KIND_LABEL[k] || k)}: <b>${c}</b></div>`).join("") || "<div>- нет</div>";
+  const robotsTop = t.robots24h.top.length
+    ? t.robots24h.top.map(r => `
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #282828;font-size:0.84rem;">
+        <span><b style="color:#c084fc;">${esc(r.name)}</b> <span style="color:#777;font-size:0.72rem;">${esc(ROBOT_KIND_LABEL[r.kind] || r.kind)}</span></span>
+        <span><b>${r.count}</b> <span style="color:#888;font-size:0.78rem;">(${pct(r.count, t.robots24h.total)})</span></span>
+      </div>`).join("")
+    : '<div style="color:#777;font-size:0.82rem;padding:8px 0;">Нет данных</div>';
+  const dcTop = t.dcTop.length
+    ? t.dcTop.map(d => `<div>- ${esc(d.name)}: ${d.count}</div>`).join("")
+    : "<div>- нет</div>";
+
+  const dailyRows = t.daily.length ? t.daily.map(d => {
+    const noNew = d.pv === 0 && d.robots === 0 && d.uv === 0;
+    const cell = (v: number) => noNew && d.legacyWeb > 0 ? '<span style="color:#666;">до pr65</span>' : String(v);
+    return `<tr>
+      <td><b>${esc(d.day)}</b></td>
+      <td>${d.tgRequests} <span style="color:#777;font-size:0.75rem;">(${d.tgUsers} чел.)</span></td>
+      <td>${cell(d.uv)}</td>
+      <td>${cell(d.js)}</td>
+      <td>${cell(d.pv)}</td>
+      <td>${cell(d.robots)}</td>
+      <td style="color:#666;">${d.legacyWeb || "-"}</td>
+    </tr>`;
+  }).join("") : '<tr><td colspan="7" style="text-align:center;color:#777;padding:12px;">Пока нет данных за 7 дней</td></tr>';
+
+  return `
+    <section class="admin-card">
+      <div class="admin-card-title">Сайт за 24ч: люди и роботы (честные цифры)</div>
+      ${partialNote}
+      <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
+        <div class="stat-item" style="border-left: 3px solid #3b82f6;">
+          <div class="stat-label" style="font-weight:700;color:#3b82f6;">Люди на сайте</div>
+          <div class="stat-value">${t.uv24h} <span style="font-size:0.85rem;color:#888;">уник. посетителей</span></div>
+          <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.5;">
+            <div>- Подтвердили браузер (выполнили JS): <b style="color:#4ade80;">${t.js24h}</b> (${pct(t.js24h, t.uv24h)})</div>
+            <div>- Просмотров страниц: <b>${humans}</b> (главная ${t.pv.home}, профили ${t.pv.profile}, посты ${t.pv.post})</div>
+            <div>- Страниц на посетителя: ${t.uv24h ? (humans / t.uv24h).toFixed(1) : "-"}</div>
+            <div>- Через VPN / дата-центры: ${t.dc24h} просмотров (${pct(t.dc24h, humans)})</div>
+          </div>
+        </div>
+        <div class="stat-item" style="border-left: 3px solid #0ea5e9;">
+          <div class="stat-label" style="font-weight:700;color:#38bdf8;">Что делали люди</div>
+          <div class="stat-value">${t.api24h + t.more24h + t.comments24h} <span style="font-size:0.85rem;color:#888;">запросов данных</span></div>
+          <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.5;">
+            <div>- Лента профиля (API): ${t.api24h}, из них из кэша ≈${apiFromCache}, через браузер ${scr.total}</div>
+            <div>- «Загрузить ещё посты»: ${t.more24h}</div>
+            <div>- Открытий комментариев: ${t.comments24h}</div>
+          </div>
+        </div>
+        <div class="stat-item" style="border-left: 3px solid #a855f7;">
+          <div class="stat-label" style="font-weight:700;color:#c084fc;">Роботы (не люди)</div>
+          <div class="stat-value">${t.robots24h.total} <span style="font-size:0.85rem;color:#888;">запросов</span></div>
+          <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.5;">${robotsByKind}</div>
+        </div>
+        <div class="stat-item" style="border-left: 3px solid #22c55e;">
+          <div class="stat-label" style="font-weight:700;color:#22c55e;">Telegram-бот (@${esc(env.BOT_USERNAME || "threadsreaderbot")})</div>
+          <div class="stat-value">${analytics.botRequests} <span style="font-size:0.85rem;color:#888;">запросов</span></div>
+          <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.5;">
+            <div>- Активных пользователей: ${analytics.dau} (7 дней: ${analytics.active7d})</div>
+            <div>- Новых (/start): ${analytics.newUsers}</div>
+            <div>- Текст: ${analytics.text}, фото: ${analytics.img}, комментарии: ${analytics.comments}</div>
+            <div>- Упёрлись в бесплатный лимит: ${analytics.exhausted}</div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:0.74rem;color:#777;margin-top:8px;line-height:1.5;">
+        Уникальный посетитель - суточный обезличенный хеш IP+браузера (сам IP не хранится). Учитываются и ответы из Edge-кэша.
+        «Подтвердили браузер» - страница выполнила JavaScript и отправила сигнал: так не делают превью мессенджеров и большинство парсеров.
+        Посетители через VPN считаются людьми, но показаны отдельно.
+      </div>
+    </section>
+
+    <section class="admin-card">
+      <div class="admin-card-title">Скрапер Threads за 24ч: сколько работает и как часто ошибается</div>
+      <div class="stats-grid">
+        ${statBox("Первая загрузка профиля", `${scr.total}`, `успешно ${scr.ok} (${pct(scr.ok, scr.total)}), не найдено ${scr.notFound}, ошибок ${scr.failed}`, scr.failed > scr.ok ? "#f87171" : "")}
+        ${statBox("Ожидание человека (медиана)", fmtMs(scr.ms.median, scr.ms.count), `p95: ${fmtMs(scr.ms.p95, scr.ms.count)}, макс: ${fmtMs(scr.ms.max, scr.ms.count)}`)}
+        ${statBox("Постов за загрузку (в среднем)", scr.ok ? (scr.posts / scr.ok).toFixed(1) : "-", "цель - 20")}
+        ${statBox("«Загрузить ещё» через браузер", `${more.total}`, `успешно ${more.ok}, ошибок ${more.failed}; медиана ${fmtMs(more.ms.median, more.ms.count)}`)}
+        ${statBox("Комментарии через браузер", `${cmt.total}`, `успешно ${cmt.ok}, ошибок ${cmt.failed + cmt.notFound}; медиана ${fmtMs(cmt.ms.median, cmt.ms.count)}`)}
+      </div>
+      <div style="font-size:0.74rem;color:#777;margin-top:6px;line-height:1.5;">
+        Считаются только запросы людей, которые реально запускали браузер. Ответы из кэша сюда не входят. Время - от запроса пользователя до ответа сервера.
+      </div>
+    </section>
+
+    <section class="admin-card">
+      <div class="admin-card-title">Скорость ответа</div>
+      <div class="stats-grid">
+        ${statBox("Сайт из кэша: медиана (24ч)", fmtMs(t.webMs.median, t.webMs.count), `p95: ${fmtMs(t.webMs.p95, t.webMs.count)}, макс: ${fmtMs(t.webMs.max, t.webMs.count)}, замеров: ${t.webMs.count}`, "#4ade80")}
+        ${statBox("Сайт: первая загрузка через браузер", fmtMs(scr.ms.median, scr.ms.count), `p95: ${fmtMs(scr.ms.p95, scr.ms.count)}, замеров: ${scr.ms.count}`, "#fbbf24")}
+        ${statBox("Telegram-бот: медиана (24ч)", fmtMs(t.botMs24h.median, t.botMs24h.count), `p95: ${fmtMs(t.botMs24h.p95, t.botMs24h.count)}, макс: ${fmtMs(t.botMs24h.max, t.botMs24h.count)}, замеров: ${t.botMs24h.count}`)}
+        ${statBox("Telegram-бот: медиана (7д)", fmtMs(t.botMs7d.median, t.botMs7d.count), `p95: ${fmtMs(t.botMs7d.p95, t.botMs7d.count)}, замеров: ${t.botMs7d.count}`)}
+      </div>
+      <div style="font-size:0.74rem;color:#777;margin-top:6px;line-height:1.5;">
+        Медиана - половина запросов быстрее этого значения; p95 - 95% запросов быстрее. В отличие от среднего, один долгий запрос эти цифры не искажает.
+        Сайт: только люди, страницы и API без Edge-кэша (из Edge-кэша ответ почти мгновенный и не замеряется).
+      </div>
+    </section>
+
+    <section class="admin-card">
+      <div class="admin-card-title">По дням (7 дней, даты по UTC)</div>
+      <div style="overflow-x:auto;">
+        <table class="accounts-table">
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>Telegram: запросов</th>
+              <th>Сайт: уник. посетителей</th>
+              <th>Подтвердили браузер</th>
+              <th>Просмотров страниц</th>
+              <th>Роботы</th>
+              <th title="Старый счётчик до pr65: складывал страницы и API, не видел Edge-кэш">Старый счётчик</th>
+            </tr>
+          </thead>
+          <tbody>${dailyRows}</tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="admin-card">
+      <div class="admin-card-title">География и роботы</div>
+      <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+        <div class="stat-item">
+          <div class="stat-label" style="font-weight:700;color:#60a5fa;margin-bottom:8px;">Люди за 24ч (${t.geoTotal24h} просмотров страниц)</div>
+          ${renderCountryList(t.geo24h)}
+        </div>
+        <div class="stat-item">
+          <div class="stat-label" style="font-weight:700;color:#93c5fd;margin-bottom:8px;">Люди за 7 дней (${t.geoTotal7d} просмотров страниц)</div>
+          ${renderCountryList(t.geo7d)}
+        </div>
+        <div class="stat-item">
+          <div class="stat-label" style="font-weight:700;color:#c084fc;margin-bottom:8px;">Роботы за 24ч (${t.robots24h.total})</div>
+          ${robotsTop}
+          <div style="font-size:0.74rem;color:#888;margin-top:8px;">VPN / дата-центры у людей:</div>
+          <div style="font-size:0.74rem;color:#888;line-height:1.5;">${dcTop}</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-card">
+      <div class="admin-card-title">Повторные запросы в Telegram-боте (за всё время)</div>
+      <div class="stats-grid">
+        ${statBox("Пользователей с запросами", String(retention.totalUsers))}
+        ${statBox("Вернулись (2+ запроса)", `${retention.repeatUsers} <span style="font-size:0.85rem;color:#888;">(${retention.repeatPercent}%)</span>`, "", "#22c55e")}
+        ${statBox("Второй запрос в течение 2 мин", `${retention.immediate}`, "почти всегда та же сессия: листают того же автора")}
+        ${statBox("Вернулись через 1-24 ч", `${retention.withinDay}`)}
+        ${statBox("Вернулись через сутки и позже", `${retention.laterDays}`, "настоящий возврат аудитории", "#fbbf24")}
+      </div>
+      <div style="font-size:0.74rem;color:#777;margin-top:6px;">Только Telegram-бот: у сайта нет аккаунтов, поэтому возвраты посетителей сайта по-честному посчитать нельзя.</div>
+    </section>
+  `;
+}
+
 async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
-  const [counts, stats, system, analytics, weekly, botLatency, webLatency, countries, retention] = await Promise.all([
+  const [counts, stats, system, analytics, retention, truth] = await Promise.all([
     db.accountCounts(),
     db.accountStats() as Promise<any[]>,
     db.systemStats(),
     db.analytics(),
-    db.weeklyStats(),
-    db.botLatencyStats(),
-    db.webLatencyStats(),
-    db.visitorCountries(),
     db.repeatRequestStats(),
+    db.siteTruth(),
   ]);
+  const workingAccounts24h = Object.values(truth.accounts).filter(a => a.ok > 0).length;
 
   const queueActive = Boolean(env.UPDATES);
   const browserActive = Boolean(env.BROWSER);
@@ -919,6 +1137,12 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         <td>${a.hourly_requests} / 20</td>
         <td>${a.requests_count}</td>
         <td>${a.errors_count}${errStr}</td>
+        <td style="white-space:nowrap;">${(() => {
+          const r = truth.accounts[a.name] || { ok: 0, err: 0, dead: 0 };
+          const color = r.ok === 0 && (r.err + r.dead) > 0 ? "#f87171" : r.ok > 0 ? "#4ade80" : "#888";
+          return `<span style="color:${color};"><b>${r.ok}</b> / ${r.err + r.dead}</span>` +
+            (r.ok === 0 && (r.err + r.dead) > 0 && a.is_alive ? `<div style="color:#f87171;font-size:0.68rem;">статус «Активен», но ни одного успеха</div>` : "");
+        })()}</td>
         <td>${esc(expiryStr)}${issuesStr}<div style="color:#888;font-size:0.68rem;margin-top:2px;">дата не гарантирует живую сессию</div></td>
         <td>
           <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
@@ -1015,22 +1239,26 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
         <div class="stat-item">
           <div class="stat-label">Аккаунты Threads</div>
           <div class="stat-value">${counts.alive || 0} / ${counts.total} живых</div>
+          <div style="font-size:0.72rem;color:${workingAccounts24h < (counts.alive || 0) ? "#fbbf24" : "#888"};margin-top:4px;">реально отдавали посты за 24ч: ${workingAccounts24h}</div>
         </div>
         <div class="stat-item">
           <div class="stat-label">Всего пользователей (TG)</div>
           <div class="stat-value">${system.totalUsers}</div>
         </div>
         <div class="stat-item">
-          <div class="stat-label">Всего запросов (24ч)</div>
-          <div class="stat-value" style="color:#0084ff;">${analytics.totalRequests}</div>
+          <div class="stat-label">Люди на сайте (24ч)</div>
+          <div class="stat-value" style="color:#0084ff;">${truth.uv24h}</div>
+          <div style="font-size:0.72rem;color:#888;margin-top:4px;">уник. посетителей; подтвердили браузер: ${truth.js24h}</div>
         </div>
         <div class="stat-item">
           <div class="stat-label">Время браузера 24ч</div>
           <div class="stat-value">${(system.browserSeconds24h / 60).toFixed(1)} мин</div>
+          <div style="font-size:0.72rem;color:#888;margin-top:4px;">запусков: ${system.browserLaunches24h}, отказов Cloudflare (429): ${system.browser42924h}</div>
         </div>
         <div class="stat-item">
-          <div class="stat-label">Платные подписки</div>
-          <div class="stat-value">${analytics.newSubs} ($${analytics.revenue.toFixed(2)})</div>
+          <div class="stat-label">Подписки</div>
+          <div class="stat-value">${analytics.newSubs} новых (24ч)</div>
+          <div style="font-size:0.72rem;color:#888;margin-top:4px;">оплачено активными подписками: $${Number(analytics.revenue || 0).toFixed(2)}</div>
         </div>
         <div class="stat-item">
           <div class="stat-label">Лимиты сайта</div>
@@ -1059,206 +1287,7 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
       </div>
     </section>
 
-    <section class="admin-card">
-      <div class="admin-card-title">Разделение источников запросов (Бот vs Сайт за 24ч)</div>
-      <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
-        <div class="stat-item" style="border-left: 3px solid #22c55e;">
-          <div class="stat-label" style="font-weight:700;color:#22c55e;">Telegram-бот (@${esc(env.BOT_USERNAME || 'threadsreaderbot')})</div>
-          <div class="stat-value">${analytics.botRequests} запросов</div>
-          <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.4;">
-            <div>- Текст: ${analytics.text}</div>
-            <div>- Фото/скрины: ${analytics.img}</div>
-            <div>- Комментарии: ${analytics.comments}</div>
-            <div>- Активных (DAU): ${analytics.dau} (7 дней: ${analytics.active7d})</div>
-          </div>
-        </div>
-        <div class="stat-item" style="border-left: 3px solid #3b82f6;">
-          <div class="stat-label" style="font-weight:700;color:#3b82f6;">Веб-сайт: Люди (Браузеры)</div>
-          <div class="stat-value">${analytics.webHumanRequests} визитов</div>
-          <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.4;">
-            <div>- Просмотров страниц: ${analytics.webViews}</div>
-            <div>- Запросов ленты (API): ${analytics.webApi}</div>
-            <div>- Запросов комментариев: ${analytics.webComments}</div>
-            <div>- Реальные пользователи в браузерах</div>
-          </div>
-        </div>
-        <div class="stat-item" style="border-left: 3px solid #a855f7;">
-          <div class="stat-label" style="font-weight:700;color:#c084fc;">Поисковые роботы (SEO / Краулеры)</div>
-          <div class="stat-value">${analytics.botCrawls24h} обходов</div>
-          <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.4;">
-            <div>- Обходов за 7 дней: ${analytics.botCrawls7d}</div>
-            <div>- Googlebot, YandexBot, Bingbot и др.</div>
-            <div>- Сканирование страниц для поисковой выдачи</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="admin-card">
-      <div class="admin-card-title">Запросы за неделю (7 дней) и посуточная динамика</div>
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-label">Всего за 7 дней</div>
-          <div class="stat-value" style="color:#38bdf8;">${weekly.total7d}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Telegram-бот (7д)</div>
-          <div class="stat-value" style="color:#22c55e;">${weekly.bot7d}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Веб-сайт (7д)</div>
-          <div class="stat-value" style="color:#3b82f6;">${weekly.web7d}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Активных в боте (7д)</div>
-          <div class="stat-value">${analytics.active7d}</div>
-        </div>
-      </div>
-      <div style="overflow-x:auto;">
-        <table class="accounts-table">
-          <thead>
-            <tr>
-              <th>Дата</th>
-              <th>Telegram-бот</th>
-              <th>Веб-сайт</th>
-              <th>Всего запросов</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${weekly.daily.length ? weekly.daily.map(d => `
-              <tr>
-                <td><b>${esc(d.day)}</b></td>
-                <td>${d.bot}</td>
-                <td>${d.web}</td>
-                <td><b>${d.total}</b></td>
-              </tr>
-            `).join('') : '<tr><td colspan="4" style="text-align:center;color:#777;padding:12px;">Пока нет логов за 7 дней</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="admin-card">
-      <div class="admin-card-title">Скорость работы бота (Сколько думает бот перед ответом) и сайта</div>
-
-      <div style="font-size:0.85rem;color:#94a3b8;margin-bottom:8px;font-weight:700;">Telegram бот (@${esc(env.BOT_USERNAME || 'threadsreaderbot')})</div>
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-label">Среднее время (24ч)</div>
-          <div class="stat-value" style="color:#4ade80;">${botLatency.avg24h > 0 ? botLatency.avg24h + ' сек' : '-'}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Среднее время (7д)</div>
-          <div class="stat-value" style="color:#38bdf8;">${botLatency.avg7d > 0 ? botLatency.avg7d + ' сек' : '-'}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Быстрый ответ (мин)</div>
-          <div class="stat-value" style="font-size:1.1rem;">${botLatency.min24h > 0 ? botLatency.min24h + ' сек' : (botLatency.count24h > 0 ? '0.4 сек' : '-')}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Долгий ответ (макс)</div>
-          <div class="stat-value" style="font-size:1.1rem;color:#fbbf24;">${botLatency.max24h > 0 ? botLatency.max24h + ' сек' : '-'}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Замеров времени</div>
-          <div class="stat-value" style="font-size:1rem;">${botLatency.count24h} (24ч) / ${botLatency.count7d} (7д)</div>
-        </div>
-      </div>
-      <div style="font-size:0.75rem;color:#888;margin-top:6px;margin-bottom:18px;line-height:1.4;">
-        Telegram: чистое время от нажатия пользователем кнопки или отправки никнейма до выдачи постов в чат.
-      </div>
-
-      <div style="font-size:0.85rem;color:#94a3b8;margin-bottom:8px;font-weight:700;">Веб-сайт (${esc(env.SITE_DOMAIN || 'threadsviewer.online')} - страницы и API)</div>
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-label">Среднее время (24ч)</div>
-          <div class="stat-value" style="color:#4ade80;">${webLatency.avg24h > 0 ? webLatency.avg24h + ' сек' : '-'}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Среднее время (7д)</div>
-          <div class="stat-value" style="color:#38bdf8;">${webLatency.avg7d > 0 ? webLatency.avg7d + ' сек' : '-'}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Быстрый ответ (мин)</div>
-          <div class="stat-value" style="font-size:1.1rem;">${webLatency.min24h > 0 ? webLatency.min24h + ' сек' : (webLatency.count24h > 0 ? '0.04 сек' : '-')}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Долгий ответ (макс)</div>
-          <div class="stat-value" style="font-size:1.1rem;color:#fbbf24;">${webLatency.max24h > 0 ? webLatency.max24h + ' сек' : '-'}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-label">Замеров времени</div>
-          <div class="stat-value" style="font-size:1rem;">${webLatency.count24h} (24ч) / ${webLatency.count7d} (7д)</div>
-        </div>
-      </div>
-      <div style="font-size:0.75rem;color:#888;margin-top:6px;line-height:1.4;">
-        Веб-сайт: серверное время генерации страниц профилей (SSR) и выдачи постов через /api/profile. Из кэша D1 ответ занимает 0.03-0.08 сек, при первичном Browser Run парсинге 2-4 сек.
-      </div>
-    </section>
-
-    <section class="admin-card">
-      <div class="admin-card-title">География посетителей (Страны, что заходят)</div>
-      <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
-        <div class="stat-item">
-          <div class="stat-label" style="font-weight:700;color:#60a5fa;margin-bottom:8px;">Реальные люди за 24ч (${countries.totalHuman24h || countries.total24h} визитов)</div>
-          ${renderCountryList(countries.topHuman24h.length > 0 ? countries.topHuman24h : countries.top24h)}
-        </div>
-        <div class="stat-item">
-          <div class="stat-label" style="font-weight:700;color:#93c5fd;margin-bottom:8px;">Общая география за 7 дней (${countries.total7d} визитов)</div>
-          ${renderCountryList(countries.top7d)}
-        </div>
-        <div class="stat-item">
-          <div class="stat-label" style="font-weight:700;color:#c084fc;margin-bottom:8px;">Поисковые роботы за 24ч (${analytics.botCrawls24h} обходов)</div>
-          ${renderBotList(countries.topBots24h)}
-        </div>
-      </div>
-    </section>
-
-    <section class="admin-card">
-      <div class="admin-card-title">Поведение пользователей и повторные запросы (Ретеншн)</div>
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-label">Всего пользователей с запросами</div>
-          <div class="stat-value">${retention.totalUsers}</div>
-        </div>
-        <div class="stat-item" style="border-left: 3px solid #22c55e;">
-          <div class="stat-label">Сделали 2+ запросов (вернулись)</div>
-          <div class="stat-value" style="color:#22c55e;">${retention.repeatUsers} <span style="font-size:0.85rem;color:#888;">(${retention.repeatPercent}%)</span></div>
-        </div>
-        <div class="stat-item" style="border-left: 3px solid #ef4444;">
-          <div class="stat-label">Только 1 запрос (без повторов)</div>
-          <div class="stat-value" style="color:#f87171;">${retention.singleUsers} <span style="font-size:0.85rem;color:#888;">(${100 - retention.repeatPercent}%)</span></div>
-        </div>
-      </div>
-
-      <div style="background:#141414;border:1px solid #282828;padding:12px 14px;margin-top:6px;">
-        <div style="font-size:0.85rem;font-weight:700;color:#e2e8f0;margin-bottom:10px;">
-          Когда пользователи делают второй запрос:
-        </div>
-        <div style="display:grid;grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));gap:10px;">
-          <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
-            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">Сразу (&lt; 2 минут)</div>
-            <div style="font-size:1.15rem;font-weight:700;color:#4ade80;margin:4px 0;">${retention.immediate} чел. (${retention.immediatePct}%)</div>
-            <div style="font-size:0.75rem;color:#777;">Смотрят фото, комментарии или листают посты автора сразу</div>
-          </div>
-          <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
-            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">В течение часа (2-60 мин)</div>
-            <div style="font-size:1.15rem;font-weight:700;color:#38bdf8;margin:4px 0;">${retention.withinHour} чел. (${retention.withinHourPct}%)</div>
-            <div style="font-size:0.75rem;color:#777;">Короткая сессия: ищут других авторов в течение часа</div>
-          </div>
-          <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
-            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">В тот же день (1-24 ч)</div>
-            <div style="font-size:1.15rem;font-weight:700;color:#a78bfa;margin:4px 0;">${retention.withinDay} чел. (${retention.withinDayPct}%)</div>
-            <div style="font-size:0.75rem;color:#777;">Возвращаются в сервис позже в тот же день</div>
-          </div>
-          <div style="background:#1a1a1a;border:1px solid #333;padding:10px;">
-            <div style="font-size:0.75rem;color:#888;text-transform:uppercase;">Со временем (&gt; 24 часов)</div>
-            <div style="font-size:1.15rem;font-weight:700;color:#fbbf24;margin:4px 0;">${retention.laterDays} чел. (${retention.laterDaysPct}%)</div>
-            <div style="font-size:0.75rem;color:#777;">Постоянная аудитория: вернулись через день или несколько дней</div>
-          </div>
-        </div>
-      </div>
-    </section>
+    ${renderTruthSections(env, truth, analytics, retention)}
 
     <section class="admin-card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #242424;padding-bottom:6px;">
@@ -1291,12 +1320,13 @@ async function renderDashboardPage(env: Env, db: Database): Promise<Response> {
               <th>Лимит / час</th>
               <th>Запросов</th>
               <th>Ошибок</th>
+              <th title="Успешных сборов / ошибок за последние 24 часа">24ч: успех / ошибки</th>
               <th>Срок куки</th>
               <th>Действия</th>
             </tr>
           </thead>
           <tbody>
-            ${tableRows || '<tr><td colspan="8" style="text-align:center;color:#777;padding:16px;">Аккаунтов нет. Добавьте первый JSON ниже.</td></tr>'}
+            ${tableRows || '<tr><td colspan="9" style="text-align:center;color:#777;padding:16px;">Аккаунтов нет. Добавьте первый JSON ниже.</td></tr>'}
           </tbody>
         </table>
       </div>

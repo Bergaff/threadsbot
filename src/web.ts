@@ -1977,7 +1977,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr64-2026-10-02-realmore";
+  const ver = env.VERSION || "pr65-2026-10-02-stats";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2197,6 +2197,14 @@ export function renderHomePage(
 
   <script>
     var currentLang = "${lang}";
+    (function confirmRealBrowser() {
+      // Подтверждение для статистики: страницу открыл настоящий браузер с JS (роботы обычно JS не выполняют)
+      try {
+        if (navigator.webdriver) return;
+        if (navigator.sendBeacon) navigator.sendBeacon('/api/hit', 'v');
+        else fetch('/api/hit', { method: 'POST', keepalive: true });
+      } catch (e) {}
+    })();
     function setLangCookie(code) {
       document.cookie = "lang=" + code + ";path=/;max-age=31536000";
     }
@@ -2567,9 +2575,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr64-2026-10-02-realmore')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr64-2026-10-02-realmore')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr64-2026-10-02-realmore')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr65-2026-10-02-stats')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr65-2026-10-02-stats')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr65-2026-10-02-stats')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2734,6 +2742,14 @@ export function renderProfilePage(
   <script>
     var currentUsername = "${esc(cleanUser)}";
     var currentLang = "${lang}";
+    (function confirmRealBrowser() {
+      // Подтверждение для статистики: страницу открыл настоящий браузер с JS (роботы обычно JS не выполняют)
+      try {
+        if (navigator.webdriver) return;
+        if (navigator.sendBeacon) navigator.sendBeacon('/api/hit', 'v');
+        else fetch('/api/hit', { method: 'POST', keepalive: true });
+      } catch (e) {}
+    })();
     var isLoaded = ${hasData ? "true" : "false"};
     var loadedPostCount = ${posts.length};
     var currentProfile = ${JSON.stringify(initialData?.profile ? { displayName: initialData.profile.displayName || "", avatar: initialData.profile.avatar || "" } : null).replace(/</g, "\\u003c")};
@@ -3614,9 +3630,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta property="og:locale" content="${isEn ? 'en_US' : 'ru_RU'}">
   <meta property="og:locale:alternate" content="${isEn ? 'ru_RU' : 'en_US'}">
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr64-2026-10-02-realmore">
-  <link rel="alternate icon" href="/favicon.ico?v=pr64-2026-10-02-realmore">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr64-2026-10-02-realmore">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr65-2026-10-02-stats">
+  <link rel="alternate icon" href="/favicon.ico?v=pr65-2026-10-02-stats">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr65-2026-10-02-stats">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');

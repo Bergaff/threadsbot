@@ -1,4 +1,5 @@
 import { LIMITS, type Env, excludedIds } from "./config";
+import { percentile } from "./analytics";
 
 const now = () => new Date().toISOString();
 const since = (ms: number) => new Date(Date.now() - ms).toISOString();
@@ -312,6 +313,126 @@ export class Database {
     };
   }
 
+  /**
+   * Честная статистика сайта (события с pr65). Всё считается из сырых событий,
+   * без подстановок: если данных нет - возвращается 0 / пустой список.
+   */
+  async siteTruth(): Promise<SiteTruth> {
+    const one = since(86_400_000), seven = since(7 * 86_400_000);
+    const empty: SiteTruth = {
+      pv: { home: 0, profile: 0, post: 0, total: 0 }, uv24h: 0, js24h: 0, dc24h: 0, dcTop: [],
+      api24h: 0, more24h: 0, comments24h: 0, geo24h: [], geo7d: [], geoTotal24h: 0, geoTotal7d: 0,
+      robots24h: { total: 0, byKind: {}, top: [] },
+      scrape: {}, webMs: emptyDist(), botMs24h: emptyDist(), botMs7d: emptyDist(), accounts: {}, daily: [], since: null,
+    };
+    if (!this.db?.prepare) return empty;
+    const all = async <T>(sql: string, ...args: unknown[]): Promise<T[]> => {
+      try { return ((await this.db.prepare(sql).bind(...args).all<T>())?.results || []) as T[]; } catch { return []; }
+    };
+    const excluded = excludedIds(this.env);
+    const marks = excluded.map(() => "?").join(",");
+    const tgClause = ` AND user_id<>0${excluded.length ? ` AND user_id NOT IN (${marks})` : ""}`;
+
+    const [pvRows, uvRows, simpleRows, dcRows, geo24, geo7, robotRows, scrapeRows, webMsRows, botMs7Rows, acctRows, dailyRows, dailyTg, firstRow] = await Promise.all([
+      all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_pv' AND timestamp>? GROUP BY event_data", one),
+      all<{ t: string; c: number }>("SELECT event_type t, COUNT(DISTINCT event_data) c FROM user_events WHERE event_type IN ('web_uv','web_js') AND timestamp>? GROUP BY event_type", one),
+      all<{ t: string; c: number }>("SELECT event_type t, COUNT(*) c FROM user_events WHERE event_type IN ('web_dc','web_api','web_more','web_comments') AND timestamp>? GROUP BY event_type", one),
+      all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_dc' AND timestamp>? GROUP BY event_data ORDER BY c DESC LIMIT 6", one),
+      all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_geo' AND timestamp>? GROUP BY event_data ORDER BY c DESC", one),
+      all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_geo' AND timestamp>? GROUP BY event_data ORDER BY c DESC", seven),
+      all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_robot' AND timestamp>? GROUP BY event_data", one),
+      all<{ k: string }>("SELECT event_data k FROM user_events WHERE event_type='scrape' AND timestamp>? LIMIT 5000", one),
+      all<{ v: number }>("SELECT CAST(event_data AS REAL) v FROM user_events WHERE event_type='web_ms' AND timestamp>? ORDER BY v LIMIT 20000", one),
+      all<{ v: number; ts: string }>("SELECT CAST(event_data AS REAL) v, timestamp ts FROM user_events WHERE event_type='bot_latency' AND timestamp>? ORDER BY v LIMIT 20000", seven),
+      all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='acct' AND timestamp>? GROUP BY event_data", one),
+      all<{ day: string; t: string; c: number; u: number }>(
+        "SELECT substr(timestamp,1,10) day, event_type t, COUNT(*) c, COUNT(DISTINCT event_data) u FROM user_events " +
+        "WHERE event_type IN ('web_pv','web_uv','web_js','web_robot','web_view','web_api','web_comments','web_post_view','web_bot_crawl') AND timestamp>? " +
+        "GROUP BY day, event_type", seven),
+      all<{ day: string; c: number; u: number }>(`SELECT substr(timestamp,1,10) day, COUNT(*) c, COUNT(DISTINCT user_id) u FROM user_events WHERE event_type='request' AND timestamp>?${tgClause} GROUP BY day`, seven, ...excluded),
+      all<{ ts: string }>("SELECT MIN(timestamp) ts FROM user_events WHERE event_type IN ('web_pv','web_robot')"),
+    ]);
+
+    const out = empty;
+    for (const r of pvRows) {
+      const k = String(r.k) as "home" | "profile" | "post";
+      if (k in out.pv) (out.pv as any)[k] = Number(r.c || 0);
+    }
+    out.pv.total = out.pv.home + out.pv.profile + out.pv.post;
+    for (const r of uvRows) {
+      if (r.t === "web_uv") out.uv24h = Number(r.c || 0);
+      if (r.t === "web_js") out.js24h = Number(r.c || 0);
+    }
+    for (const r of simpleRows) {
+      const c = Number(r.c || 0);
+      if (r.t === "web_dc") out.dc24h = c;
+      if (r.t === "web_api") out.api24h = c;
+      if (r.t === "web_more") out.more24h = c;
+      if (r.t === "web_comments") out.comments24h = c;
+    }
+    out.dcTop = dcRows.map((r) => ({ name: String(r.k || "?"), count: Number(r.c || 0) }));
+    const geo = (rows: { k: string; c: number }[]) => {
+      const total = rows.reduce((a, r) => a + Number(r.c || 0), 0);
+      return { total, list: rows.slice(0, 12).map((r) => ({ country: String(r.k || "XX"), count: Number(r.c || 0), percent: total ? Math.round((Number(r.c) / total) * 100) : 0 })) };
+    };
+    const g24 = geo(geo24), g7 = geo(geo7);
+    out.geo24h = g24.list; out.geoTotal24h = g24.total; out.geo7d = g7.list; out.geoTotal7d = g7.total;
+
+    const byName = new Map<string, number>();
+    for (const r of robotRows) {
+      const [kind = "search", name = "?"] = String(r.k || "").split(":");
+      const c = Number(r.c || 0);
+      out.robots24h.total += c;
+      out.robots24h.byKind[kind] = (out.robots24h.byKind[kind] || 0) + c;
+      byName.set(`${kind}:${name}`, (byName.get(`${kind}:${name}`) || 0) + c);
+    }
+    out.robots24h.top = [...byName.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+      .map(([k, c]) => ({ kind: k.split(":")[0], name: k.split(":").slice(1).join(":"), count: c }));
+
+    const scrapeMs: Record<string, number[]> = {};
+    for (const r of scrapeRows) {
+      const [kind = "?", status = "?", posts = "0", ms = "0"] = String(r.k || "").split("|");
+      const b = out.scrape[kind] || (out.scrape[kind] = { total: 0, ok: 0, notFound: 0, failed: 0, posts: 0, ms: emptyDist() });
+      b.total++;
+      if (status === "ok") { b.ok++; b.posts += Number(posts) || 0; }
+      else if (status === "user_not_found" || status === "post_not_found") b.notFound++;
+      else b.failed++;
+      (scrapeMs[kind] ||= []).push(Number(ms) || 0);
+    }
+    for (const [kind, list] of Object.entries(scrapeMs)) out.scrape[kind].ms = dist(list.sort((a, b) => a - b));
+
+    out.webMs = dist(webMsRows.map((r) => Number(r.v) || 0));
+    const bot7 = botMs7Rows.map((r) => Number(r.v) || 0);
+    out.botMs7d = dist(bot7);
+    out.botMs24h = dist(botMs7Rows.filter((r) => String(r.ts) > one).map((r) => Number(r.v) || 0));
+
+    for (const r of acctRows) {
+      const [name = "?", result = "?"] = String(r.k || "").split("|");
+      const a = out.accounts[name] || (out.accounts[name] = { ok: 0, err: 0, dead: 0 });
+      if (result === "ok" || result === "err" || result === "dead") a[result] += Number(r.c || 0);
+    }
+
+    const days = new Map<string, DailyTruth>();
+    const day = (d: string) => days.get(d) || (days.set(d, { day: d, tgRequests: 0, tgUsers: 0, pv: 0, uv: 0, js: 0, robots: 0, legacyWeb: 0 }), days.get(d)!);
+    for (const r of dailyRows) {
+      const d = day(String(r.day));
+      const c = Number(r.c || 0), u = Number(r.u || 0);
+      if (r.t === "web_pv") d.pv = c;
+      else if (r.t === "web_uv") d.uv = u;
+      else if (r.t === "web_js") d.js = u;
+      else if (r.t === "web_robot") d.robots = c;
+      else d.legacyWeb += c;
+    }
+    for (const r of dailyTg) {
+      const d = day(String(r.day));
+      d.tgRequests = Number(r.c || 0);
+      d.tgUsers = Number(r.u || 0);
+    }
+    out.daily = [...days.values()].sort((a, b) => (a.day < b.day ? 1 : -1)).slice(0, 7);
+    out.since = firstRow[0]?.ts ? String(firstRow[0].ts) : null;
+    return out;
+  }
+
   async getSystemLogs(limit = 40): Promise<{ id: number; data: string; timestamp: string }[]> {
     const res = await this.db.prepare(
       "SELECT id, event_data as data, timestamp FROM user_events WHERE event_type='system_log' ORDER BY id DESC LIMIT ?"
@@ -583,4 +704,37 @@ export class Database {
   }
 
   cleanup() { return this.db.batch([this.db.prepare("DELETE FROM request_log WHERE timestamp<?").bind(since(14*86_400_000)),this.db.prepare("DELETE FROM cache WHERE cached_at<?").bind(since(LIMITS.cacheMinutes*60_000)),this.db.prepare("DELETE FROM bot_state WHERE updated_at<? AND state_key IN ('waiting_support','admin_reply')").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM processed_updates WHERE status='done' AND updated_at<?").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM user_events WHERE user_id=0 AND timestamp<?").bind(since(30*86_400_000))]); }
+}
+
+export interface Dist { count: number; median: number; p95: number; max: number }
+function emptyDist(): Dist { return { count: 0, median: 0, p95: 0, max: 0 }; }
+/** Распределение по ОТСОРТИРОВАННОМУ массиву миллисекунд. */
+function dist(sorted: number[]): Dist {
+  if (!sorted.length) return emptyDist();
+  return { count: sorted.length, median: percentile(sorted, 50), p95: percentile(sorted, 95), max: sorted[sorted.length - 1] };
+}
+export interface DailyTruth { day: string; tgRequests: number; tgUsers: number; pv: number; uv: number; js: number; robots: number; legacyWeb: number }
+export interface ScrapeBucket { total: number; ok: number; notFound: number; failed: number; posts: number; ms: Dist }
+export interface SiteTruth {
+  pv: { home: number; profile: number; post: number; total: number };
+  uv24h: number;
+  js24h: number;
+  dc24h: number;
+  dcTop: Array<{ name: string; count: number }>;
+  api24h: number;
+  more24h: number;
+  comments24h: number;
+  geo24h: Array<{ country: string; count: number; percent: number }>;
+  geo7d: Array<{ country: string; count: number; percent: number }>;
+  geoTotal24h: number;
+  geoTotal7d: number;
+  robots24h: { total: number; byKind: Record<string, number>; top: Array<{ kind: string; name: string; count: number }> };
+  scrape: Record<string, ScrapeBucket>;
+  webMs: Dist;
+  botMs24h: Dist;
+  botMs7d: Dist;
+  accounts: Record<string, { ok: number; err: number; dead: number }>;
+  daily: DailyTruth[];
+  /** Когда появились первые события новой аналитики */
+  since: string | null;
 }

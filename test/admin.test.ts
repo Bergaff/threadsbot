@@ -186,13 +186,17 @@ describe("Admin Route & Authentication", () => {
     expect(html).toContain("Системный журнал событий и ошибок");
     expect(html).toContain("Автообновление всех куки");
     expect(html).toContain("Добавить аккаунт Threads (JSON)");
-    expect(html).toContain("Запросы за неделю (7 дней) и посуточная динамика");
-    expect(html).toContain("Скорость работы бота (Сколько думает бот перед ответом)");
-    expect(html).toContain("Telegram бот");
-    expect(html).toContain("Веб-сайт");
-    expect(html).toContain("Поисковые роботы (SEO / Краулеры)");
-    expect(html).toContain("География посетителей (Страны, что заходят)");
-    expect(html).toContain("Поведение пользователей и повторные запросы (Ретеншн)");
+    expect(html).toContain("Сайт за 24ч: люди и роботы (честные цифры)");
+    expect(html).toContain("Скрапер Threads за 24ч");
+    expect(html).toContain("Скорость ответа");
+    expect(html).toContain("По дням (7 дней, даты по UTC)");
+    expect(html).toContain("География и роботы");
+    expect(html).toContain("Повторные запросы в Telegram-боте (за всё время)");
+    expect(html).toContain("24ч: успех / ошибки");
+    // Никаких подставных значений при пустой статистике (раньше рисовались «0.4 сек» и «0.04 сек»)
+    expect(html).not.toContain("0.04 сек");
+    expect(html).not.toContain("0.4 сек");
+    expect(html).not.toContain("при первичном Browser Run парсинге 2-4 сек");
     expect(html).toContain("log-badge-bot");
     expect(html).toContain("РОБОТ");
     expect(html).toContain("Googlebot: главная страница");

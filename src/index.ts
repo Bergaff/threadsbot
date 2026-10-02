@@ -12,6 +12,7 @@ import { fetchComments, fetchProfileWithPosts, logSystem, probeAccount, refreshA
 const KEEPALIVE_BATCH = 3;
 import { verifyAuthToken } from "./auth";
 import { detectBotType, mergePostLists } from "./profile";
+import { classifyTraffic, trackJsBeacon, trackRequest, trackScrape, type PageKind, type TrafficClass } from "./analytics";
 import {
   detectLanguage,
   esc,
@@ -92,6 +93,7 @@ async function notifyError(env: Env, error: unknown) {
   );
 }
 
+const SEARCH_ENGINES_NO_LIMIT = new Set(["Googlebot", "YandexBot", "Bingbot", "DuckDuckBot", "Baiduspider"]);
 const MORE_POSTS_STEP = 20;
 const MORE_POSTS_MAX = 100;
 
@@ -403,6 +405,37 @@ export default {
     const lang = detectLanguage(request);
     const country = (request.headers.get("cf-ipcountry") || (request as any).cf?.country || "").toUpperCase();
 
+    /**
+     * Единая точка учёта запроса к сайту. Вызывается ДО отдачи из Edge-кэша,
+     * иначе просмотры, отданные кэшем, в статистику не попадают (так было до pr65).
+     */
+    const trackSite = async (page: PageKind, tag: string, label: string): Promise<{ isAdmin: boolean; cls: TrafficClass }> => {
+      const isAdmin = await verifyAdmin(request, env);
+      const cls = classifyTraffic(request.headers.get("user-agent") || "");
+      if (!isAdmin) {
+        ctx.waitUntil(trackRequest(env, request, page, country));
+        if (cls.kind !== "human") {
+          ctx.waitUntil(logSystem(env, "info", "web", `[BOT_CRAWL] ${cls.name}: ${label}`).catch(() => {}));
+        } else if (tag) {
+          ctx.waitUntil(logSystem(env, "info", "web", `[${tag}] ${label} (человек, ${country || "unknown"})`).catch(() => {}));
+        }
+      }
+      return { isAdmin, cls };
+    };
+    /** Время ответа сервера - только для людей и только когда ответ не из Edge-кэша. */
+    const trackLatency = (isAdmin: boolean, cls: TrafficClass) => {
+      if (isAdmin || cls.kind !== "human") return;
+      ctx.waitUntil(new Database(env).logEvent(0, "web_ms", String(Date.now() - reqStart)).catch(() => {}));
+    };
+
+    // Beacon: страница выполнила JS в браузере - подтверждённый живой посетитель
+    if (url.pathname === "/api/hit") {
+      if (request.method === "POST" && !(await verifyAdmin(request, env))) {
+        ctx.waitUntil(trackJsBeacon(env, request).catch(() => false));
+      }
+      return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+    }
+
     async function checkPremiumUser(req: Request, e: Env): Promise<{ isPremium: boolean; newAuthCookie?: string }> {
       const u = new URL(req.url);
       const authQuery = u.searchParams.get("auth");
@@ -431,27 +464,14 @@ export default {
       const paymentParam = url.searchParams.get("payment");
       const paymentStatus = paymentParam === "success" ? "success" : (paymentParam === "fail" || paymentParam === "cancel" ? "fail" : null);
 
+      const homeTrack = await trackSite("home", "WEB_VIEW", "Главная страница");
       if (!paymentStatus) {
         const edgeHit = await matchEdgeCache(request);
         if (edgeHit) return edgeHit;
       }
 
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
-      const isAdmin = await verifyAdmin(request, env);
-      if (!isAdmin) {
-        const db = new Database(env);
-        const ua = request.headers.get("user-agent") || "";
-        const botName = detectBotType(ua);
-        if (botName) {
-          ctx.waitUntil(db.logEvent(0, "web_bot_crawl", `${botName}:home`).catch(() => {}));
-          ctx.waitUntil(logSystem(env, "info", "web", `[BOT_CRAWL] ${botName}: главная страница`).catch(() => {}));
-        } else {
-          ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
-          ctx.waitUntil(db.logEvent(0, "web_human_country", country).catch(() => {}));
-          ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Главная страница (человек, ${country || "unknown"})`).catch(() => {}));
-        }
-        ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
-      }
+      trackLatency(homeTrack.isAdmin, homeTrack.cls);
       let res = renderHomePage(env, pageLang, isPremium, country, url.origin, paymentStatus);
       if (newAuthCookie) {
         res = new Response(res.body, res);
@@ -579,25 +599,12 @@ export default {
     if (postMatch) {
       const username = postMatch[1].toLowerCase();
       const targetPostId = postMatch[2];
+      const postTrack = await trackSite("post", "WEB_POST_VIEW", `Пост @${username}/post/${targetPostId}`);
       const edgeHit = await matchEdgeCache(request);
       if (edgeHit) return edgeHit;
 
       const db = new Database(env);
-      const isAdmin = await verifyAdmin(request, env);
-      if (!isAdmin) {
-        const ua = request.headers.get("user-agent") || "";
-        const botName = detectBotType(ua);
-        if (botName) {
-          ctx.waitUntil(db.logEvent(0, "web_bot_crawl", `${botName}:@${username}/post/${targetPostId}`).catch(() => {}));
-          ctx.waitUntil(logSystem(env, "info", "web", `[BOT_CRAWL] ${botName}: пост @${username}/post/${targetPostId}`).catch(() => {}));
-        } else {
-          ctx.waitUntil(db.logEvent(0, "web_post_view", `${username}:${targetPostId}`).catch(() => {}));
-          ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
-          ctx.waitUntil(db.logEvent(0, "web_human_country", country).catch(() => {}));
-          ctx.waitUntil(logSystem(env, "info", "web", `[WEB_POST_VIEW] Пост @${username}/post/${targetPostId} (человек, ${country || "unknown"})`).catch(() => {}));
-        }
-        ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
-      }
+      trackLatency(postTrack.isAdmin, postTrack.cls);
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
       const cached = await db.cache<ProfileData>(username, "web_profile");
       let res = renderProfilePage(env, username, cached, null, lang, isPremium, country, targetPostId, url.origin);
@@ -617,25 +624,13 @@ export default {
       if (!isValidThreadsUsername(username)) {
         return renderNotFoundPage(lang, url.origin);
       }
+      const profileTrack = await trackSite("profile", "WEB_VIEW", `Переход на @${username}`);
+      const isAdmin = profileTrack.isAdmin;
       const edgeHit = await matchEdgeCache(request);
       if (edgeHit) return edgeHit;
 
       const db = new Database(env);
-      const isAdmin = await verifyAdmin(request, env);
-      if (!isAdmin) {
-        const ua = request.headers.get("user-agent") || "";
-        const botName = detectBotType(ua);
-        if (botName) {
-          ctx.waitUntil(db.logEvent(0, "web_bot_crawl", `${botName}:@${username}`).catch(() => {}));
-          ctx.waitUntil(logSystem(env, "info", "web", `[BOT_CRAWL] ${botName}: профиль @${username}`).catch(() => {}));
-        } else {
-          ctx.waitUntil(db.logEvent(0, "web_view", username).catch(() => {}));
-          ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
-          ctx.waitUntil(db.logEvent(0, "web_human_country", country).catch(() => {}));
-          ctx.waitUntil(logSystem(env, "info", "web", `[WEB_VIEW] Переход на @${username} (человек, ${country || "unknown"})`).catch(() => {}));
-        }
-        ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
-      }
+      trackLatency(profileTrack.isAdmin, profileTrack.cls);
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
       const forceRefresh = url.searchParams.get("refresh") === "1" || url.searchParams.get("nocache") === "1";
       if (forceRefresh) {
@@ -690,26 +685,22 @@ export default {
         return Response.json({ ok: false, error: "Некорректный username" }, { status: 400 });
       }
 
-      const edgeHit = await matchEdgeCache(request);
-      if (edgeHit) return edgeHit;
-
-      const db = new Database(env);
-      const isAdmin = await verifyAdmin(request, env);
+      const isMoreReq = url.searchParams.get("more") === "1";
+      const apiTrack = await trackSite(isMoreReq ? "more" : "api", "API_REQ", isMoreReq ? `Загрузить ещё @${username}` : `Запрос профиля /api/profile/${username}`);
+      const isAdmin = apiTrack.isAdmin;
+      // Исключение из rate-limit - как и раньше, только для поисковых роботов по detectBotType
       const ua = request.headers.get("user-agent") || "";
       const botName = detectBotType(ua);
-      const isSearchBot = Boolean(botName);
-
-      if (!isAdmin) {
-        if (isSearchBot) {
-          ctx.waitUntil(db.logEvent(0, "web_bot_crawl", `${botName}:api/@${username}`).catch(() => {}));
-          await logSystem(env, "info", "api", `[BOT_CRAWL] ${botName}: API /api/profile/${username}`);
-        } else {
-          ctx.waitUntil(db.logEvent(0, "web_api", username).catch(() => {}));
-          ctx.waitUntil(db.logEvent(0, "web_country", country).catch(() => {}));
-          ctx.waitUntil(db.logEvent(0, "web_human_country", country).catch(() => {}));
-          await logSystem(env, "info", "api", `[API_REQ] Запрос профиля /api/profile/${username} (человек, ${country || "unknown"})`);
-        }
+      // Без лимита - только крупные поисковики. Раньше исключение получал любой UA с "bot/" или "crawl"
+      // (AhrefsBot, Semrush, самописные скрипты), и каждый такой запрос мог бесплатно жечь Browser Run.
+      const isSearchBot = Boolean(botName && SEARCH_ENGINES_NO_LIMIT.has(botName));
+      const db = new Database(env);
+      if (!isAdmin && apiTrack.cls.kind === "human") {
+        ctx.waitUntil(db.logEvent(0, isMoreReq ? "web_more" : "web_api", username).catch(() => {}));
       }
+
+      const edgeHit = await matchEdgeCache(request);
+      if (edgeHit) return edgeHit;
 
       // ==========================================
       // «ЗАГРУЗИТЬ ЕЩЁ ПОСТЫ»: /api/profile/:user?more=1&have=N
@@ -764,6 +755,9 @@ export default {
         }
         try {
           const fresh = await morePromise;
+          if (!isAdmin) {
+            ctx.waitUntil(trackScrape(env, "more", fresh.status, fresh.data?.posts?.length || 0, Date.now() - reqStart).catch(() => {}));
+          }
           if (fresh.status !== "ok" || !fresh.data) {
             await logSystem(env, "warn", "api", `[API_MORE] @${username}: скрапер вернул ${fresh.status}`);
             return Response.json({ ok: false, status: fresh.status, error: "Не удалось догрузить посты. Попробуйте ещё раз через минуту." }, { status: 502, headers: noStore });
@@ -813,9 +807,7 @@ export default {
       }
       const cached = forceRefresh ? null : await db.cache<any>(username, "web_profile");
       if (cached) {
-        if (!isAdmin) {
-          ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
-        }
+        trackLatency(isAdmin, apiTrack.cls);
         if (cached.notFound || cached.status === "user_not_found") {
           await logSystem(env, "info", "api", `[API_CACHE_NEGATIVE] Отдан кеш (не найден) для @${username}`);
           const res = Response.json({
@@ -907,8 +899,9 @@ export default {
         }
 
         const fetched = await fetchPromise;
+        // Время, которое человек ждал первую загрузку профиля через браузер, - отдельная метрика
         if (!isAdmin) {
-          ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
+          ctx.waitUntil(trackScrape(env, "profile", fetched.status, fetched.data?.posts?.length || 0, Date.now() - reqStart).catch(() => {}));
         }
         await logSystem(env, "info", "api", `[API_RESULT] @${username}: status=${fetched.status}, постов=${fetched.data?.posts?.length || 0}`);
         if (fetched.status === "ok" && fetched.data) {
@@ -981,22 +974,20 @@ export default {
       const username = commentsMatch[1].toLowerCase();
       const postIndex = Number(commentsMatch[2]);
       const refresh = url.searchParams.get("refresh") === "1";
+      const cmtTrack = await trackSite("comments", "", `комментарии @${username}#${postIndex}`);
+      const db = new Database(env);
+      if (!cmtTrack.isAdmin && cmtTrack.cls.kind === "human") {
+        ctx.waitUntil(db.logEvent(0, "web_comments", `${username}:${postIndex}`).catch(() => {}));
+      }
       if (!refresh) {
         const edgeHit = await matchEdgeCache(request);
         if (edgeHit) return edgeHit;
-      }
-
-      const db = new Database(env);
-      if (!(await verifyAdmin(request, env))) {
-        ctx.waitUntil(db.logEvent(0, "web_comments", `${username}:${postIndex}`).catch(() => {}));
       }
       const cacheKey = `${username}_cmt_${postIndex}`;
       if (!refresh) {
         const cached = await db.cache<Comment[]>(cacheKey, "comments");
         if (cached) {
-          if (!(await verifyAdmin(request, env))) {
-            ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
-          }
+          trackLatency(cmtTrack.isAdmin, cmtTrack.cls);
           const res = Response.json({ ok: true, cached: true, comments: cached }, {
             headers: {
               "cache-control": "public, max-age=900, s-maxage=1800, stale-while-revalidate=3600",
@@ -1034,7 +1025,7 @@ export default {
       try {
         const fetched = await fetchComments(env, username, postIndex, 30);
         if (!isAuthAdmin) {
-          ctx.waitUntil(db.logEvent(0, "web_latency", String(Date.now() - reqStart)).catch(() => {}));
+          ctx.waitUntil(trackScrape(env, "comments", fetched.status, fetched.data?.length || 0, Date.now() - reqStart).catch(() => {}));
         }
         if (fetched.status === "ok" && fetched.data) {
           await db.setCache(cacheKey, "comments", fetched.data);

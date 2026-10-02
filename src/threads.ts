@@ -577,7 +577,9 @@ async function collectPosts(page: Page, target = 20, expectedUsername?: string, 
     if (feed && feed.hasNextPage === false && stall >= 1) break;
     // Без подтверждения от Threads сдаёмся только после 4 пустых раундов подряд
     // с нарастающим ожиданием: подгрузка порции может занимать несколько секунд.
-    if (stall >= 4) break;
+    // Если Threads подтвердил, что посты ещё есть (has_next_page=true), ждём дольше:
+    // по логам сбор сдавался на 10-14 постах при has_next_page=true.
+    if (stall >= (feed && feed.hasNextPage === true ? 7 : 4)) break;
     await scrollFeed(page, stall);
     await sleep(stall === 0 ? 900 : 1200 + stall * 700);
   }
@@ -1219,12 +1221,15 @@ async function chooseAccount(env: Env, tried: string[]): Promise<Account | null>
 }
 
 async function markSuccess(env: Env, name: string, posts = 0, updatedCookies?: string) {
+  await logBrowser(env, "acct", `${name}|ok`);
   await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,requests_count=requests_count+1,posts_sent=posts_sent+?,hourly_requests=hourly_requests+1,last_used=?,updated_at=?,cookies=COALESCE(?,cookies) WHERE name=?").bind(posts, iso(), iso(), updatedCookies || null, name).run();
 }
 async function markSessionExpired(env: Env, name: string) {
+  await logBrowser(env, "acct", `${name}|dead`);
   await env.DB.prepare("UPDATE threads_accounts SET is_alive=0,last_error='Session expired',errors_count=errors_count+1,updated_at=? WHERE name=?").bind(iso(), name).run();
 }
 async function markTransientError(env: Env, name: string, error: unknown) {
+  await logBrowser(env, "acct", `${name}|err`);
   const message = (error instanceof Error ? error.message : String(error)).slice(0, 500);
   await env.DB.prepare("UPDATE threads_accounts SET last_error=?,errors_count=errors_count+1,updated_at=? WHERE name=?").bind(message, iso(), name).run();
 }
