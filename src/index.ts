@@ -937,6 +937,9 @@ export default {
       try {
         // Устранение дублирующих параллельных запросов (In-flight deduplication)
         let fetchPromise = inFlightProfileFetches.get(username);
+        // Итог пишем в лог только у запроса, который реально запустил скрапер,
+        // иначе присоединившиеся (API_DEDUP) дублируют строки API_RESULT/API_TRANSIENT.
+        const ownsFetch = !fetchPromise;
         if (!fetchPromise) {
           await logSystem(env, "info", "api", `[API_FETCH] Запуск скрапера для @${username} (аккаунтов доступно: ${counts.alive})`);
           fetchPromise = fetchProfileWithPosts(env, username, 20);
@@ -953,7 +956,7 @@ export default {
         if (!isAdmin) {
           ctx.waitUntil(trackScrape(env, "profile", fetched.status, fetched.data?.posts?.length || 0, Date.now() - reqStart).catch(() => {}));
         }
-        await logSystem(env, "info", "api", `[API_RESULT] @${username}: status=${fetched.status}, постов=${fetched.data?.posts?.length || 0}`);
+        if (ownsFetch) await logSystem(env, "info", "api", `[API_RESULT] @${username}: status=${fetched.status}, постов=${fetched.data?.posts?.length || 0}`);
         if (fetched.status === "ok" && fetched.data) {
           if (Array.isArray(fetched.data.posts)) {
             fetched.data.posts = fetched.data.posts.filter((p: any) => !p.author || p.author.toLowerCase() === username);
@@ -1000,7 +1003,7 @@ export default {
         const transientMessage = fetched.status === "browser_busy"
           ? "Сервис сейчас обрабатывает другой запрос. Повторите попытку через 30 секунд."
           : "Не удалось получить данные из Threads. Повторите попытку через минуту.";
-        await logSystem(env, "warn", "api", `[API_TRANSIENT] @${username}: status=${fetched.status}, отрицательный кеш НЕ записан`);
+        if (ownsFetch) await logSystem(env, "warn", "api", `[API_TRANSIENT] @${username}: status=${fetched.status}, отрицательный кеш НЕ записан`);
         return Response.json({
           ok: false,
           status: fetched.status,

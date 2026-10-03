@@ -739,7 +739,7 @@ async function checkProfile(page: Page, env: Env, username: string): Promise<Pro
 
   // 10. Пустой DOM без единого маркера. Раньше здесь возвращался user_not_found -
   //     это и была причина ложных 404 на существующих профилях.
-  await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: страница ${snapshot.url} не отдала контент (title="${(snapshot.title || "").slice(0, 60)}", body=${(snapshot.body || "").length} симв.) - вердикт не вынесен`);
+  await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: страница ${snapshot.url} не отдала контент (title="${(snapshot.title || "").slice(0, 60)}", body=${(snapshot.body || "").length} симв.: "${(snapshot.body || "").replace(/\s+/g, " ").trim().slice(0, 160)}") - вердикт не вынесен`);
   return "inconclusive";
 }
 
