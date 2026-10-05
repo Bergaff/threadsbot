@@ -135,3 +135,21 @@ Pull Request — это только предложение. `main` не мен�
 ## Старый Python-код
 
 `bot.py` и `threads_check.py` оставлены как референс для сверки поведения. Production entrypoint теперь `src/index.ts`.
+
+## Telegram-сессии: `auth_key` + `dc_id`
+
+Если tdata/Pyrogram/`.session` «сдулись» и нужно **заново авторизоваться и
+получить новый `auth_key` + `dc_id`** (или собрать из них session-строку для
+Telethon / Pyrogram / gramjs), в репозитории есть отдельный инструмент и
+подробный гайд:
+
+```bash
+pip install -r tools/telegram_session/requirements.txt
+python tools/telegram_session/login_and_export.py --qr          # логин + выгрузка ключа
+python tools/telegram_session/login_and_export.py --self-test   # оффлайн-проверка форматов
+```
+
+- [GUIDE_TELEGRAM_SESSION.md](GUIDE_TELEGRAM_SESSION.md) — пошаговый гайд (причины «смерти» ключей, QR/телефон-логин, форматы строк, прокси, типовые ошибки).
+- [tools/telegram_session/](tools/telegram_session/) — код: энкодер/декодер session-строк и CLI логина.
+
+Экспорт (JSON с `auth_key`) пишется в `tools/telegram_session/out/` и в Git не попадает.
