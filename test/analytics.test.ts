@@ -59,13 +59,15 @@ describe("trackRequest", () => {
     const { env, rows } = captureEnv();
     const req = new Request("https://threadsviewer.online/@zuck", { headers: { "user-agent": CHROME, "cf-connecting-ip": "1.2.3.4" } });
     await trackRequest(env, req, "profile", "ru");
-    expect(rows.map(r => r.type).sort()).toEqual(["web_dev", "web_geo", "web_pv", "web_ref", "web_uv"]);
+    expect(rows.map(r => r.type).sort()).toEqual(["web_dev", "web_geo", "web_pv", "web_ref", "web_uv", "web_visit"]);
     expect(rows.find(r => r.type === "web_dev")!.data).toBe("desktop|Windows");
     expect(rows.find(r => r.type === "web_ref")!.data).toBe("direct");
     expect(rows.find(r => r.type === "web_geo")!.data).toBe("RU");
     const uv = rows.find(r => r.type === "web_uv")!.data;
     expect(uv).toMatch(/^[0-9a-f]{16}$/);
     expect(uv).not.toContain("1.2.3.4");
+    // связанная строка для разбивок по подтверждённым посетителям (vid совпадает с web_js)
+    expect(rows.find(r => r.type === "web_visit")!.data).toBe(`${uv}|RU|profile|desktop|Windows|direct|0`);
   });
 
   it("API calls of humans do not add page views or countries (no double counting)", async () => {

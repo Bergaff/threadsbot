@@ -13,7 +13,7 @@ const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.1
 const today = new Date().toISOString().slice(0, 10);
 
 /** Мок D1: bot_state в памяти + заранее заданные ответы на агрегатные запросы отчёта. */
-function makeEnv(extra: Partial<Env> = {}) {
+function makeEnv(extra: Partial<Env> = {}, visits: string[] = [], js: string[] = []) {
   const state = new Map<string, string>();
   const DB: any = {
     prepare(sql: string) {
@@ -30,6 +30,8 @@ function makeEnv(extra: Partial<Env> = {}) {
           return null;
         },
         all: async () => {
+          if (/event_type='web_visit' AND timestamp>\?/.test(sql)) return { results: visits.map((k) => ({ k })) };
+          if (/DISTINCT event_data k FROM user_events WHERE event_type='web_js'/.test(sql)) return { results: js.map((k) => ({ k })) };
           if (/substr\(timestamp,1,10\)/.test(sql)) return { results: [
             { day: today, t: "web_pv", c: 300, u: 3 },
             { day: today, t: "web_uv", c: 300, u: 120 },
@@ -190,7 +192,43 @@ describe("advertiser report", () => {
     expect(csv.headers.get("content-type")).toContain("text/csv");
     const lines = (await csv.text()).trim().split("\n");
     expect(lines).toHaveLength(8);
-    expect(lines[7]).toBe(`${today},120,300,90,500`);
+    expect(lines[0]).toBe("date,js_confirmed_visitors,all_visitors_incl_unconfirmed,unconfirmed_visitors,pageviews_incl_unconfirmed,robot_requests_filtered");
+    expect(lines[7]).toBe(`${today},90,120,30,300,500`);
+  });
+
+  it("headline = browser-verified visitors; breakdowns exclude visitors that never ran JS", async () => {
+    // a и b выполнили JS (люди), x/y/z - браузерный UA без JS (типичные роботы из US/SG)
+    const visits = [
+      "a|RU|profile|mobile|Android|search:Google|0",
+      "a|RU|profile|mobile|Android|internal|0",
+      "b|BY|home|desktop|Windows|direct|1",
+      "x|US|home|desktop|Windows|direct|1",
+      "y|US|home|desktop|Linux|direct|1",
+      "z|SG|home|desktop|Linux|direct|1",
+    ];
+    const { env } = makeEnv({}, visits, ["a", "b"]);
+    const r = await new Database(env).advertiserReport(7);
+    expect(r.avgDailyVerified).toBe(90);
+    expect(r.verified).not.toBeNull();
+    const v = r.verified!;
+    expect(v.pageviews).toBe(3);
+    expect(v.visitors).toBe(2);
+    expect(v.geo.map((g) => g.key)).toEqual(["RU", "BY"]);
+    expect(v.geo.some((g) => g.key === "US")).toBe(false);
+    expect(v.os.map((o) => o.key)).not.toContain("Linux");
+    expect(v.sources.map((s) => s.key).sort()).toEqual(["direct", "search"]);
+    expect(v.vpnViews).toBe(1);
+    expect(v.unverifiedVisitors).toBe(3);
+    expect(v.unverifiedGeo[0]).toMatchObject({ key: "US", count: 2 });
+
+    await setStatsAccess(env, "adx", "correct-horse");
+    const token = cookieOf(await login(env, "adx", "correct-horse"));
+    const html = await (await handleStatsRoute(new Request("https://threadsviewer.online/stats?days=7&lang=ru", { headers: { cookie: `stats_session=${token}` } }), env)).text();
+    expect(html).toContain("только по посетителям, подтверждённым браузером");
+    expect(html).toContain("Не подтверждены");
+    expect(html).toContain("Не подтверждены браузером и не учтены: 3 посетителей, больше всего - Соединенные Штаты 2");
+    // Главная цифра - подтверждённые (90), а не все 120
+    expect(html).toMatch(/Посетителей в день \(среднее\)<\/div><div class="v">90</);
   });
 });
 

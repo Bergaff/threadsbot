@@ -187,6 +187,9 @@ async function insertEvents(env: Env, rows: Array<[string, string]>): Promise<vo
  *   web_dev     device|os       - тип устройства и ОС (с pr66)
  *   web_ref     источник        - internal|direct|search:X|social:X|referral:домен|hidden (с pr66)
  *   web_robot   kind:name:page  - любой не-человек
+ *   web_visit   vid|country|page|device|os|source|dc  - тот же просмотр одной строкой (с pr73).
+ *               Связка с web_js по vid позволяет строить разбивки ТОЛЬКО по подтверждённым браузером
+ *               посетителям: роботы с браузерным User-Agent JS обычно не выполняют.
  * Старые события web_api / web_comments / web_bot_crawl продолжают писаться вызывающим кодом.
  */
 export async function trackRequest(
@@ -201,14 +204,19 @@ export async function trackRequest(
   if (cls.kind !== "human") {
     rows.push(["web_robot", `${cls.kind}:${cls.name}:${page}`]);
   } else if (page === "home" || page === "profile" || page === "post") {
-    rows.push(["web_pv", page]);
-    rows.push(["web_geo", (country || "XX").toUpperCase()]);
-    rows.push(["web_uv", await visitorId(request, env)]);
+    const vid = await visitorId(request, env);
+    const geo = (country || "XX").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3) || "XX";
     const dev = parseDevice(ua);
-    rows.push(["web_dev", `${dev.device}|${dev.os}`]);
-    rows.push(["web_ref", classifySource(request)]);
+    const src = classifySource(request);
     const org = String((request as any).cf?.asOrganization || "");
-    if (isDatacenterOrg(org)) rows.push(["web_dc", org.slice(0, 80)]);
+    const dc = isDatacenterOrg(org);
+    rows.push(["web_pv", page]);
+    rows.push(["web_geo", geo]);
+    rows.push(["web_uv", vid]);
+    rows.push(["web_dev", `${dev.device}|${dev.os}`]);
+    rows.push(["web_ref", src]);
+    if (dc) rows.push(["web_dc", org.slice(0, 80)]);
+    rows.push(["web_visit", [vid, geo, page, dev.device, dev.os, src.replace(/\|/g, "/"), dc ? "1" : "0"].join("|")]);
   }
   await insertEvents(env, rows);
   return cls;

@@ -457,7 +457,7 @@ export class Database {
     const all = async <T>(sql: string, ...args: unknown[]): Promise<T[]> => {
       try { return ((await this.db.prepare(sql).bind(...args).all<T>())?.results || []) as T[]; } catch { return []; }
     };
-    const [dailyRows, geoRows, devRows, refRows, kindRows, dcRows, tgRows, tgTotalRows, firstRows] = await Promise.all([
+    const [dailyRows, geoRows, devRows, refRows, kindRows, dcRows, tgRows, tgTotalRows, firstRows, visitRows, jsRows, visitFirstRows] = await Promise.all([
       all<{ day: string; t: string; c: number; u: number }>(
         "SELECT substr(timestamp,1,10) day, event_type t, COUNT(*) c, COUNT(DISTINCT event_data) u FROM user_events " +
         "WHERE event_type IN ('web_pv','web_uv','web_js','web_robot') AND timestamp>? GROUP BY day, event_type", from),
@@ -469,6 +469,9 @@ export class Database {
       all<{ c: number }>(`SELECT COUNT(DISTINCT user_id) c FROM user_events WHERE event_type='request' AND timestamp>?${tgClause}`, from, ...excluded),
       all<{ c: number }>("SELECT COUNT(*) c FROM user_settings"),
       all<{ ts: string }>("SELECT MIN(timestamp) ts FROM user_events WHERE event_type='web_pv'"),
+      all<{ k: string }>("SELECT event_data k FROM user_events WHERE event_type='web_visit' AND timestamp>? LIMIT 200000", from),
+      all<{ k: string }>("SELECT DISTINCT event_data k FROM user_events WHERE event_type='web_js' AND timestamp>?", from),
+      all<{ ts: string }>("SELECT MIN(timestamp) ts FROM user_events WHERE event_type='web_visit'"),
     ]);
 
     const byDay = new Map<string, { day: string; pv: number; uv: number; js: number; robots: number }>();
@@ -522,6 +525,50 @@ export class Database {
     const pvKinds: Record<string, number> = {};
     for (const r of kindRows) pvKinds[String(r.k)] = Number(r.c || 0);
 
+    // С pr73: разбивки только по посетителям, подтверждённым браузером (web_visit + web_js по vid).
+    // Неподтверждённые (браузерный User-Agent, но JS не выполнен) - в основном автоматический трафик,
+    // их показываем отдельной строкой, а не смешиваем с людьми.
+    const verified = (() => {
+      if (!visitRows.length) return null;
+      const jsSet = new Set(jsRows.map((r) => String(r.k || "")));
+      const inc = (m: Map<string, number>, k: string, n = 1) => m.set(k, (m.get(k) || 0) + n);
+      const geoM = new Map<string, number>(), devM = new Map<string, number>(), osM = new Map<string, number>();
+      const srcM = new Map<string, number>(), refM = new Map<string, number>(), kindM = new Map<string, number>();
+      const vids = new Set<string>(), unVids = new Map<string, string>();
+      let pv = 0, dc = 0;
+      for (const r of visitRows) {
+        const [vid = "", country = "XX", pageKind = "home", device = "desktop", os = "Другая", source = "direct", isDc = "0"] = String(r.k || "").split("|");
+        if (!vid) continue;
+        if (!jsSet.has(vid)) { if (!unVids.has(vid)) unVids.set(vid, country); continue; }
+        pv++;
+        vids.add(vid);
+        inc(geoM, country); inc(devM, device); inc(osM, os); inc(kindM, pageKind);
+        if (isDc === "1") dc++;
+        if (source !== "internal") {
+          inc(srcM, source.split(":")[0]);
+          if (source.includes(":")) inc(refM, source);
+        }
+      }
+      const unGeo = new Map<string, number>();
+      for (const c of unVids.values()) inc(unGeo, c);
+      const g = share(toRows(geoM));
+      return {
+        since: visitFirstRows[0]?.ts ? String(visitFirstRows[0].ts) : null,
+        pageviews: pv,
+        visitors: vids.size,
+        pvKinds: Object.fromEntries(kindM),
+        vpnViews: dc,
+        geo: g.list.slice(0, 15),
+        geoTotal: g.total,
+        devices: share(toRows(devM)).list,
+        os: share(toRows(osM)).list,
+        sources: share(toRows(srcM)).list,
+        topReferrers: share(toRows(refM)).list.slice(0, 10),
+        unverifiedVisitors: unVids.size,
+        unverifiedGeo: share(toRows(unGeo)).list.slice(0, 6),
+      };
+    })();
+
     return {
       days: d,
       activeDays,
@@ -543,6 +590,8 @@ export class Database {
       tgActiveUsers: Number(tgRows[0]?.c || 0),
       tgTotalUsers: Number(tgTotalRows[0]?.c || 0),
       daily,
+      avgDailyVerified: activeDays ? jsDays / activeDays : 0,
+      verified,
     };
   }
 
@@ -875,4 +924,22 @@ export interface AdvertiserReport {
   tgActiveUsers: number;
   tgTotalUsers: number;
   daily: Array<{ day: string; pv: number; uv: number; js: number; robots: number }>;
+  /** Среднее в сутки посетителей, подтверждённых браузером (выполнили JS) */
+  avgDailyVerified: number;
+  /** Разбивки только по подтверждённым посетителям (данные web_visit с pr73); null - данных ещё нет */
+  verified: {
+    since: string | null;
+    pageviews: number;
+    visitors: number;
+    pvKinds: Record<string, number>;
+    vpnViews: number;
+    geo: ShareRow[];
+    geoTotal: number;
+    devices: ShareRow[];
+    os: ShareRow[];
+    sources: ShareRow[];
+    topReferrers: ShareRow[];
+    unverifiedVisitors: number;
+    unverifiedGeo: ShareRow[];
+  } | null;
 }

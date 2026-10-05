@@ -212,8 +212,8 @@ export async function handleStatsRoute(request: Request, env: Env): Promise<Resp
   const report = await db.advertiserReport(days);
 
   if (path === "/stats/export.csv") {
-    const rows = [["date", "unique_visitors", "pageviews", "js_confirmed_visitors", "robot_requests_filtered"]];
-    for (const d of report.daily) rows.push([d.day, String(d.uv), String(d.pv), String(d.js), String(d.robots)]);
+    const rows = [["date", "js_confirmed_visitors", "all_visitors_incl_unconfirmed", "unconfirmed_visitors", "pageviews_incl_unconfirmed", "robot_requests_filtered"]];
+    for (const d of report.daily) rows.push([d.day, String(d.js), String(d.uv), String(Math.max(0, d.uv - d.js)), String(d.pv), String(d.robots)]);
     return new Response(rows.map((r) => r.join(",")).join("\n") + "\n", {
       headers: {
         ...SECURITY_HEADERS,
@@ -253,13 +253,22 @@ const T = {
     print: "Печать / PDF",
     generated: "Сформировано",
     avgDaily: "Посетителей в день (среднее)",
-    avgDailyHint: "уникальные посетители в сутки",
+    avgDailyHint: "уникальные в сутки, подтверждены браузером",
     pageviews: "Просмотров страниц",
+    pageviewsVerifiedHint: (d: string) => `подтверждённых посетителей, с ${d}`,
+    pageviewsAllHint: "включая неподтверждённых",
     visitorDays: "Сумма суточных посетителей",
-    visitorDaysHint: "уникальные за каждый день, сложенные",
+    visitorDaysHint: "подтверждённые, за каждый день, сложенные",
     ppv: "Страниц на посетителя",
     jsShare: "Подтверждены браузером",
     jsShareHint: "доля посетителей, выполнивших JavaScript",
+    unverified: "Не подтверждены",
+    unverifiedHint: "браузерный User-Agent без выполнения JavaScript - в основном автоматический трафик; в цифры отчёта не входят",
+    legendJs: "Подтверждены браузером",
+    legendAll: "Все, включая неподтверждённых",
+    verifiedNote: (d: string) => `Разбивки ниже построены только по посетителям, подтверждённым браузером. Такие данные собираются с ${d}.`,
+    allNote: "Разбивки ниже пока включают неподтверждённых посетителей: разбивка только по подтверждённым начнёт копиться после обновления методики.",
+    unverifiedGeo: (n: string, list: string) => `Не подтверждены браузером и не учтены: ${n} посетителей${list ? `, больше всего - ${list}` : ""}.`,
     robots: "Отфильтровано роботов",
     robotsHint: "запросов поисковиков, ботов и скриптов исключено",
     tgTitle: "Telegram-бот",
@@ -291,7 +300,7 @@ const T = {
       "Учитываются только люди. Поисковые роботы, превью ссылок в мессенджерах, ИИ-краулеры, скрипты и сервисы мониторинга определяются по User-Agent и исключаются.",
       "Уникальный посетитель - обезличенный суточный идентификатор (хеш IP-адреса и браузера, сам IP не хранится). За период выводится сумма и среднее суточных значений.",
       "Просмотр страницы засчитывается при каждом открытии главной, профиля или поста, включая ответы из CDN-кэша.",
-      "«Подтверждены браузером» - посетители, чей браузер выполнил JavaScript страницы. Это отсекает большинство автоматического трафика.",
+      "Основная цифра - посетители, подтверждённые браузером: их браузер выполнил JavaScript страницы. Запросы с браузерным User-Agent без выполнения JavaScript (в основном автоматический трафик) показаны отдельно как «Не подтверждены» и в разбивки не входят.",
       "География - по IP-адресу (Cloudflare). Посетители через VPN учитываются по стране VPN-сервера.",
       "Источник трафика определяется по заголовкам Referer и Sec-Fetch-Site при входе на сайт; переходы внутри сайта не считаются.",
       "Даты - по UTC.",
@@ -317,13 +326,22 @@ const T = {
     print: "Print / PDF",
     generated: "Generated",
     avgDaily: "Daily visitors (average)",
-    avgDailyHint: "unique visitors per day",
+    avgDailyHint: "unique per day, browser-verified",
     pageviews: "Pageviews",
+    pageviewsVerifiedHint: (d: string) => `by verified visitors, since ${d}`,
+    pageviewsAllHint: "including unverified",
     visitorDays: "Sum of daily visitors",
-    visitorDaysHint: "daily uniques added up",
+    visitorDaysHint: "verified, daily uniques added up",
     ppv: "Pages per visitor",
     jsShare: "Browser-verified",
     jsShareHint: "share of visitors that executed JavaScript",
+    unverified: "Unverified",
+    unverifiedHint: "browser User-Agent but no JavaScript executed - mostly automated traffic; excluded from the report figures",
+    legendJs: "Browser-verified",
+    legendAll: "All, including unverified",
+    verifiedNote: (d: string) => `Breakdowns below include browser-verified visitors only. This data is collected since ${d}.`,
+    allNote: "Breakdowns below still include unverified visitors: verified-only breakdowns start accumulating after the methodology update.",
+    unverifiedGeo: (n: string, list: string) => `Not browser-verified and excluded: ${n} visitors${list ? `, mostly ${list}` : ""}.`,
     robots: "Robots filtered out",
     robotsHint: "requests from crawlers, bots and scripts excluded",
     tgTitle: "Telegram bot",
@@ -355,7 +373,7 @@ const T = {
       "Only humans are counted. Search engine crawlers, messenger link previews, AI crawlers, scripts and uptime monitors are detected by User-Agent and excluded.",
       "A unique visitor is an anonymous daily identifier (hash of IP address and browser; the IP itself is not stored). For a period, the sum and the average of daily values are shown.",
       "A pageview is counted on every open of the home page, a profile or a post, including responses served from the CDN cache.",
-      "“Browser-verified” visitors are those whose browser executed the page JavaScript. This filters out most automated traffic.",
+      "The main figure is browser-verified visitors: their browser executed the page JavaScript. Requests with a browser User-Agent that executed no JavaScript (mostly automated traffic) are shown separately as “Unverified” and excluded from breakdowns.",
       "Geography is based on IP address (Cloudflare). VPN users are attributed to the VPN server country.",
       "Traffic source is determined from the Referer and Sec-Fetch-Site headers on entry; navigation within the site is not counted.",
       "Dates are in UTC.",
@@ -389,7 +407,7 @@ td.n,th.n{text-align:right;white-space:nowrap}
 .bar{height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;margin-top:4px}.bar i{display:block;height:100%;background:#2563eb}
 .chart{display:flex;align-items:flex-end;gap:3px;height:200px;padding-top:8px;border-bottom:1px solid #e5e7eb}
 .col{flex:1;display:flex;align-items:flex-end;justify-content:center;gap:1px;height:100%;min-width:0}
-.col .pv{background:#bfdbfe;width:45%;border-radius:3px 3px 0 0}.col .uv{background:#2563eb;width:45%;border-radius:3px 3px 0 0}
+.col .pv{background:#bfdbfe;width:30%;border-radius:3px 3px 0 0}.col .uv{background:#d1d5db;width:30%;border-radius:3px 3px 0 0}.col .js{background:#16a34a;width:30%;border-radius:3px 3px 0 0}
 .xl{display:flex;gap:3px;margin-top:4px}.xl span{flex:1;text-align:center;font-size:.66rem;color:#9ca3af;min-width:0;overflow:hidden}
 .legend{display:flex;gap:14px;font-size:.8rem;color:#6b7280;margin-bottom:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .muted{color:#6b7280;font-size:.82rem}
@@ -462,22 +480,32 @@ function reportPage(env: Env, lang: Lang, r: AdvertiserReport, host: string): Re
       ? `<div class="note">${esc(t.coverage(fmtDate(r.since), r.activeDays, r.days))}</div>`
       : "";
 
-  const jsPct = r.visitorDays ? (r.jsVisitorDays / r.visitorDays) * 100 : 0;
+  const v = r.verified;
+  // Разбивки: только подтверждённые, если данные web_visit уже есть; иначе - старая (полная) база
+  const b = v ?? r;
+  const shownPv = v ? v.pageviews : r.pageviews;
+  const shownPpv = v ? (v.visitors ? v.pageviews / v.visitors : 0) : (r.jsVisitorDays ? r.pageviews / r.visitorDays : 0);
+  const unverifiedDays = Math.max(0, r.visitorDays - r.jsVisitorDays);
   const kpi = (l: string, v: string, h = "") => `<div class="kpi"><div class="l">${esc(l)}</div><div class="v">${v}</div>${h ? `<div class="h">${esc(h)}</div>` : ""}</div>`;
 
-  const maxV = Math.max(1, ...r.daily.map((d) => Math.max(d.pv, d.uv)));
+  const maxV = Math.max(1, ...r.daily.map((d) => Math.max(d.pv, d.uv, d.js)));
   const step = r.daily.length > 14 ? 3 : 1;
   const chart = `
-    <div class="legend"><span><i style="background:#2563eb"></i>${esc(t.legendUv)}</span><span><i style="background:#bfdbfe"></i>${esc(t.legendPv)}</span></div>
-    <div class="chart">${r.daily.map((d) => `<div class="col" title="${esc(d.day)}: ${esc(t.legendUv)} ${d.uv}, ${esc(t.legendPv)} ${d.pv}"><div class="uv" style="height:${(d.uv / maxV) * 100}%"></div><div class="pv" style="height:${(d.pv / maxV) * 100}%"></div></div>`).join("")}</div>
+    <div class="legend"><span><i style="background:#16a34a"></i>${esc(t.legendJs)}</span><span><i style="background:#d1d5db"></i>${esc(t.legendAll)}</span><span><i style="background:#bfdbfe"></i>${esc(t.legendPv)} (${esc(t.pageviewsAllHint)})</span></div>
+    <div class="chart">${r.daily.map((d) => `<div class="col" title="${esc(d.day)}: ${esc(t.legendJs)} ${d.js}, ${esc(t.legendAll)} ${d.uv}, ${esc(t.legendPv)} ${d.pv}"><div class="js" style="height:${(d.js / maxV) * 100}%"></div><div class="uv" style="height:${(d.uv / maxV) * 100}%"></div><div class="pv" style="height:${(d.pv / maxV) * 100}%"></div></div>`).join("")}</div>
     <div class="xl">${r.daily.map((d, i) => `<span>${i % step === 0 ? esc(d.day.slice(8, 10) + "." + d.day.slice(5, 7)) : ""}</span>`).join("")}</div>`;
 
-  const dailyTable = `<table><thead><tr><th>${lang === "ru" ? "Дата" : "Date"}</th><th class="n">${esc(t.legendUv)}</th><th class="n">${esc(t.legendPv)}</th><th class="n">${esc(t.jsShare)}</th></tr></thead><tbody>${
-    [...r.daily].reverse().map((d) => `<tr><td>${esc(d.day)}</td><td class="n">${nf.format(d.uv)}</td><td class="n">${nf.format(d.pv)}</td><td class="n">${nf.format(d.js)}</td></tr>`).join("")
+  const dailyTable = `<table><thead><tr><th>${lang === "ru" ? "Дата" : "Date"}</th><th class="n">${esc(t.jsShare)}</th><th class="n">${esc(t.unverified)}</th><th class="n">${esc(t.legendPv)} (${esc(t.pageviewsAllHint)})</th></tr></thead><tbody>${
+    [...r.daily].reverse().map((d) => `<tr><td>${esc(d.day)}</td><td class="n"><b>${nf.format(d.js)}</b></td><td class="n">${nf.format(Math.max(0, d.uv - d.js))}</td><td class="n">${nf.format(d.pv)}</td></tr>`).join("")
   }</tbody></table>`;
 
-  const pageKinds = Object.entries(r.pvKinds).sort((a, b) => b[1] - a[1])
-    .map(([k, c]) => ({ key: k, count: c, percent: r.pageviews ? (c / r.pageviews) * 100 : 0 }));
+  const kindsTotal = Object.values(b.pvKinds).reduce((a, c) => a + c, 0);
+  const pageKinds = Object.entries(b.pvKinds).sort((a, c) => c[1] - a[1])
+    .map(([k, c]) => ({ key: k, count: c, percent: kindsTotal ? (c / kindsTotal) * 100 : 0 }));
+  const unGeoLine = v && v.unverifiedVisitors
+    ? `<div class="muted" style="margin-top:6px;">${esc(t.unverifiedGeo(nf.format(v.unverifiedVisitors), v.unverifiedGeo.slice(0, 4).map((g) => `${countryName(g.key, lang)} ${nf.format(g.count)}`).join(", ")))}</div>`
+    : "";
+  const basisNote = `<div class="note" style="background:#f0fdf4;border-color:#bbf7d0;color:#166534;">${esc(v && v.since ? t.verifiedNote(fmtDate(v.since)) : t.allNote)}</div>`;
 
   const refLabel = (k: string) => {
     const [g, ...rest] = k.split(":");
@@ -500,25 +528,27 @@ function reportPage(env: Env, lang: Lang, r: AdvertiserReport, host: string): Re
   </div>
   ${coverage}
   <div class="kpis">
-    ${kpi(t.avgDaily, nf.format(Math.round(r.avgDailyVisitors)), t.avgDailyHint)}
-    ${kpi(t.pageviews, nf.format(r.pageviews))}
-    ${kpi(t.visitorDays, nf.format(r.visitorDays), t.visitorDaysHint)}
-    ${kpi(t.ppv, r.visitorDays ? nf1.format(r.pagesPerVisitor) : "-")}
-    ${kpi(t.jsShare, r.visitorDays ? `${jsPct.toFixed(0)}%` : "-", t.jsShareHint)}
+    ${kpi(t.avgDaily, nf.format(Math.round(r.avgDailyVerified)), t.avgDailyHint)}
+    ${kpi(t.visitorDays, nf.format(r.jsVisitorDays), t.visitorDaysHint)}
+    ${kpi(t.pageviews, nf.format(shownPv), v && v.since ? t.pageviewsVerifiedHint(fmtDate(v.since)) : t.pageviewsAllHint)}
+    ${kpi(t.ppv, shownPpv ? nf1.format(shownPpv) : "-")}
+    ${kpi(t.unverified, nf.format(unverifiedDays), t.unverifiedHint)}
     ${kpi(t.robots, nf.format(r.robotsFiltered), t.robotsHint)}
   </div>
   <div class="card"><h2>${esc(t.dynamics)}</h2>${chart}</div>
+  ${basisNote}
   <div class="grid2">
-    <div class="card"><h2>${esc(t.geo)}</h2>${shareTable(r.geo, (k) => `${flag(k)} ${esc(countryName(k, lang))}`, nf, t, t.country)}
-      ${r.vpnViews ? `<div class="muted" style="margin-top:8px;">${esc(t.vpn(nf.format(r.vpnViews)))}</div>` : ""}</div>
+    <div class="card"><h2>${esc(t.geo)}</h2>${shareTable(b.geo, (k) => `${flag(k)} ${esc(countryName(k, lang))}`, nf, t, t.country)}
+      ${b.vpnViews ? `<div class="muted" style="margin-top:8px;">${esc(t.vpn(nf.format(b.vpnViews)))}</div>` : ""}
+      ${unGeoLine}</div>
     <div>
-      <div class="card"><h2>${esc(t.devices)}</h2>${shareTable(r.devices, (k) => esc(t.dev[k] || k), nf, t, t.devices)}</div>
-      <div class="card"><h2>${esc(t.os)}</h2>${shareTable(r.os, (k) => esc(k === "Другая" && lang === "en" ? "Other" : k), nf, t, t.os)}</div>
+      <div class="card"><h2>${esc(t.devices)}</h2>${shareTable(b.devices, (k) => esc(t.dev[k] || k), nf, t, t.devices)}</div>
+      <div class="card"><h2>${esc(t.os)}</h2>${shareTable(b.os, (k) => esc(k === "Другая" && lang === "en" ? "Other" : k), nf, t, t.os)}</div>
     </div>
   </div>
   <div class="grid2">
-    <div class="card"><h2>${esc(t.sources)}</h2>${shareTable(r.sources, (k) => esc(t.src[k] || k), nf, t, t.sources)}</div>
-    <div class="card"><h2>${esc(t.referrers)}</h2>${shareTable(r.topReferrers, refLabel, nf, t, t.referrers)}</div>
+    <div class="card"><h2>${esc(t.sources)}</h2>${shareTable(b.sources, (k) => esc(t.src[k] || k), nf, t, t.sources)}</div>
+    <div class="card"><h2>${esc(t.referrers)}</h2>${shareTable(b.topReferrers, refLabel, nf, t, t.referrers)}</div>
   </div>
   <div class="grid2">
     <div class="card"><h2>${esc(t.pages)}</h2>${shareTable(pageKinds, (k) => esc(t.pageKinds[k] || k), nf, t, t.pages)}</div>
