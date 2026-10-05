@@ -3,11 +3,14 @@
 TypeScript-версия Telegram-бота для Cloudflare Workers. Функционал Python-версии сохранён:
 
 - чтение постов Threads как текстом, так и скриншотами;
+- анонимный веб-просмотрщик (Web Mirror) прямо в браузере без VPN и без аккаунта;
+- бесконечная лента («крутить как обычный тредс») с комментариями и фото;
 - загрузка комментариев ответом на сообщение с постом;
 - ротация нескольких «технических» Threads-аккаунтов по cookies;
 - бесплатные дневные/месячные лимиты, rate limit и кеш;
 - Telegram Stars и Crypto Bot;
 - RU/EN/DE/ES/PT, поддержка, тикеты, баны и админская аналитика;
+- SEO-разметка и рекламные слоты для выхода на окупаемость ([подробнее в MONETIZATION_GUIDE.md](MONETIZATION_GUIDE.md));
 - ежедневный отчёт администраторам.
 
 ## Архитектура
@@ -132,3 +135,21 @@ Pull Request — это только предложение. `main` не мен�
 ## Старый Python-код
 
 `bot.py` и `threads_check.py` оставлены как референс для сверки поведения. Production entrypoint теперь `src/index.ts`.
+
+## Telegram-сессии: `auth_key` + `dc_id`
+
+Если tdata/Pyrogram/`.session` «сдулись» и нужно **заново авторизоваться и
+получить новый `auth_key` + `dc_id`** (или собрать из них session-строку для
+Telethon / Pyrogram / gramjs), в репозитории есть отдельный инструмент и
+подробный гайд:
+
+```bash
+pip install -r tools/telegram_session/requirements.txt
+python tools/telegram_session/login_and_export.py --qr          # логин + выгрузка ключа
+python tools/telegram_session/login_and_export.py --self-test   # оффлайн-проверка форматов
+```
+
+- [GUIDE_TELEGRAM_SESSION.md](GUIDE_TELEGRAM_SESSION.md) — пошаговый гайд (причины «смерти» ключей, QR/телефон-логин, форматы строк, прокси, типовые ошибки).
+- [tools/telegram_session/](tools/telegram_session/) — код: энкодер/декодер session-строк и CLI логина.
+
+Экспорт (JSON с `auth_key`) пишется в `tools/telegram_session/out/` и в Git не попадает.

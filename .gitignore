@@ -4,6 +4,23 @@
 accounts/
 *.json
 
+# Cookie Relay: локальные учётные данные, профили браузеров и снятые куки.
+# Здесь лежат пароли, TOTP-сиды и живые сессии - в репозиторий не должны попасть никогда.
+tools/accounts.local.json
+tools/accounts.local.txt
+tools/profiles/
+tools/out/
+
+# Пример конфига не содержит секретов и должен быть в репозитории.
+!tools/accounts.example.json
+
+# Telegram-сессии: экспорт auth_key + dc_id (ключ = полный доступ к аккаунту)
+tools/telegram_session/out/
+*.session
+*.session-journal
+*.session-wal
+*.session-shm
+
 # Python
 __pycache__/
 *.pyc
