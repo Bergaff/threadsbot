@@ -23,7 +23,11 @@ export type StateName =
   /** Отметка «счёт CryptoBot уже активирован» (scope cinv:<id>) */
   | "paid_invoice"
   /** Отметка «заказ из платёжного вебхука уже обработан» (scope order:<id>) */
-  | "paid_order";
+  | "paid_order"
+  /** Последний отчёт ежедневной самодиагностики (JSON DiagReport) */
+  | "diag_last"
+  /** История самодиагностики: последние 14 запусков [{at, ok, fails}] */
+  | "diag_history";
 
 export class Database {
   constructor(private readonly env: Env) {}
@@ -334,6 +338,7 @@ export class Database {
       api24h: 0, more24h: 0, comments24h: 0, geo24h: [], geo7d: [], geoTotal24h: 0, geoTotal7d: 0,
       robots24h: { total: 0, byKind: {}, top: [] },
       scrape: {}, webMs: emptyDist(), botMs24h: emptyDist(), botMs7d: emptyDist(), accounts: {}, daily: [], since: null,
+      scrapeErrors: [], scrapeErrorGroups: [],
     };
     if (!this.db?.prepare) return empty;
     const all = async <T>(sql: string, ...args: unknown[]): Promise<T[]> => {
@@ -351,7 +356,7 @@ export class Database {
       all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_geo' AND timestamp>? GROUP BY event_data ORDER BY c DESC", one),
       all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_geo' AND timestamp>? GROUP BY event_data ORDER BY c DESC", seven),
       all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='web_robot' AND timestamp>? GROUP BY event_data", one),
-      all<{ k: string }>("SELECT event_data k FROM user_events WHERE event_type='scrape' AND timestamp>? LIMIT 5000", one),
+      all<{ k: string; ts: string }>("SELECT event_data k, timestamp ts FROM user_events WHERE event_type='scrape' AND timestamp>? ORDER BY id DESC LIMIT 5000", one),
       all<{ v: number }>("SELECT CAST(event_data AS REAL) v FROM user_events WHERE event_type='web_ms' AND timestamp>? ORDER BY v LIMIT 20000", one),
       all<{ v: number; ts: string }>("SELECT CAST(event_data AS REAL) v, timestamp ts FROM user_events WHERE event_type='bot_latency' AND timestamp>? ORDER BY v LIMIT 20000", seven),
       all<{ k: string; c: number }>("SELECT event_data k, COUNT(*) c FROM user_events WHERE event_type='acct' AND timestamp>? GROUP BY event_data", one),
@@ -400,15 +405,30 @@ export class Database {
       .map(([k, c]) => ({ kind: k.split(":")[0], name: k.split(":").slice(1).join(":"), count: c }));
 
     const scrapeMs: Record<string, number[]> = {};
+    const groups = new Map<string, { kind: string; status: string; error: string; count: number; lastTs: string; lastTarget: string }>();
     for (const r of scrapeRows) {
-      const [kind = "?", status = "?", posts = "0", ms = "0"] = String(r.k || "").split("|");
+      const [kind = "?", status = "?", posts = "0", ms = "0", target = "", ...errParts] = String(r.k || "").split("|");
+      const error = errParts.join("|");
+      // Самодиагностика (kind=diag) в боевую статистику не входит - у неё свой отчёт
+      if (kind === "diag") continue;
       const b = out.scrape[kind] || (out.scrape[kind] = { total: 0, ok: 0, notFound: 0, failed: 0, posts: 0, ms: emptyDist() });
       b.total++;
       if (status === "ok") { b.ok++; b.posts += Number(posts) || 0; }
       else if (status === "user_not_found" || status === "post_not_found") b.notFound++;
       else b.failed++;
       (scrapeMs[kind] ||= []).push(Number(ms) || 0);
+      if (status !== "ok") {
+        const ts = String(r.ts || "");
+        if (out.scrapeErrors.length < 40) out.scrapeErrors.push({ ts, kind, status, target, error, ms: Number(ms) || 0 });
+        // Группируем по виду ошибки; цифры и имена аккаунтов в тексте не должны дробить группы
+        const norm = error.replace(/\[[^\]]*\]/g, "[…]").replace(/\d+/g, "N").slice(0, 120);
+        const key = `${kind}|${status}|${norm}`;
+        const g = groups.get(key);
+        if (g) g.count++;
+        else groups.set(key, { kind, status, error: error.slice(0, 220), count: 1, lastTs: ts, lastTarget: target });
+      }
     }
+    out.scrapeErrorGroups = [...groups.values()].sort((a, b) => b.count - a.count).slice(0, 12);
     for (const [kind, list] of Object.entries(scrapeMs)) out.scrape[kind].ms = dist(list.sort((a, b) => a - b));
 
     out.webMs = dist(webMsRows.map((r) => Number(r.v) || 0));
@@ -899,7 +919,13 @@ export interface SiteTruth {
   daily: DailyTruth[];
   /** Когда появились первые события новой аналитики */
   since: string | null;
+  /** Последние неуспешные запуски скрапера за 24ч (новые сверху), с pr74 - с текстом ошибки */
+  scrapeErrors: ScrapeError[];
+  /** Те же ошибки, сгруппированные по виду: что ломается чаще всего */
+  scrapeErrorGroups: Array<{ kind: string; status: string; error: string; count: number; lastTs: string; lastTarget: string }>;
 }
+
+export interface ScrapeError { ts: string; kind: string; status: string; target: string; error: string; ms: number }
 
 export interface ShareRow { key: string; count: number; percent: number }
 export interface AdvertiserReport {

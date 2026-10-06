@@ -1,3 +1,5 @@
+import { diagDue, lastCronAt, parseHistory, runDiagnostics, sendDiagToAdmins } from "./diagnostics";
+import { isPostCode } from "./postCode";
 import { handleAdminRoute, verifyAdmin } from "./admin";
 import { handleStatsRoute } from "./statsPage";
 import { FAVICON_SVG, FAVICON_ICO_BASE64, FAVICON_DATA_URL } from "./assets";
@@ -7,7 +9,7 @@ import { adminIds, type Env } from "./config";
 import { Database } from "./db";
 import { diagnoseAccountCookies } from "./cookies";
 import { Telegram, type TelegramUpdate } from "./telegram";
-import { fetchComments, fetchProfileWithPosts, logSystem, probeAccount, refreshAccountCookies, sleep, type ProfileData, type Comment } from "./threads";
+import { fetchComments, fetchCommentsByCode, fetchProfileWithPosts, logSystem, probeAccount, refreshAccountCookies, sleep, type ProfileData, type Comment } from "./threads";
 
 /** Сколько аккаунтов прогревать за один запуск cron, чтобы не выбирать лимит Browser Rendering. */
 const KEEPALIVE_BATCH = 3;
@@ -806,7 +808,7 @@ export default {
         try {
           const fresh = await morePromise;
           if (!isAdmin) {
-            ctx.waitUntil(trackScrape(env, "more", fresh.status, fresh.data?.posts?.length || 0, Date.now() - reqStart).catch(() => {}));
+            ctx.waitUntil(trackScrape(env, "more", fresh.status, fresh.data?.posts?.length || 0, Date.now() - reqStart, `@${username}`, fresh.error || "").catch(() => {}));
           }
           if (fresh.status !== "ok" || !fresh.data) {
             await logSystem(env, "warn", "api", `[API_MORE] @${username}: скрапер вернул ${fresh.status}`);
@@ -954,7 +956,7 @@ export default {
         const fetched = await fetchPromise;
         // Время, которое человек ждал первую загрузку профиля через браузер, - отдельная метрика
         if (!isAdmin) {
-          ctx.waitUntil(trackScrape(env, "profile", fetched.status, fetched.data?.posts?.length || 0, Date.now() - reqStart).catch(() => {}));
+          ctx.waitUntil(trackScrape(env, "profile", fetched.status, fetched.data?.posts?.length || 0, Date.now() - reqStart, `@${username}`, fetched.error || "").catch(() => {}));
         }
         if (ownsFetch) await logSystem(env, "info", "api", `[API_RESULT] @${username}: status=${fetched.status}, постов=${fetched.data?.posts?.length || 0}`);
         if (fetched.status === "ok" && fetched.data) {
@@ -1027,6 +1029,12 @@ export default {
       const username = commentsMatch[1].toLowerCase();
       const postIndex = Number(commentsMatch[2]);
       const refresh = url.searchParams.get("refresh") === "1";
+      // С pr74 сайт передаёт код поста: комментарии открываются прямо по ссылке поста
+      const codeParam = url.searchParams.get("code") || "";
+      const postCode = isPostCode(codeParam) ? codeParam : "";
+      // r=1 - у поста по счётчику есть ответы (для диагностики «счётчик есть, комментариев нет»)
+      const expectReplies = url.searchParams.get("r") === "1";
+      const cmtTarget = postCode ? `@${username}/post/${postCode}` : `@${username}#${postIndex}`;
       const cmtTrack = await trackSite("comments", "", `комментарии @${username}#${postIndex}`);
       const db = new Database(env);
       if (!cmtTrack.isAdmin && cmtTrack.cls.kind === "human") {
@@ -1036,10 +1044,11 @@ export default {
         const edgeHit = await matchEdgeCache(request);
         if (edgeHit) return edgeHit;
       }
-      const cacheKey = `${username}_cmt_${postIndex}`;
+      const cacheKey = postCode ? `${username}_cmtc_${postCode}` : `${username}_cmt_${postIndex}`;
       if (!refresh) {
         const cached = await db.cache<Comment[]>(cacheKey, "comments");
-        if (cached) {
+        // Пустой список из кэша не отдаём: раньше однажды пустой ответ держался 30 минут
+        if (cached && cached.length) {
           trackLatency(cmtTrack.isAdmin, cmtTrack.cls);
           const res = Response.json({ ok: true, cached: true, comments: cached }, {
             headers: {
@@ -1076,9 +1085,22 @@ export default {
       }
 
       try {
-        const fetched = await fetchComments(env, username, postIndex, 30);
+        const fetched = postCode
+          ? await fetchCommentsByCode(env, username, postCode, 30)
+          : await fetchComments(env, username, postIndex, 30);
+        // «Счётчик показывает ответы, а собрали 0» - отдельный статус, чтобы видеть это в админке
+        const emptyButExpected = fetched.status === "ok" && !(fetched.data?.length) && expectReplies;
+        const trackStatus = emptyButExpected ? "empty_but_replies" : fetched.status;
+        const trackError = emptyButExpected ? "У поста есть ответы по счётчику, но со страницы не собрано ни одного" : (fetched.error || "");
         if (!isAuthAdmin) {
-          ctx.waitUntil(trackScrape(env, "comments", fetched.status, fetched.data?.length || 0, Date.now() - reqStart).catch(() => {}));
+          ctx.waitUntil(trackScrape(env, "comments", trackStatus, fetched.data?.length || 0, Date.now() - reqStart, cmtTarget, trackError).catch(() => {}));
+        }
+        if (emptyButExpected) {
+          ctx.waitUntil(logSystem(env, "warn", "scraper", `Комментарии ${cmtTarget}: счётчик показывает ответы, а собрано 0 (аккаунт ${fetched.account || "?"})`).catch(() => {}));
+        }
+        if (fetched.status === "ok" && fetched.data && !fetched.data.length) {
+          // Пустой результат не кешируем - следующая попытка снова пойдёт в Threads
+          return Response.json({ ok: true, cached: false, comments: [], expected: expectReplies }, { headers: { "cache-control": "no-store" } });
         }
         if (fetched.status === "ok" && fetched.data) {
           await db.setCache(cacheKey, "comments", fetched.data);
@@ -1090,9 +1112,19 @@ export default {
           putEdgeCache(request, res, ctx, 1800);
           return res;
         }
-        return Response.json({ ok: false, error: fetched.error || fetched.status });
+        // Ошибка - это НЕ «комментариев нет». Пользователю без внутренних деталей.
+        const notFound = fetched.status === "post_not_found" || fetched.status === "user_not_found";
+        return Response.json({
+          ok: false,
+          status: fetched.status,
+          error: notFound ? "Пост не найден в Threads" : "Не удалось загрузить комментарии из Threads",
+          retryAfter: notFound ? undefined : 30,
+        }, { status: notFound ? 404 : 503, headers: { "cache-control": "no-store" } });
       } catch (err) {
-        return Response.json({ ok: false, error: String(err) }, { status: 500 });
+        if (!isAuthAdmin) {
+          ctx.waitUntil(trackScrape(env, "comments", "exception", 0, Date.now() - reqStart, cmtTarget, String(err)).catch(() => {}));
+        }
+        return Response.json({ ok: false, status: "service_error", error: "Не удалось загрузить комментарии из Threads" }, { status: 500, headers: { "cache-control": "no-store" } });
       }
     }
 
@@ -1195,7 +1227,7 @@ export default {
     }
   },
 
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     // Техническая очистка + самодиагностика аккаунтов каждые 6 часов.
     ctx.waitUntil(
       (async () => {
@@ -1276,6 +1308,18 @@ export default {
           }
         } catch (probeErr) {
           console.error("Daily summary cron error:", probeErr);
+        }
+
+        // Ежедневная самодиагностика основных функций (посты, комментарии, HTTP-фолбэк, бот, база).
+        // 09:00 МСК; отчёт - админам в Telegram и в админку (блок «Ежедневная диагностика»).
+        try {
+          const history = parseHistory(await db.state(0, "diag_history"));
+          if (diagDue(controller?.scheduledTime || Date.now(), lastCronAt(history))) {
+            const report = await runDiagnostics(env, "cron");
+            await sendDiagToAdmins(env, report);
+          }
+        } catch (diagErr) {
+          console.error("Daily diagnostics error:", diagErr);
         }
 
         // Анонимный мониторинг авторов (проверка новых постов)

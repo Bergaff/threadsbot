@@ -1,3 +1,4 @@
+import { DIAG_USERNAME, parseHistory, parseReport, runDiagnostics, sendDiagToAdmins, type DiagHistoryItem, type DiagReport } from "./diagnostics";
 import { adminPassword, type Env } from "./config";
 import { Database, type SiteTruth } from "./db";
 import { diagnoseAccountCookies, normalizeCookiesJson } from "./cookies";
@@ -419,6 +420,14 @@ export async function handleAdminRoute(request: Request, env: Env): Promise<Resp
     } catch (err: any) {
       return Response.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
     }
+  }
+
+  // Ручной запуск ежедневной самодиагностики
+  if (path === "/admin/api/diag/run" && request.method === "POST") {
+    const report = await runDiagnostics(env, "manual");
+    const form = await request.formData().catch(() => null);
+    if (String(form?.get("notify") || "") === "1") await sendDiagToAdmins(env, report);
+    return new Response(null, { status: 303, headers: { Location: "/admin#diag" } });
   }
 
   // Доступ к странице статистики для рекламодателей (/stats)
@@ -922,6 +931,99 @@ const ROBOT_KIND_LABEL: Record<string, string> = {
 };
 
 /** Миллисекунды -> «1.2 сек». Нет данных -> прочерк (никаких подставных значений). */
+/** Блок «Ежедневная диагностика»: последний отчёт, история, кнопка запуска. */
+export function renderDiagSection(r: DiagReport | null, history: DiagHistoryItem[]): string {
+  const icon: Record<string, string> = { ok: "✅", warn: "⚠️", fail: "❌", skip: "⏭" };
+  const color: Record<string, string> = { ok: "#4ade80", warn: "#fbbf24", fail: "#f87171", skip: "#888" };
+  const time = (iso: string) => {
+    try { return new Date(iso).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return iso; }
+  };
+  const rows = r ? r.checks.map((c) => `
+    <tr>
+      <td style="white-space:nowrap;">${icon[c.status] || ""} ${esc(c.name)}</td>
+      <td style="color:${color[c.status] || "#ccc"};word-break:break-word;">${esc(c.detail)}</td>
+      <td style="text-align:right;white-space:nowrap;color:#888;">${c.ms ? fmtMs(c.ms) : "-"}</td>
+    </tr>`).join("") : "";
+  const hist = history.slice(0, 14).map((h) =>
+    `<span title="${esc(h.fails.join(", ") || "без ошибок")}" style="display:inline-block;margin:2px 6px 2px 0;font-size:0.76rem;color:${h.ok ? "#4ade80" : "#f87171"};">${h.ok ? "✅" : "❌"} ${esc(time(h.at))}${h.trigger === "manual" ? " (вручную)" : ""}</span>`
+  ).join("");
+  return `
+    <section class="admin-card" id="diag">
+      <div class="admin-card-title">Ежедневная диагностика</div>
+      <div style="font-size:0.8rem;color:#999;margin-bottom:10px;line-height:1.5;">
+        Каждый день в 09:00 МСК реально проверяет загрузку постов и комментариев через браузер (на @${esc(DIAG_USERNAME)}), HTTP-фолбэк, бота, базу и аккаунты, плюс сводку ошибок у людей за 24ч. Отчёт приходит админам в Telegram.
+      </div>
+      ${r ? `
+        <div style="font-size:0.85rem;margin-bottom:8px;">Последний прогон: <b>${esc(time(r.at))}</b> МСК ${r.trigger === "manual" ? "(вручную)" : "(по расписанию)"} - ${r.ok ? `<span style="color:#4ade80;">всё основное работает</span>` : `<span style="color:#f87171;">есть проблемы</span>`}</div>
+        <div style="overflow-x:auto;"><table class="accounts-table">
+          <thead><tr><th>Проверка</th><th>Результат</th><th style="text-align:right;">Время</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>` : `<div style="font-size:0.85rem;color:#888;">Диагностика ещё не запускалась.</div>`}
+      ${hist ? `<div style="margin-top:10px;">${hist}</div>` : ""}
+      <form method="POST" action="/admin/api/diag/run" style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').innerText='Проверяю... (до 2 минут)';">
+        <button type="submit" class="btn-admin">Запустить сейчас</button>
+        <label style="font-size:0.8rem;color:#aaa;"><input type="checkbox" name="notify" value="1"> прислать отчёт в Telegram</label>
+      </form>
+    </section>`;
+}
+
+/** Понятные названия статусов скрапера для админки */
+export const SCRAPE_STATUS_LABEL: Record<string, string> = {
+  service_error: "Сбой: аккаунты не смогли открыть страницу",
+  browser_busy: "Браузер Cloudflare занят (лимит параллельных сессий)",
+  all_dead: "Нет живых аккаунтов-скраперов",
+  session_expired: "Сессия аккаунта истекла",
+  no_posts: "Профиль открылся, но постов нет",
+  user_not_found: "Профиль не найден",
+  post_not_found: "Пост не найден (удалён или скрыт)",
+  empty_but_replies: "Счётчик показывает ответы, а комментариев собрано 0",
+  exception: "Исключение в коде",
+};
+const SCRAPE_KIND_LABEL: Record<string, string> = { profile: "Профиль", more: "Загрузить ещё", comments: "Комментарии", diag: "Диагностика" };
+
+/** Ошибки скрапера за 24ч: группы по виду + последние случаи. */
+export function renderScrapeErrors(t: Pick<SiteTruth, "scrapeErrors" | "scrapeErrorGroups">): string {
+  if (!t.scrapeErrors.length) {
+    return `<div style="font-size:0.82rem;color:#4ade80;margin-top:10px;">Ошибок за 24ч нет.</div>`;
+  }
+  const time = (iso: string) => {
+    try { return new Date(iso).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return iso; }
+  };
+  const label = (s: string) => SCRAPE_STATUS_LABEL[s] || s;
+  const color = (s: string) => (s === "user_not_found" || s === "post_not_found" ? "#9ca3af" : s === "browser_busy" ? "#fbbf24" : "#f87171");
+  const groups = t.scrapeErrorGroups.map((g) => `
+    <tr>
+      <td style="white-space:nowrap;">${esc(SCRAPE_KIND_LABEL[g.kind] || g.kind)}</td>
+      <td style="color:${color(g.status)};">${esc(label(g.status))}${g.error ? `<div style="color:#888;font-size:0.72rem;margin-top:2px;word-break:break-word;">${esc(g.error)}</div>` : ""}</td>
+      <td style="text-align:right;font-weight:700;">${g.count}</td>
+      <td style="white-space:nowrap;color:#888;font-size:0.75rem;">${esc(time(g.lastTs))}<br>${esc(g.lastTarget)}</td>
+    </tr>`).join("");
+  const recent = t.scrapeErrors.slice(0, 20).map((e) => `
+    <tr>
+      <td style="white-space:nowrap;color:#888;">${esc(time(e.ts))}</td>
+      <td style="white-space:nowrap;">${esc(SCRAPE_KIND_LABEL[e.kind] || e.kind)}</td>
+      <td style="word-break:break-all;">${esc(e.target || "-")}</td>
+      <td style="color:${color(e.status)};">${esc(label(e.status))}${e.error ? `<div style="color:#888;font-size:0.72rem;margin-top:2px;word-break:break-word;">${esc(e.error)}</div>` : ""}</td>
+      <td style="text-align:right;white-space:nowrap;color:#888;">${fmtMs(e.ms)}</td>
+    </tr>`).join("");
+  return `
+    <div style="margin-top:14px;">
+      <div class="stat-label" style="font-weight:700;color:#f87171;margin-bottom:6px;">Что за ошибки (24ч): по видам</div>
+      <div style="overflow-x:auto;"><table class="accounts-table">
+        <thead><tr><th>Где</th><th>Ошибка</th><th style="text-align:right;">Раз</th><th>Последняя (МСК)</th></tr></thead>
+        <tbody>${groups}</tbody>
+      </table></div>
+      <details style="margin-top:10px;">
+        <summary style="cursor:pointer;font-size:0.82rem;color:#aaa;">Последние случаи (${Math.min(20, t.scrapeErrors.length)})</summary>
+        <div style="overflow-x:auto;margin-top:6px;"><table class="accounts-table">
+          <thead><tr><th>Время (МСК)</th><th>Где</th><th>Что открывали</th><th>Ошибка</th><th style="text-align:right;">Длилось</th></tr></thead>
+          <tbody>${recent}</tbody>
+        </table></div>
+      </details>
+      <div style="font-size:0.72rem;color:#777;margin-top:6px;">Серым - «не найдено» (профиль или пост действительно отсутствует, это не сбой). Подробный текст ошибок пишется с версии pr74; более ранние записи - без текста.</div>
+    </div>`;
+}
+
 function fmtMs(ms: number, count = 1): string {
   if (!count || !(ms > 0)) return "-";
   const sec = ms / 1000;
@@ -1031,8 +1133,9 @@ function renderTruthSections(env: Env, t: SiteTruth, analytics: any, retention: 
         ${statBox("Ожидание человека (медиана)", fmtMs(scr.ms.median, scr.ms.count), `p95: ${fmtMs(scr.ms.p95, scr.ms.count)}, макс: ${fmtMs(scr.ms.max, scr.ms.count)}`)}
         ${statBox("Постов за загрузку (в среднем)", scr.ok ? (scr.posts / scr.ok).toFixed(1) : "-", "цель - 20")}
         ${statBox("«Загрузить ещё» через браузер", `${more.total}`, `успешно ${more.ok}, ошибок ${more.failed}; медиана ${fmtMs(more.ms.median, more.ms.count)}`)}
-        ${statBox("Комментарии через браузер", `${cmt.total}`, `успешно ${cmt.ok}, ошибок ${cmt.failed + cmt.notFound}; медиана ${fmtMs(cmt.ms.median, cmt.ms.count)}`)}
+        ${statBox("Комментарии через браузер", `${cmt.total}`, `успешно ${cmt.ok}, ошибок ${cmt.failed}, не найдено ${cmt.notFound}; медиана ${fmtMs(cmt.ms.median, cmt.ms.count)}`, cmt.failed > cmt.ok ? "#f87171" : "")}
       </div>
+      ${renderScrapeErrors(t)}
       <div style="font-size:0.74rem;color:#777;margin-top:6px;line-height:1.5;">
         Считаются только запросы людей, которые реально запускали браузер. Ответы из кэша сюда не входят. Время - от запроса пользователя до ответа сервера.
       </div>
@@ -1107,7 +1210,7 @@ function renderTruthSections(env: Env, t: SiteTruth, analytics: any, retention: 
 }
 
 async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Promise<Response> {
-  const [counts, stats, system, analytics, retention, truth, statsAccess] = await Promise.all([
+  const [counts, stats, system, analytics, retention, truth, statsAccess, diagRaw, diagHistRaw] = await Promise.all([
     db.accountCounts(),
     db.accountStats() as Promise<any[]>,
     db.systemStats(),
@@ -1115,6 +1218,8 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
     db.repeatRequestStats(),
     db.siteTruth(),
     statsAccessInfo(env).catch(() => null),
+    db.state(0, "diag_last").catch(() => null),
+    db.state(0, "diag_history").catch(() => null),
   ]);
   const workingAccounts24h = Object.values(truth.accounts).filter(a => a.ok > 0).length;
 
@@ -1309,6 +1414,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
 
     ${renderTruthSections(env, truth, analytics, retention)}
 
+    ${renderDiagSection(parseReport(diagRaw), parseHistory(diagHistRaw))}
     ${renderStatsAccessSection(env, statsAccess, statsFlash)}
 
     <section class="admin-card">

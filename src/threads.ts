@@ -1,3 +1,4 @@
+import { postCodeFromUrl } from "./postCode";
 import type { BrowserContext, Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
 import { diagnoseAccountCookies, playwrightCookies, snapshotHasSession } from "./cookies";
@@ -1092,7 +1093,7 @@ export function walkForPosts(root: any, ownerUsername: string, seen: Set<string>
  * Используется и как вето на ложный user_not_found, и как фолбэк-источник данных,
  * когда все аккаунты-скраперы не дали достоверного ответа.
  */
-async function fetchPublicProfile(username: string): Promise<PublicProfileResult> {
+export async function fetchPublicProfile(username: string): Promise<PublicProfileResult> {
   const clean = username.toLowerCase().replace(/^@/, "");
   const hosts = ["https://www.threads.net", "https://www.threads.com"];
   const uas = [
@@ -1509,17 +1510,37 @@ export async function fetchPosts(env: Env, username: string, mode: "text" | "img
   }
 }
 
-async function collectComments(page: Page, target = 20): Promise<Comment[]> {
+async function collectComments(page: Page, target = 20, mainCode?: string | null): Promise<Comment[]> {
   const result: Comment[] = [], seen = new Set<string>();
   let stall = 0;
   await sleep(1500);
   for (let attempt = 0; attempt < 8; attempt++) {
-    const evaluated = await page.evaluate(() => {
+    const evaluated = await page.evaluate((mainCode: string) => {
       const out: any[] = [];
       const containers = document.querySelectorAll('div[data-pressable-container="true"]');
+      const codeOf = (el: Element) => {
+        const links = el.querySelectorAll('a[href*="/post/"]');
+        for (let i = 0; i < links.length; i++) {
+          const m = (links[i].getAttribute("href") || "").match(/\/post\/([A-Za-z0-9_-]+)/);
+          if (m) return m[1];
+        }
+        return "";
+      };
+      // Сам пост (и цепочка над ним, если это ответ) - не комментарии.
+      // Ищем контейнер с кодом поста и берём только то, что ниже него.
+      let mainTop: number | null = null;
+      if (mainCode) {
+        for (let i = 0; i < containers.length; i++) {
+          if (codeOf(containers[i]) === mainCode) {
+            mainTop = (containers[i] as HTMLElement).getBoundingClientRect().top + window.scrollY;
+            break;
+          }
+        }
+      }
       for (let cIdx = 0; cIdx < containers.length; cIdx++) {
         const container = containers[cIdx];
         const top = (container as HTMLElement).getBoundingClientRect().top + window.scrollY;
+        if (mainTop !== null && (top <= mainTop || codeOf(container) === mainCode)) continue;
         let author = "—";
         try {
           const link = container.querySelector('a[href^="/@"]');
@@ -1546,18 +1567,20 @@ async function collectComments(page: Page, target = 20): Promise<Comment[]> {
           for (let sIdx = 0; sIdx < spans.length; sIdx++) {
             const span = spans[sIdx];
             const value = ((span as HTMLElement).innerText || span.textContent || "").trim();
-            if (!value || value.length < 3 || value.toLowerCase() === author.replace("@", "") || /^(Follow|Подписаться|Translate|Перевести|Reply|Ответ|Repost|Share|Send|Like|More|Verified|See translation|Автор|Author|Ещё|Нравится|Поделиться)$/i.test(value) || /^\d+$/.test(value) || /^\d+\s*[hHчмсmsdд]$/.test(value)) continue;
+            if (!value || value.toLowerCase() === author.replace("@", "") || /^(Follow|Подписаться|Translate|Перевести|Reply|Ответ|Ответить|Repost|Share|Send|Like|More|Verified|See translation|Показать перевод|Автор|Author|Ещё|Нравится|Поделиться|Top|Popular|Популярное)$/i.test(value) || /^[\d.,\s]+[KkMmКкМм]?$/.test(value) || /^\d+\s*(h|m|s|d|w|y|ч|м|с|д|н|г|мин|нед)\.?$/i.test(value)) continue;
             if (value.length > text.length) text = value;
           }
         } catch (e) {}
 
-        if (text && /[A-Za-zА-Яа-яÀ-ÿ\u0400-\u04FF\u4e00-\u9fff\u3040-\u30ff]/.test(text)) {
+        // Любой язык (арабский, корейский, хинди...) и комментарии из одних эмодзи
+        if (text && /[\p{L}\p{Extended_Pictographic}]/u.test(text)) {
           out.push({ author, text, avatar, top });
         }
       }
       out.sort((a, b) => a.top - b.top);
-      return out.slice(1);
-    }) as unknown;
+      // Без кода поста (старый путь) - первым идёт сам пост
+      return mainTop === null ? out.slice(1) : out;
+    }, mainCode || "") as unknown;
     if (!Array.isArray(evaluated)) throw new Error("Threads returned an invalid comments collection");
     let added = 0;
     for (const comment of evaluated as Comment[]) {
@@ -1598,7 +1621,9 @@ export async function fetchComments(env: Env, username: string, index: number, a
       const posts = await collectPosts(opened.page, index + 3, username);
       if (index >= posts.length) return { data: null, status: "post_not_found", account: account.name };
       const search = posts[index].text.slice(0, 50);
-      const href = await opened.page.evaluate((value: string) => {
+      // Ссылка поста уже есть в собранных данных. Поиск по тексту - только запасной вариант:
+      // у постов без текста (фото/видео) пустая строка совпадала с ПЕРВЫМ постом ленты.
+      const href = posts[index].postUrl || (!search.trim() ? null : await opened.page.evaluate((value: string) => {
         const nodes = Array.from(document.querySelectorAll('article,div[role="article"],div[data-pressable-container="true"]'));
         for (const post of nodes) {
           if (Array.from(post.querySelectorAll('span[dir="auto"],div[dir="auto"]')).some((b: any) => (b.innerText || "").trim().startsWith(value))) {
@@ -1606,12 +1631,13 @@ export async function fetchComments(env: Env, username: string, index: number, a
           }
         }
         return null;
-      }, search);
+      }, search));
       if (!href) return { data: null, status: "post_not_found", account: account.name };
       await opened.page.goto(href.startsWith("/") ? BASE(env) + href : href, { waitUntil: "domcontentloaded", timeout: 30_000 });
-      await sleep(4000);
+      await opened.page.waitForSelector('div[data-pressable-container="true"]', { timeout: 15_000 }).catch(() => {});
+      await sleep(2500);
       await opened.page.evaluate(() => window.scrollBy(0, 800));
-      const data = await collectComments(opened.page, amount);
+      const data = await collectComments(opened.page, amount, postCodeFromUrl(href));
       let updated: string | null = null;
       try {
         const rawCookies = await opened.context.cookies();
@@ -1634,6 +1660,81 @@ export async function fetchComments(env: Env, username: string, index: number, a
     }
   }
 }
+/**
+ * Комментарии по коду поста: сразу открываем https://www.threads.com/@user/post/CODE.
+ * Не нужно заново собирать профиль и угадывать пост по номеру - раньше из-за этого
+ * открывался не тот пост (закреплённые, репосты, посты без текста) и показывалось «Комментариев нет».
+ */
+export async function fetchCommentsByCode(env: Env, username: string, code: string, amount = 30): Promise<{ data: Comment[] | null; status: ThreadsStatus; account?: string; error?: string }> {
+  const cleanUser = username.toLowerCase().replace(/^@/, "");
+  const tried: string[] = [];
+  let lastError = "";
+  while (true) {
+    const account = await chooseAccount(env, tried);
+    if (!account) {
+      return tried.length
+        ? { data: null, status: "service_error", account: tried.join(", "), error: lastError || "Ни один аккаунт не открыл страницу поста" }
+        : { data: null, status: "all_dead", error: "Нет живых аккаунтов-скраперов" };
+    }
+    tried.push(account.name);
+    let opened: Opened | undefined;
+    try {
+      opened = await openBrowser(env, account);
+      const url = `${BASE(env)}/@${cleanUser}/post/${code}`;
+      const resp = await opened.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      const http = resp?.status?.() || 0;
+      if (http === 404) return { data: null, status: "post_not_found", account: account.name, error: "Threads ответил 404 на страницу поста" };
+      await opened.page.waitForSelector('div[data-pressable-container="true"]', { timeout: 15_000 }).catch(() => {});
+      const snap = await opened.page.evaluate(() => ({
+        body: document.body ? document.body.innerText : "",
+        title: document.title || "",
+        n: document.querySelectorAll('div[data-pressable-container="true"]').length,
+        loginLink: Boolean(document.querySelector('a[href*="/login"]')),
+        authed: Boolean(document.querySelector(
+          '[aria-label="Your profile"],[aria-label="Ваш профиль"],[aria-label="Notifications"],[aria-label="Уведомления"],' +
+          '[aria-label="Create post"],[aria-label="Новый пост"],[aria-label="Search"],[aria-label="Поиск"],a[href="/settings"]'
+        )),
+      })) as { body: string; title: string; n: number; loginLink: boolean; authed: boolean };
+      if (!snap.n) {
+        if (isUserNotFoundPage(snap.title) || isUserNotFoundPage(snap.body)) {
+          return { data: null, status: "post_not_found", account: account.name, error: "Страница поста недоступна (удалён или скрыт)" };
+        }
+        if (!snap.authed && (snap.loginLink || hasLoggedOutMarkers(snap.body))) {
+          await markSessionExpired(env, account.name);
+          lastError = `[${account.name}] сессия истекла`;
+          await logSystem(env, "warn", "scraper", `Комментарии @${cleanUser}/${code}: ${lastError}, пробуем следующий аккаунт`);
+          continue;
+        }
+        const snippet = (snap.body || "").replace(/\s+/g, " ").trim().slice(0, 160);
+        lastError = `[${account.name}] страница поста пустая (title="${snap.title.slice(0, 60)}", body=${snap.body.length} симв.: "${snippet}")`;
+        await markTransientError(env, account.name, new Error(lastError));
+        await logSystem(env, "warn", "scraper", `Комментарии @${cleanUser}/${code}: ${lastError}`);
+        if (tried.length >= 2) return { data: null, status: "service_error", account: account.name, error: lastError };
+        continue;
+      }
+      await sleep(2500);
+      await opened.page.evaluate(() => window.scrollBy(0, 800)).catch(() => {});
+      const data = await collectComments(opened.page, amount, code);
+      let updated: string | null = null;
+      try {
+        updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
+      } catch {}
+      await markSuccess(env, account.name, data.length, updated || undefined);
+      await logSystem(env, "info", "scraper", `Комментарии @${cleanUser}/${code}: ${data.length} шт. через [${account.name}]`);
+      return { data, status: "ok", account: account.name };
+    } catch (error) {
+      const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 300);
+      await markTransientError(env, account.name, error);
+      if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name, error: errMsg };
+      lastError = `[${account.name}] ${errMsg}`;
+      if (/target page|context or browser has been closed|browser has been closed|session closed|ws connection closed|timeout/i.test(errMsg) && tried.length < 2) continue;
+      return { data: null, status: "service_error", account: account.name, error: errMsg };
+    } finally {
+      await closeBrowser(env, opened);
+    }
+  }
+}
+
 /** Сброс всех аккаунтов в alive=1 */
 export async function resetAccountStatuses(env: Env) {
   const result = await env.DB.prepare("UPDATE threads_accounts SET is_alive=1,last_error=NULL,updated_at=? WHERE enabled=1").bind(iso()).run();

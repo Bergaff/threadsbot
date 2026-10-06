@@ -230,9 +230,21 @@ export async function trackJsBeacon(env: Env, request: Request): Promise<boolean
   return true;
 }
 
-/** Итог запуска скрапера: kind|status|posts|ms */
-export async function trackScrape(env: Env, kind: "profile" | "more" | "comments", status: string, posts: number, ms: number): Promise<void> {
-  await insertEvents(env, [["scrape", `${kind}|${status}|${Math.max(0, posts | 0)}|${Math.max(0, Math.round(ms))}`]]);
+/**
+ * Итог запуска скрапера: kind|status|posts|ms|target|error (target и error - с pr74).
+ * target - что открывали (@user, @user/post/CODE), error - текст ошибки для админки.
+ */
+export async function trackScrape(
+  env: Env,
+  kind: "profile" | "more" | "comments" | "diag",
+  status: string,
+  posts: number,
+  ms: number,
+  target = "",
+  error = ""
+): Promise<void> {
+  const clean = (v: string, n: number) => String(v || "").replace(/[|\r\n]+/g, " ").trim().slice(0, n);
+  await insertEvents(env, [["scrape", `${kind}|${status}|${Math.max(0, posts | 0)}|${Math.max(0, Math.round(ms))}|${clean(target, 80)}|${clean(error, 220)}`]]);
 }
 
 /** Медиана, p95 и т.п. по уже отсортированному массиву. */

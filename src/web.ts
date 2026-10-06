@@ -1,3 +1,4 @@
+import { hasReplies, postCodeOf } from "./postCode";
 import type { Env } from "./config";
 import { DONATE_CSS, renderAdPlaceholder, renderDonateBody, renderDonateCardStubBody } from "./donate";
 import type { Donation } from "./plans";
@@ -1687,6 +1688,10 @@ const I18N = {
     loading_posts: "Загрузка постов из Threads...",
     loading_comments: "Загрузка комментариев...",
     no_comments: "Комментариев нет.",
+    comments_hidden: "Threads не отдал комментарии к этому посту, хотя счётчик их показывает. Попробуйте обновить через минуту.",
+    comments_failed: "Не удалось загрузить комментарии. Повторите попытку через минуту.",
+    comments_post_gone: "Пост не найден в Threads: возможно, он удалён или скрыт.",
+    comments_retry: "Повторить",
     no_posts: "Посты не найдены.",
     toast_profile_copied: "Ссылка скопирована",
     toast_post_copied: "Ссылка на пост скопирована",
@@ -1766,6 +1771,10 @@ const I18N = {
     loading_posts: "Loading posts from Threads...",
     loading_comments: "Loading comments...",
     no_comments: "No comments yet.",
+    comments_hidden: "Threads did not return replies for this post, although the counter shows some. Try refreshing in a minute.",
+    comments_failed: "Could not load comments. Please try again in a minute.",
+    comments_post_gone: "Post not found on Threads: it may have been deleted or hidden.",
+    comments_retry: "Retry",
     no_posts: "No posts found.",
     toast_profile_copied: "Profile link copied",
     toast_post_copied: "Post link copied",
@@ -1940,7 +1949,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr73-2026-10-05-verified-stats";
+  const ver = env.VERSION || "pr74-2026-10-06-comments-diag";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2483,7 +2492,7 @@ export function renderProfilePage(
           </a>
         </div>
 
-        <div class="comments-box" id="comments-${idx}"></div>
+        <div class="comments-box" id="comments-${idx}" data-code="${esc(postCodeOf(post))}" data-replies="${hasReplies(post.replies) ? 1 : 0}"></div>
       </article>
     `;
   }).join("")
@@ -2543,9 +2552,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr73-2026-10-05-verified-stats')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr73-2026-10-05-verified-stats')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr73-2026-10-05-verified-stats')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr74-2026-10-06-comments-diag')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr74-2026-10-06-comments-diag')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr74-2026-10-06-comments-diag')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2924,21 +2933,50 @@ export function renderProfilePage(
       if (!box) return;
       box.innerHTML = '<div class="comments-loading"><span class="loading-bar"></span> ${t.loading_comments}</div>';
 
-      fetch('/api/comments/' + encodeURIComponent(username) + '/' + idx + (refresh ? '?refresh=1' : ''))
-        .then(function(res) { return res.json(); })
+      var code = box.getAttribute('data-code') || '';
+      var expect = box.getAttribute('data-replies') === '1';
+      var q = [];
+      if (code) q.push('code=' + encodeURIComponent(code));
+      if (expect) q.push('r=1');
+      if (refresh) q.push('refresh=1');
+      var retryBtn = '<div style="margin-top:8px;"><button class="btn-sharp" style="font-size:0.8rem;padding:4px 12px;" onclick="loadCommentsForPost(currentUsername, ' + idx + ', true)">${t.comments_retry}</button></div>';
+
+      fetch('/api/comments/' + encodeURIComponent(username) + '/' + idx + (q.length ? '?' + q.join('&') : ''))
+        .then(function(res) { return res.json().catch(function() { return { ok: false }; }); })
         .then(function(data) {
-          box.dataset.loaded = 'true';
-          if (!data.ok || !data.comments || !data.comments.length) {
-            box.innerHTML = '<div class="comments-empty">${t.no_comments}</div>';
+          if (data && data.ok && data.comments && data.comments.length) {
+            box.dataset.loaded = 'true';
+            box._allComments = data.comments;
+            box._shownCount = 10;
+            renderCommentsList(box, idx, username);
             return;
           }
-          box._allComments = data.comments;
-          box._shownCount = 10;
-          renderCommentsList(box, idx, username);
+          if (data && data.ok) {
+            // Threads честно вернул пустой список
+            box.dataset.loaded = 'true';
+            box.innerHTML = expect
+              ? '<div class="comments-empty">${t.comments_hidden}' + retryBtn + '</div>'
+              : '<div class="comments-empty">${t.no_comments}</div>';
+            return;
+          }
+          // Ошибка загрузки - это НЕ «комментариев нет». Не помечаем как загруженное: повторное открытие попробует снова
+          delete box.dataset.loaded;
+          var gone = data && (data.status === 'post_not_found' || data.status === 'user_not_found');
+          box.innerHTML = '<div class="comments-error">' + (gone ? '${t.comments_post_gone}' : '${t.comments_failed}' + retryBtn) + '</div>';
         })
         .catch(function() {
-          box.innerHTML = '<div class="comments-error">${t.toast_error}</div>';
+          delete box.dataset.loaded;
+          box.innerHTML = '<div class="comments-error">${t.comments_failed}' + retryBtn + '</div>';
         });
+    }
+
+    function postCodeClient(post) {
+      if (!post) return '';
+      var s = String(post.postUrl || '');
+      var i = s.indexOf('/post/');
+      var c = i >= 0 ? s.slice(i + 6).split(/[/?#]/)[0] : '';
+      if (!c && post.id) c = String(post.id);
+      return /^[A-Za-z0-9_-]{5,40}$/.test(c) ? c : '';
     }
 
     function renderCommentsList(box, idx, username) {
@@ -3099,7 +3137,7 @@ export function renderProfilePage(
             '</button>' +
             '<a href="https://t.me/${esc(tgUser)}?start=sub_' + escHtml(currentUsername) + '" target="_blank" rel="noopener" class="toolbar-btn" style="margin-left:auto;">${t.in_bot}</a>' +
           '</div>' +
-          '<div class="comments-box" id="comments-' + idx + '"></div>' +
+          '<div class="comments-box" id="comments-' + idx + '" data-code="' + escHtml(postCodeClient(post)) + '" data-replies="' + (post.replies && String(post.replies).trim() && !/^0+$/.test(String(post.replies).trim()) ? 1 : 0) + '"></div>' +
         '</article>';
       }
       if (startIdx > 0) feed.insertAdjacentHTML('beforeend', html);
@@ -3590,9 +3628,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr73-2026-10-05-verified-stats">
-  <link rel="alternate icon" href="/favicon.ico?v=pr73-2026-10-05-verified-stats">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr73-2026-10-05-verified-stats">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr74-2026-10-06-comments-diag">
+  <link rel="alternate icon" href="/favicon.ico?v=pr74-2026-10-06-comments-diag">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr74-2026-10-06-comments-diag">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3840,7 +3878,7 @@ function renderShopShell(
   <meta property="og:title" content="${esc(opts.title)}">
   <meta property="og:description" content="${esc(opts.description)}">
   <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr73-2026-10-05-verified-stats">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr74-2026-10-06-comments-diag">
   <script>
     (function(){
       var t = localStorage.getItem("threads_theme");
