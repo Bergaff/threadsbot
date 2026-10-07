@@ -1235,21 +1235,32 @@ async function markTransientError(env: Env, name: string, error: unknown) {
   await env.DB.prepare("UPDATE threads_accounts SET last_error=?,errors_count=errors_count+1,updated_at=? WHERE name=?").bind(message, iso(), name).run();
 }
 
-async function capturePosts(page: Page, posts: Post[]): Promise<Post[]> {
+/**
+ * Скриншоты постов [offset, offset+count). Раньше снимались ТОЛЬКО первые 5,
+ * и в боте страницы «6–10», «11–15» в режиме скриншотов приходили пустыми.
+ */
+async function capturePosts(page: Page, posts: Post[], offset = 0, count = 5): Promise<Post[]> {
   await page.evaluate(() => {
     window.scrollTo(0, 0);
     document.querySelectorAll('div[role="dialog"]').forEach(e => e.remove());
     document.querySelectorAll("nav,header").forEach((e: any) => e.style.display = "none");
   }).catch(() => {});
-  const result: Post[] = [];
-  const targetBatch = posts.slice(0, 5);
+  const result: Post[] = posts.slice(0, offset);
+  const targetBatch = posts.slice(offset, offset + count);
   for (const post of targetBatch) {
     try {
-      const handle = await page.evaluateHandle((search: string) => {
+      const handle = await page.evaluateHandle(({ search, code }: { search: string; code: string }) => {
         let nodes = Array.from(document.querySelectorAll('article,div[role="article"]'));
         if (!nodes.length) nodes = Array.from(document.querySelectorAll('div[data-pressable-container="true"]'));
+        // Сначала по ссылке на пост (надёжно), потом по началу текста. Пустой текст не ищем:
+        // пустая строка совпадала с первым постом ленты.
+        if (code) {
+          const byCode = nodes.find(node => node.querySelector(`a[href*="/post/${code}"]`));
+          if (byCode) return byCode;
+        }
+        if (!search.trim()) return null;
         return nodes.find(node => Array.from(node.querySelectorAll('span[dir="auto"],div[dir="auto"]')).some((b: any) => (b.innerText || "").trim().startsWith(search))) || null;
-      }, post.text.slice(0, 50));
+      }, { search: post.text.slice(0, 50), code: postCodeFromUrl(post.postUrl) || "" });
       const element = handle.asElement();
       if (element) {
         await element.scrollIntoViewIfNeeded().catch(() => {});
@@ -1464,7 +1475,7 @@ export async function fetchProfileWithPosts(
   }
 }
 
-export async function fetchPosts(env: Env, username: string, mode: "text" | "img", amount = 20): Promise<{ data: Post[] | null; status: ThreadsStatus; account?: string; error?: string }> {
+export async function fetchPosts(env: Env, username: string, mode: "text" | "img", amount = 20, captureFrom = 0): Promise<{ data: Post[] | null; status: ThreadsStatus; account?: string; error?: string }> {
   const tried: string[] = [];
   const state = await newVerdictState(env);
   while (true) {
@@ -1486,7 +1497,7 @@ export async function fetchPosts(env: Env, username: string, mode: "text" | "img
       if (outcome.action === "return") return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
       let data = await collectPosts(opened.page, amount, username);
       if (!data.length) return { data: null, status: "no_posts", account: account.name };
-      if (mode === "img") data = await capturePosts(opened.page, data);
+      if (mode === "img") data = await capturePosts(opened.page, data, captureFrom, 5);
       let updated: string | null = null;
       try {
         const rawCookies = await opened.context.cookies();
