@@ -53,7 +53,7 @@ STATS_EXCLUDE_IDS = "369330135,657708753"
 BASE_URL = "https://www.threads.com"
 SITE_URL = "https://threadsviewer.online"
 SITE_DOMAIN = "threadsviewer.online"
-VERSION = "pr77-2026-10-08-rollypay"
+VERSION = "pr78-2026-10-08-comments-dom"
 BOT_USERNAME = "threadsreaderbot"
 # Касса RollyPay (оплата картой/СБП). UUID кассы не секрет.
 # Секреты задаются командами: npx wrangler secret put ROLLYPAY_API_KEY / ROLLYPAY_SIGNING_SECRET

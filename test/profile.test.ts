@@ -39,6 +39,13 @@ describe("isUserNotFoundPage", () => {
     expect(isUserNotFoundPage("Не удалось найти этот аккаунт")).toBe(true);
     expect(isUserNotFoundPage("Welcome to Threads")).toBe(false);
   });
+
+  it("recognizes the 2026 Threads 404 page (curly apostrophe too)", () => {
+    const body = "Not all who wander are lost, but this page is The link’s not working or the page is gone. Go back to keep exploring. Back © 2026 Threads Terms Privacy Policy";
+    expect(isUserNotFoundPage(body)).toBe(true);
+    expect(isUserNotFoundPage("The link's not working or the page is gone.")).toBe(true);
+    expect(isUserNotFoundPage("Sorry, this page isn’t available.")).toBe(true);
+  });
 });
 
 describe("isHomeRedirect", () => {

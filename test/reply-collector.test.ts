@@ -75,4 +75,25 @@ describe("ReplyCollector (комментарии из JSON страницы по
     expect(rc.mainSeen).toBe(false);
     expect(rc.replies.map((r) => r.code)).toEqual(["MAIN1", "R1", "R2", "R2a"]);
   });
+
+  it("пост недоступен: ответы без reply_to_author всё равно берутся, посты самого автора - нет", () => {
+    const rc = new ReplyCollector("GONE1", "alina.kuzina");
+    rc.ingestText(JSON.stringify({ data: { edges: [
+      { node: { thread_items: [{ post: { code: "GONE1", text_post_app_info: { is_post_unavailable: true } } }] } },
+      { node: { thread_items: [{ post: post("V1", "vadymdoroshenko", "😘❤️‍🔥", null) }] } },
+      { node: { thread_items: [{ post: post("S1", "sokolovskii9411", "Привет", null) }] } },
+      { node: { thread_items: [{ post: post("A1", "alina.kuzina", "Ещё от автора", null) }] } },
+    ] } }));
+    expect(rc.replies).toHaveLength(0);
+    expect(rc.mainSeen).toBe(false);
+    expect(rc.bestReplies.map((r) => r.author)).toEqual(["@vadymdoroshenko", "@sokolovskii9411"]);
+    expect(rc.stats()).toContain("с кодом поста 1");
+    expect(rc.stats()).toContain("отброшено «не ответ» 3");
+  });
+
+  it("пост виден: рекомендации без reply_to_author в итог не попадают", () => {
+    const rc = new ReplyCollector("MAIN1", "alina.kuzina");
+    rc.ingestJson(postPage());
+    expect(rc.bestReplies.map((r) => r.code)).toEqual(["R1", "R2", "R2a"]);
+  });
 });

@@ -178,7 +178,8 @@ async function waitForBrowserSlot(env: Env) {
 function isBrowserRateLimit(error: unknown) {
   const value = error instanceof Error ? error.message : String(error);
   // 429 - лимит запусков; 503 «No browser available» - все браузеры Cloudflare заняты (лимит параллельных сессий)
-  return value.includes("429") || /rate limit|too many requests|no browser available|unable to create new browser/i.test(value);
+  // «reading 'accept'» - биндинг браузера не выдал websocket (response.webSocket === null внутри @cloudflare/playwright)
+  return value.includes("429") || /rate limit|too many requests|no browser available|unable to create new browser|reading 'accept'/i.test(value);
 }
 
 async function openBrowser(env: Env, account: Account): Promise<Opened> {
@@ -254,8 +255,8 @@ export function attachFeedCollector(page: Page, username: string): FeedCollector
 }
 
 /** Подписка страницы поста на GraphQL-ответы: ответы на пост приходят при прокрутке. Вызывать ДО навигации. */
-function attachReplyCollector(page: Page, mainCode: string): ReplyCollector {
-  const rc = new ReplyCollector(mainCode);
+function attachReplyCollector(page: Page, mainCode: string, mainAuthor = ""): ReplyCollector {
+  const rc = new ReplyCollector(mainCode, mainAuthor);
   page.on("response", (resp: any) => {
     try {
       const u: string = resp.url();
@@ -277,15 +278,17 @@ async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: numbe
   const dom = await collectComments(page, amount, code).catch(() => [] as Comment[]);
   // Повторно - то, что догрузилось при прокрутке внутри collectComments
   await ingestPreloadedJson(page, rc);
+  // Второй DOM-способ: по ссылкам-датам ответов (не зависит от data-pressable-container)
+  const byTime = await collectRepliesByTimeLinks(page, code).catch(() => [] as Comment[]);
   const out: Comment[] = [];
   const seen = new Set<string>();
   const key = (c: { author: string; text: string }) => (c.author + "|" + c.text.slice(0, 80)).toLowerCase();
-  for (const r of rc.replies) {
+  for (const r of rc.bestReplies) {
     if (!r.text) continue;
     const c: Comment = { author: r.author, text: cleanPostText(r.text), avatar: r.avatar };
     if (!seen.has(key(c))) { seen.add(key(c)); out.push(c); }
   }
-  for (const c of dom) {
+  for (const c of [...dom, ...byTime]) {
     if (!seen.has(key(c))) { seen.add(key(c)); out.push(c); }
   }
   let diag = "";
@@ -297,15 +300,64 @@ async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: numbe
         containers: cont.length,
         articles: document.querySelectorAll('article,div[role="article"]').length,
         mainInDom: Boolean(document.querySelector(`a[href*="/post/${mainCode}"]`)),
+        timeLinks: Array.from(document.querySelectorAll('a[href*="/post/"]')).filter((a) => a.querySelector("time")).length,
+        unavailable: /post not available|post unavailable|пост недоступен|публикация недоступна/i.test(document.body?.innerText || ""),
         jsonBlobs: Array.from(document.querySelectorAll('script[type="application/json"]')).filter((e) => (e.textContent || "").includes("thread_items")).length,
         body: (document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 200),
       };
     }, code).catch(() => null);
     diag = snap
-      ? `JSON: ответов ${rc.replies.length}, пост в JSON ${rc.mainSeen ? "да" : "нет"}, ответов сети ${rc.responses}, блоков ${snap.jsonBlobs}; DOM: контейнеров ${snap.containers}, article ${snap.articles}, пост в DOM ${snap.mainInDom ? "да" : "нет"}; url ${snap.url}; текст: "${snap.body}"`
-      : `JSON: ответов ${rc.replies.length}, пост в JSON ${rc.mainSeen ? "да" : "нет"}; DOM недоступен`;
+      ? `JSON: ${rc.stats()}, блоков ${snap.jsonBlobs}; DOM: контейнеров ${snap.containers}, article ${snap.articles}, ссылок-дат ${snap.timeLinks}, пост в DOM ${snap.mainInDom ? "да" : "нет"}${snap.unavailable ? ", «Post not available»" : ""}; url ${snap.url}; текст: "${snap.body}"`
+      : `JSON: ${rc.stats()}; DOM недоступен`;
   }
   return { data: out.slice(0, amount), diag };
+}
+
+/**
+ * Ответы по ссылкам-датам: у каждого поста в Threads есть <a href="/@user/post/CODE"><time>..</time></a>.
+ * Для каждой такой ссылки (кроме самого поста) берём самый большой блок-предок, в котором нет ДРУГИХ
+ * ссылок-дат, - это карточка ответа. Автор - из href, текст - самый длинный span[dir=auto] без служебных слов.
+ * Всё, что в документе выше ссылки-даты самого поста, - цепочка-предок, а не комментарии.
+ */
+export async function collectRepliesByTimeLinks(page: Page, mainCode: string): Promise<Comment[]> {
+  const raw = await page.evaluate((mainCode: string) => {
+    const NOISE = /^(Follow|Подписаться|Translate|Перевести|See translation|Показать перевод|Reply|Ответ|Ответить|Repost|Share|Send|Like|More|Verified|Author|Автор|Ещё|Нравится|Поделиться|Top|Popular|Популярное|Post not available|View activity|Thread|Ветка|Edited|Изменено)$/i;
+    const links = Array.from(document.querySelectorAll('a[href*="/post/"]')).filter((a) => a.querySelector("time")) as HTMLAnchorElement[];
+    const parse = (a: Element) => {
+      const m = (a.getAttribute("href") || "").match(/\/@([A-Za-z0-9._]+)\/post\/([A-Za-z0-9_-]+)/);
+      return m ? { author: m[1].toLowerCase(), code: m[2] } : null;
+    };
+    const mainLink = links.find((a) => parse(a)?.code === mainCode) || null;
+    const out: Array<{ author: string; text: string; avatar: string }> = [];
+    const seen = new Set<string>();
+    for (const a of links) {
+      const info = parse(a);
+      if (!info || info.code === mainCode || seen.has(info.code)) continue;
+      // Предки поста (выше него в документе) - не комментарии
+      if (mainLink && (a.compareDocumentPosition(mainLink) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+      let card: Element = a;
+      while (card.parentElement && card.parentElement !== document.body) {
+        const others = Array.from(card.parentElement.querySelectorAll('a[href*="/post/"]')).filter((x) => x.querySelector("time") && parse(x)?.code !== info.code);
+        if (others.length) break;
+        card = card.parentElement;
+      }
+      let text = "";
+      card.querySelectorAll('span[dir="auto"]').forEach((s) => {
+        if (s.closest("a[href*=\"/post/\"]") === a) return;
+        const v = ((s as HTMLElement).innerText || s.textContent || "").trim();
+        if (!v || v.toLowerCase() === info.author || NOISE.test(v) || /^[\d.,\s]+[KkMmКкМм]?$/.test(v) || /^\d+\s*(h|m|s|d|w|y|ч|м|с|д|н|г|мин|нед)\.?$/i.test(v) || /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(v)) return;
+        if (v.length > text.length) text = v;
+      });
+      let avatar = "";
+      const img = card.querySelector('img[alt*="profile picture"], img[alt*="Profile picture"], img[alt*="фото профиля"], img[alt*="Фото профиля"]') as HTMLImageElement | null;
+      if (img) avatar = img.currentSrc || img.src || "";
+      if (!text || !/[\p{L}\p{Extended_Pictographic}]/u.test(text)) continue;
+      seen.add(info.code);
+      out.push({ author: "@" + info.author, text, avatar });
+    }
+    return out;
+  }, mainCode).catch(() => [] as Array<{ author: string; text: string; avatar: string }>);
+  return (raw as Array<{ author: string; text: string; avatar: string }>).map((c) => ({ author: c.author, text: cleanPostText(c.text), avatar: c.avatar || undefined } as Comment));
 }
 
 /** Предзагруженный JSON страницы (первая порция ленты и её page_info). */
@@ -1711,7 +1763,7 @@ export async function fetchComments(env: Env, username: string, index: number, a
       }, search));
       if (!href) return { data: null, status: "post_not_found", account: account.name };
       const hrefCode = postCodeFromUrl(href) || "";
-      const rc = attachReplyCollector(opened.page, hrefCode);
+      const rc = attachReplyCollector(opened.page, hrefCode, username);
       await opened.page.goto(href.startsWith("/") ? BASE(env) + href : href, { waitUntil: "domcontentloaded", timeout: 30_000 });
       await opened.page.waitForSelector('div[data-pressable-container="true"]', { timeout: 15_000 }).catch(() => {});
       await sleep(2500);
@@ -1759,7 +1811,7 @@ export async function fetchCommentsByCode(env: Env, username: string, code: stri
     let opened: Opened | undefined;
     try {
       opened = await openBrowser(env, account);
-      const rc = attachReplyCollector(opened.page, code);
+      const rc = attachReplyCollector(opened.page, code, cleanUser);
       const url = `${BASE(env)}/@${cleanUser}/post/${code}`;
       const resp = await opened.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
       const http = resp?.status?.() || 0;

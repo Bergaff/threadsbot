@@ -54,11 +54,18 @@ const NOT_FOUND_MARKERS = [
   "не удалось найти этот аккаунт",
   "profile isn't available",
   "profile is not available",
+  // Новая 404-страница Threads (2026): "Not all who wander are lost, but this page is. The link's not working or the page is gone."
+  "the link's not working or the page is gone",
+  "the link's not working",
+  "not all who wander are lost, but this page is",
+  "ссылка не работает или страница удалена",
+  "ссылка не работает",
 ];
 
 export function isUserNotFoundPage(body: string): boolean {
   if (!body) return false;
-  const text = body.toLowerCase();
+  // Типографский апостроф (’) Threads использует в «link’s», «isn’t»
+  const text = body.toLowerCase().replace(/[\u2018\u2019\u02bc]/g, "'");
   return NOT_FOUND_MARKERS.some(marker => text.includes(marker.toLowerCase()));
 }
 

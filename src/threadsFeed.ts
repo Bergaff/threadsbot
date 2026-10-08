@@ -275,17 +275,45 @@ export class ReplyCollector {
   /** Встречался ли сам пост в JSON (для диагностики) */
   mainSeen = false;
   responses = 0;
+  /** Сетевых ответов, где вообще встречается код поста / thread_items (диагностика) */
+  textsWithMain = 0;
+  textsWithThreads = 0;
+  /** Постов в thread_items (кроме самого поста), отброшенных как «не ответ» / недоступных */
+  droppedTopLevel: FeedReply[] = [];
+  droppedUnavailable = 0;
   private codes = new Set<string>();
+  private droppedCodes = new Set<string>();
   private ancestors = new Set<string>();
+  private readonly mainAuthor: string;
 
-  constructor(mainCode: string) {
+  constructor(mainCode: string, mainAuthor = "") {
     this.mainCode = mainCode;
+    this.mainAuthor = mainAuthor.toLowerCase().replace(/^@/, "");
   }
 
   ingestText(text: string): number {
+    if (text.includes(this.mainCode)) this.textsWithMain++;
+    if (text.includes("thread_items")) this.textsWithThreads++;
     let added = 0;
     for (const doc of parseThreadsPayload(text)) added += this.ingestJson(doc);
     return added;
+  }
+
+  /**
+   * Итоговый список. Обычно - строгие ответы (reply_to_author задан).
+   * Если пост для аккаунта недоступен («Post not available»), Threads отдаёт ответы БЕЗ reply_to_author,
+   * и строгий фильтр выбрасывает всё. Тогда берём отброшенные посты чужих авторов
+   * (посты самого автора в этом случае - скорее «ещё от автора», чем ответы).
+   */
+  get bestReplies(): FeedReply[] {
+    if (this.replies.length || this.mainSeen) return this.replies;
+    const author = this.mainAuthor ? "@" + this.mainAuthor : "";
+    return this.droppedTopLevel.filter((r) => !this.ancestors.has(r.code) && (!author || r.author !== author));
+  }
+
+  /** Короткая сводка для диагностики пустого результата. */
+  stats(): string {
+    return `ответов ${this.replies.length}, пост в JSON ${this.mainSeen ? "да" : "нет"}, ответов сети ${this.responses} (с кодом поста ${this.textsWithMain}, с thread_items ${this.textsWithThreads}), отброшено «не ответ» ${this.droppedTopLevel.length}, недоступных ${this.droppedUnavailable}`;
   }
 
   ingestJson(root: any): number {
@@ -318,19 +346,23 @@ export class ReplyCollector {
     const code = String(node.code);
     if (code === this.mainCode || this.ancestors.has(code) || this.codes.has(code)) return;
     const info = node.text_post_app_info;
-    // Пост верхнего уровня (рекомендации, «ещё от автора») - не ответ
-    if (info && typeof info === "object" && "reply_to_author" in info && info.reply_to_author == null) return;
-    if (info?.is_post_unavailable === true) return;
+    if (info?.is_post_unavailable === true) { this.droppedUnavailable++; return; }
     const p = normalizeThreadsPost(node);
     if (!p) return;
-    this.codes.add(code);
-    this.replies.push({
+    const reply: FeedReply = {
       code,
       author: "@" + (p.author || "anonymous"),
       text: p.text || (p.has_video ? "🎥" : p.has_image ? "📷" : ""),
       avatar: p.authorAvatar,
       likes: p.likes,
-    });
+    };
+    // Пост верхнего уровня (рекомендации, «ещё от автора») - не ответ; запоминаем на случай недоступного поста
+    if (info && typeof info === "object" && "reply_to_author" in info && info.reply_to_author == null) {
+      if (!this.droppedCodes.has(code)) { this.droppedCodes.add(code); this.droppedTopLevel.push(reply); }
+      return;
+    }
+    this.codes.add(code);
+    this.replies.push(reply);
   }
 
   private walk(node: any, depth: number): void {
