@@ -31,7 +31,10 @@ import {
   renderFallbackScript,
   renderDonatePage,
   renderDonateCardStubPage,
+  renderDonateResultPage,
 } from "./web";
+import { createRollyPayment, makeOrderId, rollypayConfigured } from "./rollypay";
+import { handleRollyWebhook } from "./rollypayWebhook";
 import { DEFAULT_DONATION, botDonateLink, donationByRub, planByDays } from "./plans";
 
 /** Сравнение секретов без утечки по времени. */
@@ -171,6 +174,11 @@ export default {
     // ==========================================
     // ПЛАТЕЖНЫЕ ОПОВЕЩЕНИЯ (Kassa / Webhook / result.php)
     // ==========================================
+    // Касса RollyPay (карта/СБП): подписанный вебхук о смене статуса платежа
+    if (lowerPath === "/api/payment/rollypay" || lowerPath === "/webhooks/rollypay") {
+      return handleRollyWebhook(request, env);
+    }
+
     if (lowerPath === "/result.php" || lowerPath === "/api/payment/callback") {
       try {
         const clientIp = request.headers.get("cf-connecting-ip") || "";
@@ -328,7 +336,7 @@ export default {
     // ==========================================
     // ДОБРОВОЛЬНЫЕ ПОЖЕРТВОВАНИЯ (/donate)
     // Сайт бесплатный, пожертвование ничего не открывает.
-    // Карта/СБП - заглушка (шлюз не подключён), Stars/USDT - deep-link в бота со счётом.
+    // Карта/СБП - касса RollyPay (если задан ROLLYPAY_API_KEY, иначе заглушка), Stars/USDT - deep-link в бота со счётом.
     // Старые адреса тарифов (/pricing, /pay, /buy, /order) ведут сюда.
     // ==========================================
     if (["/pricing", "/prices", "/tariffs", "/pay", "/pay/confirm", "/buy", "/order"].includes(lowerPath)) {
@@ -338,19 +346,43 @@ export default {
         headers: { Location: `/donate${q === "en" || q === "ru" ? `?lang=${q}` : ""}`, "cache-control": "public, max-age=3600" },
       });
     }
-    if (lowerPath === "/donate" || lowerPath === "/donate/confirm") {
-      const q = url.searchParams.get("lang");
+    if (lowerPath === "/donate" || lowerPath === "/donate/confirm" || lowerPath === "/donate/thanks" || lowerPath === "/donate/fail") {
+      // Форма оплаты отправляется POST-ом (создание платежа не должно срабатывать от GET-переходов и предзагрузки)
+      const form = request.method === "POST" ? await request.formData().catch(() => null) : null;
+      const param = (name: string) => String(form?.get(name) ?? url.searchParams.get(name) ?? "");
+      const q = param("lang");
       const shopLang = q === "en" ? "en" : (q === "ru" ? "ru" : detectLanguage(request));
-      const donation = donationByRub(url.searchParams.get("amount")) || donationByRub(DEFAULT_DONATION)!;
+      const donation = donationByRub(param("amount")) || donationByRub(DEFAULT_DONATION)!;
+      if (lowerPath === "/donate/thanks" || lowerPath === "/donate/fail") {
+        return renderDonateResultPage(env, shopLang, url.origin, donation, lowerPath === "/donate/thanks" ? "thanks" : "fail");
+      }
       if (lowerPath === "/donate/confirm") {
-        const method = url.searchParams.get("method");
+        const method = param("method");
         if (method === "stars" || method === "crypto") {
           return new Response(null, {
-            status: 302,
+            status: request.method === "POST" ? 303 : 302,
             headers: { Location: botDonateLink(env.BOT_USERNAME || "threadsreaderbot", donation, method), "cache-control": "no-store" },
           });
         }
-        return renderDonateCardStubPage(env, shopLang, url.origin, donation);
+        if (!rollypayConfigured(env)) return renderDonateCardStubPage(env, shopLang, url.origin, donation);
+        if (request.method !== "POST") {
+          return new Response(null, { status: 303, headers: { Location: `/donate?amount=${donation.rub}&lang=${shopLang}`, "cache-control": "no-store" } });
+        }
+        const site = (env.SITE_URL || url.origin).replace(/\/+$/, "");
+        const result = await createRollyPayment(env, {
+          amount: donation.rub,
+          orderId: makeOrderId("don", donation.rub),
+          description: shopLang === "en" ? "Voluntary donation to Threads Viewer" : "Добровольное пожертвование Threads Viewer",
+          successUrl: `${site}/donate/thanks?amount=${donation.rub}&lang=${shopLang}`,
+          failUrl: `${site}/donate/fail?amount=${donation.rub}&lang=${shopLang}`,
+          metadata: { kind: "donation", lang: shopLang },
+        });
+        if (result.ok && result.payUrl) {
+          return new Response(null, { status: 303, headers: { Location: result.payUrl, "cache-control": "no-store" } });
+        }
+        console.error(`[RollyPay] Не удалось создать платёж на ${donation.rub} ₽: ${result.error}`);
+        await logSystem(env, "error", "payment", `RollyPay: не удалось создать платёж на ${donation.rub} ₽: ${result.error}`).catch(() => {});
+        return renderDonateResultPage(env, shopLang, url.origin, donation, "error");
       }
       const { isPremium } = await checkPremiumUser(request, env);
       return renderDonatePage(env, shopLang, url.origin, donation, isPremium);

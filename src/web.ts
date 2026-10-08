@@ -1,6 +1,6 @@
 import { hasReplies, postCodeOf } from "./postCode";
 import type { Env } from "./config";
-import { DONATE_CSS, renderAdPlaceholder, renderDonateBody, renderDonateCardStubBody } from "./donate";
+import { DONATE_CSS, renderAdPlaceholder, renderDonateBody, renderDonateCardStubBody, renderDonateResultBody } from "./donate";
 import type { Donation } from "./plans";
 import type { Comment, Post, ProfileData } from "./threads";
 
@@ -1949,7 +1949,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr76-2026-10-08-comments-json";
+  const ver = env.VERSION || "pr77-2026-10-08-rollypay";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2552,9 +2552,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr76-2026-10-08-comments-json')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr76-2026-10-08-comments-json')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr76-2026-10-08-comments-json')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr77-2026-10-08-rollypay')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr77-2026-10-08-rollypay')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr77-2026-10-08-rollypay')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3362,7 +3362,7 @@ export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsview
 
     <h2>4. Free Website, Voluntary Donations and Telegram Bot Subscription</h2>
     <p><b>Website.</b> The Threads Viewer website is free of charge and requires no registration. No third-party advertising is placed on the website; the ad space shows only our own notice about advertising inquiries.</p>
-    <p><b>Voluntary donations.</b> Users may support the project with a voluntary donation on the <a href="/donate?lang=en">Support the project</a> page. A donation is not a payment for services, does not unlock any features and creates no obligations for the Service. Donations can be made with Telegram Stars or cryptocurrency (USDT via @CryptoBot) through our Telegram bot; bank card payments are being connected. If you donated by mistake, contact support and we will review a refund.</p>
+    <p><b>Voluntary donations.</b> Users may support the project with a voluntary donation on the <a href="/donate?lang=en">Support the project</a> page. A donation is not a payment for services, does not unlock any features and creates no obligations for the Service. Donations can be made by bank card or the Russian Faster Payments System (SBP) through the payment service RollyPay, or with Telegram Stars or cryptocurrency (USDT via @CryptoBot) through our Telegram bot. Card details are entered on the payment service page and are never received or stored by the Service. If you donated by mistake, contact support and we will review a refund.</p>
     <p><b>Telegram bot subscription.</b> In the official Telegram bot <a href="https://t.me/threadsreaderbot" target="_blank" rel="noopener">@threadsreaderbot</a> a paid subscription is available: anonymous tracking of up to 5 Threads creators with delivery of new posts to Telegram and unlimited requests in the bot. Plans: 3 days - 25 Telegram Stars / 0.49 USDT; 30 days - 75 Stars / 1.49 USDT; 90 days - 175 Stars / 3.49 USDT; 365 days - 500 Stars / 9.99 USDT. Every plan is a one-time payment without automatic renewal; buying a plan while a subscription is active extends it. The subscription is activated automatically right after payment.</p>
 
     <h2>5. Order Fulfillment & Delivery Policy</h2>
@@ -3397,7 +3397,7 @@ export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsview
 
     <h2>4. Бесплатный сайт, добровольные пожертвования и подписка в Telegram-боте</h2>
     <p><b>Сайт.</b> Веб-сайт Threads Viewer бесплатный и не требует регистрации. Сторонняя реклама на сайте не размещается; в рекламном месте показывается только наше собственное объявление о приёме заявок на рекламу.</p>
-    <p><b>Добровольные пожертвования.</b> Пользователь может поддержать проект добровольным пожертвованием на странице <a href="/donate?lang=ru">«Поддержать проект»</a>. Пожертвование не является оплатой услуг, не открывает никаких функций и не создаёт обязательств Сервиса. Пожертвовать можно через Telegram Stars или криптовалюту (USDT через @CryptoBot) в нашем Telegram-боте; приём банковских карт находится в процессе подключения. Если пожертвование отправлено по ошибке, напишите в поддержку - мы рассмотрим возврат.</p>
+    <p><b>Добровольные пожертвования.</b> Пользователь может поддержать проект добровольным пожертвованием на странице <a href="/donate?lang=ru">«Поддержать проект»</a>. Пожертвование не является оплатой услуг, не открывает никаких функций и не создаёт обязательств Сервиса. Пожертвовать можно банковской картой или через СБП с помощью платёжного сервиса RollyPay, а также через Telegram Stars или криптовалюту (USDT через @CryptoBot) в нашем Telegram-боте. Данные карты вводятся на странице платёжного сервиса; Сервис их не получает и не хранит. Если пожертвование отправлено по ошибке, напишите в поддержку - мы рассмотрим возврат.</p>
     <p><b>Подписка в Telegram-боте.</b> В официальном Telegram-боте <a href="https://t.me/threadsreaderbot" target="_blank" rel="noopener">@threadsreaderbot</a> доступна платная подписка: анонимный мониторинг до 5 авторов Threads с доставкой новых постов в Telegram и запросы в боте без лимита. Тарифы: 3 дня - 25 Telegram Stars / 0,49 USDT; 30 дней - 75 Stars / 1,49 USDT; 90 дней - 175 Stars / 3,49 USDT; 365 дней - 500 Stars / 9,99 USDT. Каждый тариф - разовый платёж без автоматического продления; покупка при действующей подписке продлевает её. Подписка активируется автоматически сразу после оплаты.</p>
 
     <h2>5. Порядок оформления и доставки цифровых услуг</h2>
@@ -3628,9 +3628,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr76-2026-10-08-comments-json">
-  <link rel="alternate icon" href="/favicon.ico?v=pr76-2026-10-08-comments-json">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr76-2026-10-08-comments-json">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr77-2026-10-08-rollypay">
+  <link rel="alternate icon" href="/favicon.ico?v=pr77-2026-10-08-rollypay">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr77-2026-10-08-rollypay">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3878,7 +3878,7 @@ function renderShopShell(
   <meta property="og:title" content="${esc(opts.title)}">
   <meta property="og:description" content="${esc(opts.description)}">
   <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr76-2026-10-08-comments-json">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr77-2026-10-08-rollypay">
   <script>
     (function(){
       var t = localStorage.getItem("threads_theme");
@@ -3952,6 +3952,26 @@ export function renderDonatePage(env: Env, lang: Lang, origin: string, donation:
     noindex: true,
     path: `/donate?amount=${donation.rub}`,
   });
+}
+
+/** Возврат с формы оплаты RollyPay (/donate/thanks, /donate/fail) и ошибка создания платежа. */
+export function renderDonateResultPage(env: Env, lang: Lang, origin: string, donation: Donation, kind: "thanks" | "fail" | "error"): Response {
+  const isEn = lang === "en";
+  const titles = {
+    thanks: isEn ? "Thank you - Threads Viewer" : "Спасибо - Threads Viewer",
+    fail: isEn ? "Payment failed - Threads Viewer" : "Оплата не прошла - Threads Viewer",
+    error: isEn ? "Card payment unavailable - Threads Viewer" : "Оплата картой недоступна - Threads Viewer",
+  };
+  const res = renderShopShell(env, lang, {
+    title: titles[kind],
+    description: titles[kind],
+    canonical: `${origin}/donate${isEn ? "?lang=en" : ""}`,
+    body: renderDonateResultBody(lang, donation, kind, getBotUsername(env)),
+    noindex: true,
+    path: `/donate?amount=${donation.rub}`,
+  });
+  if (kind === "error") return new Response(res.body, { status: 503, headers: res.headers });
+  return res;
 }
 
 /** Заглушка оплаты картой (/donate/confirm?method=card). */

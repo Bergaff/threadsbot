@@ -932,6 +932,46 @@ const ROBOT_KIND_LABEL: Record<string, string> = {
 
 /** Миллисекунды -> «1.2 сек». Нет данных -> прочерк (никаких подставных значений). */
 /** Блок «Ежедневная диагностика»: последний отчёт, история, кнопка запуска. */
+/** Касса RollyPay: настроена ли и последние события платежей (из вебхуков). */
+export function renderRollySection(env: Env, rows: Array<{ data: string; ts: string }>): string {
+  const keyOk = Boolean(String(env.ROLLYPAY_API_KEY || "").trim());
+  const secretOk = Boolean(String(env.ROLLYPAY_SIGNING_SECRET || "").trim());
+  const test = /^(1|true|yes)$/i.test(String(env.ROLLYPAY_TEST || ""));
+  const site = (env.SITE_URL || "https://threadsviewer.online").replace(/\/+$/, "");
+  const flag = (ok: boolean, yes: string, no: string) => `<span style="color:${ok ? "#4ade80" : "#f87171"};">${ok ? "✅ " + yes : "❌ " + no}</span>`;
+  const time = (iso: string) => {
+    try { return new Date(iso).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return iso; }
+  };
+  const label: Record<string, string> = { created: "создан", processing: "оплачивается", paid: "✅ оплачен", expired: "истёк", canceled: "отменён", chargeback: "⚠️ чарджбек", refunded: "↩️ возврат" };
+  const items = rows.map((r) => { try { return { ...JSON.parse(r.data), ts: r.ts }; } catch { return null; } }).filter(Boolean) as Array<{ p: string; o: string; s: string; a: number; c: string; t: number; k: string; ts: string }>;
+  const paid30 = items.filter((x) => x.s === "paid" && !x.t).reduce((sum, x) => sum + Number(x.a || 0), 0);
+  const body = items.length
+    ? `<div style="overflow-x:auto;"><table class="accounts-table">
+        <thead><tr><th>Время (МСК)</th><th>Статус</th><th>Сумма</th><th>Что</th><th>Заказ</th></tr></thead>
+        <tbody>${items.map((x) => `
+          <tr>
+            <td style="white-space:nowrap;">${esc(time(x.ts))}</td>
+            <td style="white-space:nowrap;">${esc(label[x.s] || x.s)}${x.t ? ` <span style="color:#fbbf24;">ТЕСТ</span>` : ""}</td>
+            <td style="white-space:nowrap;">${esc(x.a)} ${esc(x.c)}</td>
+            <td>${x.k === "don" ? "пожертвование" : x.k === "sub" ? "подписка" : "-"}</td>
+            <td style="font-size:0.72rem;color:#888;word-break:break-all;">${esc(x.o)}</td>
+          </tr>`).join("")}</tbody>
+      </table></div>
+      <div style="font-size:0.78rem;color:#999;margin-top:8px;">Оплачено среди показанных событий (без тестовых): <b>${paid30.toFixed(2)} ₽</b></div>`
+    : `<div style="font-size:0.82rem;color:#888;">Платежей через кассу ещё не было.</div>`;
+  return `
+    <section class="admin-card" id="rollypay">
+      <div class="admin-card-title">Касса RollyPay (карта / СБП)</div>
+      <div style="font-size:0.82rem;line-height:1.7;margin-bottom:10px;">
+        API-ключ: ${flag(keyOk, "задан", "не задан - на сайте заглушка вместо оплаты картой")}<br>
+        Секрет подписи вебхуков: ${flag(secretOk, "задан", "не задан - вебхуки отклоняются (503)")}<br>
+        Режим: ${test ? `<span style="color:#fbbf24;">тестовый (sandbox), реальные деньги не списываются</span>` : "боевой"}<br>
+        Адрес для вебхуков в кабинете RollyPay: <code>${esc(site)}/api/payment/rollypay</code>
+      </div>
+      ${body}
+    </section>`;
+}
+
 export function renderDiagSection(r: DiagReport | null, history: DiagHistoryItem[]): string {
   const icon: Record<string, string> = { ok: "✅", warn: "⚠️", fail: "❌", skip: "⏭" };
   const color: Record<string, string> = { ok: "#4ade80", warn: "#fbbf24", fail: "#f87171", skip: "#888" };
@@ -1210,7 +1250,7 @@ function renderTruthSections(env: Env, t: SiteTruth, analytics: any, retention: 
 }
 
 async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Promise<Response> {
-  const [counts, stats, system, analytics, retention, truth, statsAccess, diagRaw, diagHistRaw] = await Promise.all([
+  const [counts, stats, system, analytics, retention, truth, statsAccess, diagRaw, diagHistRaw, rollyRows] = await Promise.all([
     db.accountCounts(),
     db.accountStats() as Promise<any[]>,
     db.systemStats(),
@@ -1220,6 +1260,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
     statsAccessInfo(env).catch(() => null),
     db.state(0, "diag_last").catch(() => null),
     db.state(0, "diag_history").catch(() => null),
+    db.rollypayRecent(20).catch(() => []),
   ]);
   const workingAccounts24h = Object.values(truth.accounts).filter(a => a.ok > 0).length;
 
@@ -1415,6 +1456,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
     ${renderTruthSections(env, truth, analytics, retention)}
 
     ${renderDiagSection(parseReport(diagRaw), parseHistory(diagHistRaw))}
+    ${renderRollySection(env, rollyRows)}
     ${renderStatsAccessSection(env, statsAccess, statsFlash)}
 
     <section class="admin-card">

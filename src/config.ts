@@ -17,6 +17,16 @@ export interface Env {
   PAYMENT_WEBHOOK_SECRET?: string;
   /** Токен магазина RuKassa (только через секреты Cloudflare, не в коде) */
   RUKASSA_TOKEN?: string;
+  /** Касса RollyPay: API-ключ (секрет, wrangler secret put ROLLYPAY_API_KEY) */
+  ROLLYPAY_API_KEY?: string;
+  /** Касса RollyPay: секрет подписи вебхуков (секрет, wrangler secret put ROLLYPAY_SIGNING_SECRET) */
+  ROLLYPAY_SIGNING_SECRET?: string;
+  /** UUID кассы RollyPay (не секрет) */
+  ROLLYPAY_TERMINAL_ID?: string;
+  /** Адрес API RollyPay, если отличается от стандартного */
+  ROLLYPAY_API_BASE?: string;
+  /** "1" - тестовые (sandbox) платежи без реальных денег */
+  ROLLYPAY_TEST?: string;
   BOT_USERNAME?: string;
   SITE_URL?: string;
   SITE_DOMAIN?: string;

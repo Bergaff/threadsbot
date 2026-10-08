@@ -20,6 +20,8 @@ export type StateName =
   | "stats_sessions"
   /** Счётчик неудачных входов на страницу статистики */
   | "stats_login_fails"
+  /** Состояние платежа кассы RollyPay (scope rp:<payment_id>), JSON RollyRecord */
+  | "rollypay_payment"
   /** Отметка «счёт CryptoBot уже активирован» (scope cinv:<id>) */
   | "paid_invoice"
   /** Отметка «заказ из платёжного вебхука уже обработан» (scope order:<id>) */
@@ -304,6 +306,12 @@ export class Database {
       comments: modes.filter(x=>(x?.event_data||'').startsWith('comments:')).reduce((a,x)=>a+Number(x.c),0),
     };
   }
+  /** Последние события кассы RollyPay (вебхуки) для админки */
+  async rollypayRecent(limit = 20): Promise<Array<{ data: string; ts: string }>> {
+    const r = await this.db.prepare("SELECT event_data data, timestamp ts FROM user_events WHERE event_type='rollypay' ORDER BY timestamp DESC LIMIT ?").bind(limit).all<{ data: string; ts: string }>();
+    return (r.results || []) as Array<{ data: string; ts: string }>;
+  }
+
   async systemStats() {
     const one = since(86_400_000);
     const results = await this.db.batch([

@@ -5,7 +5,7 @@
  * - Сторонней рекламы на сайте нет. Вместо рекламного блока - заглушка
  *   «Здесь может быть ваша реклама» с контактами (почта и Telegram-бот).
  * - Сайт бесплатный. Пожертвование ДОБРОВОЛЬНОЕ и ничего не открывает.
- * - Оплата картой/СБП - заглушка (шлюз не подключён); Stars и USDT - через бота.
+ * - Оплата картой/СБП - касса RollyPay (src/rollypay.ts); без ключа кассы - заглушка. Stars и USDT - через бота.
  */
 import { DONATIONS, botDonateLink, donationPrice, type Donation, type PayMethod } from "./plans";
 
@@ -50,6 +50,7 @@ export const DONATE_CSS = `
   .pay-stub .alt { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
   .pay-stub .alt a { flex: 1; min-width: 200px; text-align: center; padding: 10px; background: #2563eb; color: #fff !important; font-weight: 700; text-decoration: none; }
   .pay-stub .alt a.sec { background: #262626; border: 1px solid #3a3a3a; }
+  .pay-stub.pay-ok { border-color: #22c55e; }
   @media (max-width: 820px) { .donate { grid-template-columns: 1fr; } }
   html[data-theme="light"] .ad-placeholder { background: #ddd5c7; border-color: #a99f8c; }
   html[data-theme="light"] .ad-placeholder-title { color: #1e1913; }
@@ -58,6 +59,7 @@ export const DONATE_CSS = `
   html[data-theme="light"] .btn-nav-donate { color: #8a5a00 !important; border-color: #b08a2e !important; }
   html[data-theme="light"] .donate-box, html[data-theme="light"] .pay-stub { background: #e6ded0; border-color: #b5ab99; }
   html[data-theme="light"] .pay-stub { border-color: #b7791f; }
+  html[data-theme="light"] .pay-stub.pay-ok { border-color: #2f7d45; }
   html[data-theme="light"] .donate-box h1, html[data-theme="light"] .donate-box h2, html[data-theme="light"] .pay-method-title, html[data-theme="light"] .pay-stub h1 { color: #1e1913; }
   html[data-theme="light"] .donate-box p, html[data-theme="light"] .pay-stub p { color: #2e2820; }
   html[data-theme="light"] .donate-note, html[data-theme="light"] .pay-method-desc { color: #5c5346 !important; }
@@ -91,8 +93,8 @@ const D = {
     note: "Пожертвование добровольное и ничего не открывает: все возможности сайта бесплатны для всех. Это просто ваше «спасибо».",
     amount: "Сумма",
     method: "Способ",
-    card: "Банковская карта / СБП",
-    cardDesc: "МИР, Visa, Mastercard, Система быстрых платежей",
+    card: "СБП / банковская карта",
+    cardDesc: "Система быстрых платежей, МИР, Visa, Mastercard · платёжный сервис RollyPay",
     stars: "Telegram Stars",
     starsDesc: (n: number) => `${n} ⭐ · откроется Telegram-бот`,
     crypto: "Криптовалюта (USDT)",
@@ -108,7 +110,7 @@ const D = {
     amount: "Amount",
     method: "Method",
     card: "Bank card",
-    cardDesc: "Visa, Mastercard, MIR",
+    cardDesc: "Visa, Mastercard, MIR · payment service RollyPay",
     stars: "Telegram Stars",
     starsDesc: (n: number) => `${n} ⭐ · opens the Telegram bot`,
     crypto: "Crypto (USDT)",
@@ -135,7 +137,7 @@ export function renderDonateBody(lang: Lang, selected: Donation): string {
       <p class="donate-note">${esc(t.note)}</p>
       <p style="margin-top:14px;font-weight:600;">${esc(t.thanks)}</p>
     </div>
-    <form class="donate-box" method="GET" action="/donate/confirm">
+    <form class="donate-box" method="POST" action="/donate/confirm">
       <input type="hidden" name="lang" value="${lang}">
       <input type="hidden" name="amount" value="${selected.rub}">
       <h2>${esc(t.amount)}</h2>
@@ -165,5 +167,36 @@ export function renderDonateCardStubBody(lang: Lang, d: Donation, botUser: strin
       <a class="sec" href="${esc(botDonateLink(botUser, d, "crypto"))}" target="_blank" rel="noopener">${d.usd} USDT</a>
     </div>
     <p style="margin-top:16px;"><a href="/donate?amount=${d.rub}&amp;lang=${lang}" style="color:#93c5fd;">&larr; ${isEn ? "Back" : "Назад"}</a></p>
+  </div>`;
+}
+
+/** Возврат с формы оплаты (thanks/fail) и ошибка создания платежа (error). */
+export function renderDonateResultBody(lang: Lang, d: Donation, kind: "thanks" | "fail" | "error", botUser: string): string {
+  const isEn = lang === "en";
+  const sum = esc(donationPrice(d, lang));
+  const T = {
+    thanks: isEn
+      ? { h: "Thank you for your support! 💛", p: [`If the payment of <b>${sum}</b> went through, it will be credited within a few minutes. You don't need to do anything else.`, "Your donation helps pay for servers and keeps the site free for everyone."] }
+      : { h: "Спасибо за поддержку! 💛", p: [`Если оплата <b>${sum}</b> прошла, она будет зачислена в течение нескольких минут. Больше ничего делать не нужно.`, "Ваше пожертвование помогает оплачивать серверы, и сайт остаётся бесплатным для всех."] },
+    fail: isEn
+      ? { h: "The payment did not go through", p: [`The donation of <b>${sum}</b> was not completed: it was cancelled or the payment time ran out. No money was charged.`, "You can try again or use Telegram:"] }
+      : { h: "Оплата не прошла", p: [`Пожертвование <b>${sum}</b> не завершено: платёж отменён или истекло время оплаты. Деньги не списаны.`, "Можно попробовать ещё раз или поддержать через Telegram:"] },
+    error: isEn
+      ? { h: "Card payment is temporarily unavailable", p: [`We could not open the payment page for <b>${sum}</b>. Please try again in a few minutes.`, "You can also donate via Telegram:"] }
+      : { h: "Оплата картой временно недоступна", p: [`Не получилось открыть страницу оплаты на <b>${sum}</b>. Попробуйте ещё раз через несколько минут.`, "Также можно поддержать через Telegram:"] },
+  }[kind];
+  const alt = kind === "thanks" ? "" : `
+    <div class="alt">
+      <a href="${esc(botDonateLink(botUser, d, "stars"))}" target="_blank" rel="noopener">${d.stars} ⭐ Telegram Stars</a>
+      <a class="sec" href="${esc(botDonateLink(botUser, d, "crypto"))}" target="_blank" rel="noopener">${d.usd} USDT</a>
+    </div>`;
+  const back = kind === "thanks"
+    ? `<a href="/?lang=${lang}" style="color:#93c5fd;">&larr; ${isEn ? "Back to the site" : "Вернуться на сайт"}</a>`
+    : `<a href="/donate?amount=${d.rub}&amp;lang=${lang}" style="color:#93c5fd;">&larr; ${isEn ? "Try again" : "Попробовать ещё раз"}</a>`;
+  return `
+  <div class="pay-stub${kind === "thanks" ? " pay-ok" : ""}">
+    <h1>${T.h}</h1>
+    ${T.p.map((x) => `<p>${x}</p>`).join("\n    ")}${alt}
+    <p style="margin-top:16px;">${back}</p>
   </div>`;
 }

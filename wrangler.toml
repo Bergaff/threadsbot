@@ -53,8 +53,11 @@ STATS_EXCLUDE_IDS = "369330135,657708753"
 BASE_URL = "https://www.threads.com"
 SITE_URL = "https://threadsviewer.online"
 SITE_DOMAIN = "threadsviewer.online"
-VERSION = "pr76-2026-10-08-comments-json"
+VERSION = "pr77-2026-10-08-rollypay"
 BOT_USERNAME = "threadsreaderbot"
+# Касса RollyPay (оплата картой/СБП). UUID кассы не секрет.
+# Секреты задаются командами: npx wrangler secret put ROLLYPAY_API_KEY / ROLLYPAY_SIGNING_SECRET
+ROLLYPAY_TERMINAL_ID = "60da0dc8-409e-478e-aa01-51a106a3ca64"
 JHPAY_TOKEN = "940e2c5aec5bf97eab483ac86c07c0db"
 # Как часто прогревать каждый аккаунт, чтобы Meta продлевала sessionid.
 # Меньше значение - сессии живут дольше, но больше запусков браузера.
