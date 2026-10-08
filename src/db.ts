@@ -425,7 +425,7 @@ export class Database {
         const key = `${kind}|${status}|${norm}`;
         const g = groups.get(key);
         if (g) g.count++;
-        else groups.set(key, { kind, status, error: error.slice(0, 220), count: 1, lastTs: ts, lastTarget: target });
+        else groups.set(key, { kind, status, error: error.slice(0, 400), count: 1, lastTs: ts, lastTarget: target });
       }
     }
     out.scrapeErrorGroups = [...groups.values()].sort((a, b) => b.count - a.count).slice(0, 12);

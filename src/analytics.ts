@@ -244,7 +244,7 @@ export async function trackScrape(
   error = ""
 ): Promise<void> {
   const clean = (v: string, n: number) => String(v || "").replace(/[|\r\n]+/g, " ").trim().slice(0, n);
-  await insertEvents(env, [["scrape", `${kind}|${status}|${Math.max(0, posts | 0)}|${Math.max(0, Math.round(ms))}|${clean(target, 80)}|${clean(error, 220)}`]]);
+  await insertEvents(env, [["scrape", `${kind}|${status}|${Math.max(0, posts | 0)}|${Math.max(0, Math.round(ms))}|${clean(target, 80)}|${clean(error, 400)}`]]);
 }
 
 /** Медиана, p95 и т.п. по уже отсортированному массиву. */

@@ -256,3 +256,93 @@ export function mergeDomWithFeed<T extends FeedPost>(dom: T[], feed: FeedPost[])
   }
   return out;
 }
+
+/** Ответ (комментарий) на пост, собранный из JSON страницы поста. */
+export interface FeedReply { code: string; author: string; text: string; avatar?: string; likes?: string }
+
+/**
+ * Сбор комментариев со страницы поста из JSON (предзагрузка + GraphQL при прокрутке), с pr76.
+ *
+ * Зачем: DOM-парсер комментариев зависит от вёрстки Threads и на части постов собирал 0,
+ * хотя счётчик показывал ответы. В JSON страницы поста лежат edges -> thread_items:
+ *  - цепочка самого поста (предки + пост с кодом mainCode),
+ *  - ветки ответов; у ответа text_post_app_info.reply_to_author заполнен, у поста верхнего уровня - null.
+ * Модуль чистый, покрыт юнит-тестами.
+ */
+export class ReplyCollector {
+  readonly mainCode: string;
+  readonly replies: FeedReply[] = [];
+  /** Встречался ли сам пост в JSON (для диагностики) */
+  mainSeen = false;
+  responses = 0;
+  private codes = new Set<string>();
+  private ancestors = new Set<string>();
+
+  constructor(mainCode: string) {
+    this.mainCode = mainCode;
+  }
+
+  ingestText(text: string): number {
+    let added = 0;
+    for (const doc of parseThreadsPayload(text)) added += this.ingestJson(doc);
+    return added;
+  }
+
+  ingestJson(root: any): number {
+    const before = this.replies.length;
+    this.responses++;
+    this.walk(root, 0);
+    return this.replies.length - before;
+  }
+
+  private takeThread(items: any[]): void {
+    const posts = items.map((it) => it?.post).filter((p) => isThreadsPost(p));
+    const mainIdx = posts.findIndex((p) => p.code === this.mainCode);
+    if (mainIdx >= 0) {
+      this.mainSeen = true;
+      // Всё, что выше поста в его цепочке, - предки (пост, на который он отвечает), не комментарии
+      for (const p of posts.slice(0, mainIdx)) this.markAncestor(String(p.code));
+      for (const p of posts.slice(mainIdx + 1)) this.add(p);
+      return;
+    }
+    for (const p of posts) this.add(p);
+  }
+
+  private markAncestor(code: string): void {
+    this.ancestors.add(code);
+    const i = this.replies.findIndex((r) => r.code === code);
+    if (i >= 0) this.replies.splice(i, 1);
+  }
+
+  private add(node: any): void {
+    const code = String(node.code);
+    if (code === this.mainCode || this.ancestors.has(code) || this.codes.has(code)) return;
+    const info = node.text_post_app_info;
+    // Пост верхнего уровня (рекомендации, «ещё от автора») - не ответ
+    if (info && typeof info === "object" && "reply_to_author" in info && info.reply_to_author == null) return;
+    if (info?.is_post_unavailable === true) return;
+    const p = normalizeThreadsPost(node);
+    if (!p) return;
+    this.codes.add(code);
+    this.replies.push({
+      code,
+      author: "@" + (p.author || "anonymous"),
+      text: p.text || (p.has_video ? "🎥" : p.has_image ? "📷" : ""),
+      avatar: p.authorAvatar,
+      likes: p.likes,
+    });
+  }
+
+  private walk(node: any, depth: number): void {
+    if (!node || typeof node !== "object" || depth > 40) return;
+    if (Array.isArray(node)) {
+      for (const x of node) this.walk(x, depth + 1);
+      return;
+    }
+    if (Array.isArray(node.thread_items)) this.takeThread(node.thread_items);
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      if (v && typeof v === "object") this.walk(v, depth + 1);
+    }
+  }
+}

@@ -2,7 +2,7 @@ import { postCodeFromUrl } from "./postCode";
 import type { BrowserContext, Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
 import { diagnoseAccountCookies, playwrightCookies, snapshotHasSession } from "./cookies";
-import { FeedCollector, mergeDomWithFeed } from "./threadsFeed";
+import { FeedCollector, ReplyCollector, mergeDomWithFeed } from "./threadsFeed";
 import { isAccountBlockedUrl, isLoginUrl, isProfileUrl, isThreadsHost, isUserNotFoundPage } from "./profile";
 import { cleanPostText } from "./i18n";
 
@@ -177,7 +177,8 @@ async function waitForBrowserSlot(env: Env) {
 
 function isBrowserRateLimit(error: unknown) {
   const value = error instanceof Error ? error.message : String(error);
-  return value.includes("429") || /rate limit|too many requests/i.test(value);
+  // 429 - лимит запусков; 503 «No browser available» - все браузеры Cloudflare заняты (лимит параллельных сессий)
+  return value.includes("429") || /rate limit|too many requests|no browser available|unable to create new browser/i.test(value);
 }
 
 async function openBrowser(env: Env, account: Account): Promise<Opened> {
@@ -202,8 +203,9 @@ async function openBrowser(env: Env, account: Account): Promise<Opened> {
       await browser?.close().catch(() => {});
       if (!isBrowserRateLimit(error)) throw error;
       await logBrowser(env, "browser_429");
-      if (attempt === 1) throw new BrowserBusyError("Cloudflare Browser Run rate limit");
-      await sleep(FREE_BROWSER_INTERVAL_MS);
+      if (attempt === 1) throw new BrowserBusyError("Cloudflare Browser Run занят (лимит одновременных браузеров)");
+      // Браузеры заняты другими запросами - ждём дольше, чем при обычном лимите запусков
+      await sleep(/no browser available|unable to create/i.test(String((error as any)?.message || error)) ? 6_000 : FREE_BROWSER_INTERVAL_MS);
     }
   }
   throw new BrowserBusyError("Cloudflare Browser Run is busy");
@@ -251,8 +253,63 @@ export function attachFeedCollector(page: Page, username: string): FeedCollector
   return feed;
 }
 
+/** Подписка страницы поста на GraphQL-ответы: ответы на пост приходят при прокрутке. Вызывать ДО навигации. */
+function attachReplyCollector(page: Page, mainCode: string): ReplyCollector {
+  const rc = new ReplyCollector(mainCode);
+  page.on("response", (resp: any) => {
+    try {
+      const u: string = resp.url();
+      if (!/\/(?:api\/)?graphql/i.test(u)) return;
+      const ct = String(resp.headers()["content-type"] || "");
+      if (ct && !/json|javascript|text/i.test(ct)) return;
+      Promise.resolve(resp.text()).then((t: string) => { rc.ingestText(t); }).catch(() => {});
+    } catch {}
+  });
+  return rc;
+}
+
+/**
+ * Комментарии к открытой странице поста: JSON (надёжно) + DOM (запасной вариант).
+ * При пустом результате возвращает диагностику - что именно было на странице.
+ */
+async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: number, code: string): Promise<{ data: Comment[]; diag: string }> {
+  await ingestPreloadedJson(page, rc);
+  const dom = await collectComments(page, amount, code).catch(() => [] as Comment[]);
+  // Повторно - то, что догрузилось при прокрутке внутри collectComments
+  await ingestPreloadedJson(page, rc);
+  const out: Comment[] = [];
+  const seen = new Set<string>();
+  const key = (c: { author: string; text: string }) => (c.author + "|" + c.text.slice(0, 80)).toLowerCase();
+  for (const r of rc.replies) {
+    if (!r.text) continue;
+    const c: Comment = { author: r.author, text: cleanPostText(r.text), avatar: r.avatar };
+    if (!seen.has(key(c))) { seen.add(key(c)); out.push(c); }
+  }
+  for (const c of dom) {
+    if (!seen.has(key(c))) { seen.add(key(c)); out.push(c); }
+  }
+  let diag = "";
+  if (!out.length) {
+    const snap = await page.evaluate((mainCode: string) => {
+      const cont = document.querySelectorAll('div[data-pressable-container="true"]');
+      return {
+        url: location.href,
+        containers: cont.length,
+        articles: document.querySelectorAll('article,div[role="article"]').length,
+        mainInDom: Boolean(document.querySelector(`a[href*="/post/${mainCode}"]`)),
+        jsonBlobs: Array.from(document.querySelectorAll('script[type="application/json"]')).filter((e) => (e.textContent || "").includes("thread_items")).length,
+        body: (document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 200),
+      };
+    }, code).catch(() => null);
+    diag = snap
+      ? `JSON: ответов ${rc.replies.length}, пост в JSON ${rc.mainSeen ? "да" : "нет"}, ответов сети ${rc.responses}, блоков ${snap.jsonBlobs}; DOM: контейнеров ${snap.containers}, article ${snap.articles}, пост в DOM ${snap.mainInDom ? "да" : "нет"}; url ${snap.url}; текст: "${snap.body}"`
+      : `JSON: ответов ${rc.replies.length}, пост в JSON ${rc.mainSeen ? "да" : "нет"}; DOM недоступен`;
+  }
+  return { data: out.slice(0, amount), diag };
+}
+
 /** Предзагруженный JSON страницы (первая порция ленты и её page_info). */
-async function ingestPreloadedJson(page: Page, feed: FeedCollector): Promise<void> {
+async function ingestPreloadedJson(page: Page, feed: { ingestText(t: string): number }): Promise<void> {
   const blobs = await page.evaluate(() => {
     const out: string[] = [];
     let total = 0;
@@ -615,7 +672,7 @@ function hasLoggedOutMarkers(text: string): boolean {
   return LOGGED_OUT_MARKERS.some(m => t.includes(m));
 }
 
-async function checkProfile(page: Page, env: Env, username: string): Promise<ProfileVerdict> {
+async function checkProfile(page: Page, env: Env, username: string, info?: { detail?: string }): Promise<ProfileVerdict> {
   const cleanUser = username.toLowerCase().replace(/^@/, "");
   const targetUrl = `${BASE(env)}/@${cleanUser}`;
 
@@ -740,7 +797,9 @@ async function checkProfile(page: Page, env: Env, username: string): Promise<Pro
 
   // 10. Пустой DOM без единого маркера. Раньше здесь возвращался user_not_found -
   //     это и была причина ложных 404 на существующих профилях.
-  await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: страница ${snapshot.url} не отдала контент (title="${(snapshot.title || "").slice(0, 60)}", body=${(snapshot.body || "").length} симв.: "${(snapshot.body || "").replace(/\s+/g, " ").trim().slice(0, 160)}") - вердикт не вынесен`);
+  const emptyDetail = `страница не отдала контент (title="${(snapshot.title || "").slice(0, 60)}", body=${(snapshot.body || "").length} симв.: "${(snapshot.body || "").replace(/\s+/g, " ").trim().slice(0, 160)}")`;
+  if (info) info.detail = emptyDetail;
+  await logSystem(env, "warn", "scraper", `Проверка @${cleanUser}: ${emptyDetail.replace("страница", `страница ${snapshot.url}`)} - вердикт не вынесен`);
   return "inconclusive";
 }
 
@@ -749,6 +808,8 @@ type VerdictState = {
   notFoundVotes: string[];
   inconclusiveAccounts: string[];
   requiredVotes: number;
+  /** Что видели аккаунты, не давшие вердикта (для текста ошибки в админке) */
+  details?: string[];
   /** Кеш независимой HTTP-проверки, чтобы не дёргать её на каждом аккаунте */
   httpCheck?: PublicProfileResult | null;
 };
@@ -1230,6 +1291,8 @@ async function markSessionExpired(env: Env, name: string) {
   await env.DB.prepare("UPDATE threads_accounts SET is_alive=0,last_error='Session expired',errors_count=errors_count+1,updated_at=? WHERE name=?").bind(iso(), name).run();
 }
 async function markTransientError(env: Env, name: string, error: unknown) {
+  // Занятость браузера Cloudflare - не вина аккаунта, ошибку ему не засчитываем
+  if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return;
   await logBrowser(env, "acct", `${name}|err`);
   const message = (error instanceof Error ? error.message : String(error)).slice(0, 500);
   await env.DB.prepare("UPDATE threads_accounts SET last_error=?,errors_count=errors_count+1,updated_at=? WHERE name=?").bind(message, iso(), name).run();
@@ -1404,11 +1467,12 @@ export async function fetchProfileWithPosts(
       // HTTP тоже не дал ответа. Если браузерных голосов за отсутствие нет -
       // это временная проблема, отрицательный кеш писать нельзя.
       if (state.notFoundVotes.length === 0 && state.inconclusiveAccounts.length > 0) {
+        const seen = state.details?.length ? `: ${state.details[0]}${state.details.length > 1 ? ` (и ещё ${state.details.length - 1} акк. - то же самое)` : ""}` : "";
         return {
           data: null,
           status: "service_error",
           account: state.inconclusiveAccounts.join(", "),
-          error: "Аккаунты-скраперы не смогли достоверно проверить профиль",
+          error: `Аккаунты-скраперы не смогли достоверно проверить профиль${seen}`,
         };
       }
       return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
@@ -1431,7 +1495,9 @@ export async function fetchProfileWithPosts(
       });
 
       const feed = attachFeedCollector(opened.page, username);
-      const verdict = await checkProfile(opened.page, env, username);
+      const checkInfo: { detail?: string } = {};
+      const verdict = await checkProfile(opened.page, env, username, checkInfo);
+      if (verdict === "inconclusive" && checkInfo.detail) (state.details ||= []).push(`[${account.name}] ${checkInfo.detail}`);
       const outcome = await resolveVerdict(env, account, username, verdict, state);
       if (outcome.action === "rotate") continue;
       if (outcome.action === "http_data") {
@@ -1644,11 +1710,13 @@ export async function fetchComments(env: Env, username: string, index: number, a
         return null;
       }, search));
       if (!href) return { data: null, status: "post_not_found", account: account.name };
+      const hrefCode = postCodeFromUrl(href) || "";
+      const rc = attachReplyCollector(opened.page, hrefCode);
       await opened.page.goto(href.startsWith("/") ? BASE(env) + href : href, { waitUntil: "domcontentloaded", timeout: 30_000 });
       await opened.page.waitForSelector('div[data-pressable-container="true"]', { timeout: 15_000 }).catch(() => {});
       await sleep(2500);
       await opened.page.evaluate(() => window.scrollBy(0, 800));
-      const data = await collectComments(opened.page, amount, postCodeFromUrl(href));
+      const data = hrefCode ? (await collectCommentsFull(opened.page, rc, amount, hrefCode)).data : await collectComments(opened.page, amount, null);
       let updated: string | null = null;
       try {
         const rawCookies = await opened.context.cookies();
@@ -1691,6 +1759,7 @@ export async function fetchCommentsByCode(env: Env, username: string, code: stri
     let opened: Opened | undefined;
     try {
       opened = await openBrowser(env, account);
+      const rc = attachReplyCollector(opened.page, code);
       const url = `${BASE(env)}/@${cleanUser}/post/${code}`;
       const resp = await opened.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
       const http = resp?.status?.() || 0;
@@ -1725,14 +1794,14 @@ export async function fetchCommentsByCode(env: Env, username: string, code: stri
       }
       await sleep(2500);
       await opened.page.evaluate(() => window.scrollBy(0, 800)).catch(() => {});
-      const data = await collectComments(opened.page, amount, code);
+      const { data, diag } = await collectCommentsFull(opened.page, rc, amount, code);
       let updated: string | null = null;
       try {
         updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
       } catch {}
       await markSuccess(env, account.name, data.length, updated || undefined);
-      await logSystem(env, "info", "scraper", `Комментарии @${cleanUser}/${code}: ${data.length} шт. через [${account.name}]`);
-      return { data, status: "ok", account: account.name };
+      await logSystem(env, data.length ? "info" : "warn", "scraper", `Комментарии @${cleanUser}/${code}: ${data.length} шт. через [${account.name}]${diag ? `. Диагностика: ${diag}` : ""}`);
+      return { data, status: "ok", account: account.name, error: diag ? `[${account.name}] ${diag}` : undefined };
     } catch (error) {
       const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 300);
       await markTransientError(env, account.name, error);

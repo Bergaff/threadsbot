@@ -1091,7 +1091,9 @@ export default {
         // «Счётчик показывает ответы, а собрали 0» - отдельный статус, чтобы видеть это в админке
         const emptyButExpected = fetched.status === "ok" && !(fetched.data?.length) && expectReplies;
         const trackStatus = emptyButExpected ? "empty_but_replies" : fetched.status;
-        const trackError = emptyButExpected ? "У поста есть ответы по счётчику, но со страницы не собрано ни одного" : (fetched.error || "");
+        const trackError = emptyButExpected
+          ? `Счётчик показывает ответы, собрано 0. ${fetched.error || ""}`.trim()
+          : (fetched.status === "ok" ? "" : (fetched.error || ""));
         if (!isAuthAdmin) {
           ctx.waitUntil(trackScrape(env, "comments", trackStatus, fetched.data?.length || 0, Date.now() - reqStart, cmtTarget, trackError).catch(() => {}));
         }
