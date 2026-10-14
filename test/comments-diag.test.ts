@@ -77,7 +77,7 @@ describe("/api/comments", () => {
     const body: any = await res.json();
     expect(body.ok).toBe(true);
     expect(body.comments).toHaveLength(1);
-    expect(threadsMock.fetchCommentsByCode).toHaveBeenCalledWith(env, "zuck", "DAbc_12-xY", 30);
+    expect(threadsMock.fetchCommentsByCode).toHaveBeenCalledWith(env, "zuck", "DAbc_12-xY", 30, true);
     expect(threadsMock.fetchComments).not.toHaveBeenCalled();
   });
 

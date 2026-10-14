@@ -9,6 +9,8 @@ export type StateName =
   | "waiting_support"
   | "admin_reply"
   | "fetch_lock"
+  /** Межсерверная блокировка «профиль уже скачивается» (scope scrape:<username>), значение - Date.now() */
+  | "scrape_lock"
   | "last_daily_probe"
   /** Карта {токен: ISO-дата истечения} активных админских сессий. */
   | "admin_sessions"
@@ -201,6 +203,18 @@ export class Database {
 
   async state(scope:string|number,key:StateName): Promise<string|null> { return (await this.db.prepare("SELECT value FROM bot_state WHERE scope=? AND state_key=?").bind(String(scope),key).first<{value:string}>())?.value || null; }
   setState(scope:string|number,key:StateName,value:string) { return this.db.prepare("INSERT INTO bot_state VALUES(?,?,?,?) ON CONFLICT(scope,state_key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(String(scope),key,value,now()).run(); }
+  /**
+   * Атомарно взять блокировку на ttlMs. true - блокировка наша (или база не сообщила число изменений),
+   * false - её держит другой сервер Cloudflare и она ещё не протухла.
+   */
+  async tryLock(scope: string, key: StateName, ttlMs: number): Promise<boolean> {
+    const nowMs = Date.now();
+    const r: any = await this.db.prepare(
+      "INSERT INTO bot_state(scope,state_key,value,updated_at) VALUES(?,?,?,?) ON CONFLICT(scope,state_key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE CAST(bot_state.value AS INTEGER) < ?"
+    ).bind(scope, key, String(nowMs), now(), nowMs - ttlMs).run();
+    const changes = r?.meta?.changes;
+    return typeof changes === "number" ? changes > 0 : true;
+  }
   clearState(scope:string|number,key:StateName) { return this.db.prepare("DELETE FROM bot_state WHERE scope=? AND state_key=?").bind(String(scope),key).run(); }
 
   async createTicket(uid:number, username:string, message:string, type:string): Promise<number> { const r=await this.db.prepare("INSERT INTO support_tickets(user_id,username,message,ticket_type,status,created_at) VALUES(?,?,?,?,'open',?)").bind(uid,username,message,type,now()).run(); return Number(r.meta.last_row_id); }
@@ -433,7 +447,7 @@ export class Database {
         const key = `${kind}|${status}|${norm}`;
         const g = groups.get(key);
         if (g) g.count++;
-        else groups.set(key, { kind, status, error: error.slice(0, 400), count: 1, lastTs: ts, lastTarget: target });
+        else groups.set(key, { kind, status, error: error.slice(0, 900), count: 1, lastTs: ts, lastTarget: target });
       }
     }
     out.scrapeErrorGroups = [...groups.values()].sort((a, b) => b.count - a.count).slice(0, 12);

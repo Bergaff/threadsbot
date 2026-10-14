@@ -302,12 +302,13 @@ async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: numbe
         mainInDom: Boolean(document.querySelector(`a[href*="/post/${mainCode}"]`)),
         timeLinks: Array.from(document.querySelectorAll('a[href*="/post/"]')).filter((a) => a.querySelector("time")).length,
         unavailable: /post not available|post unavailable|пост недоступен|публикация недоступна/i.test(document.body?.innerText || ""),
+        repliesOff: /replies (are )?(turned off|limited|disabled)|can'?t reply|only (people|profiles) .{0,40} can reply|some replies (are )?hidden|ответы (отключены|ограничены|скрыты)|отвечать могут только/i.test(document.body?.innerText || ""),
         jsonBlobs: Array.from(document.querySelectorAll('script[type="application/json"]')).filter((e) => (e.textContent || "").includes("thread_items")).length,
-        body: (document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 200),
+        body: (document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 320),
       };
     }, code).catch(() => null);
     diag = snap
-      ? `JSON: ${rc.stats()}, блоков ${snap.jsonBlobs}; DOM: контейнеров ${snap.containers}, article ${snap.articles}, ссылок-дат ${snap.timeLinks}, пост в DOM ${snap.mainInDom ? "да" : "нет"}${snap.unavailable ? ", «Post not available»" : ""}; url ${snap.url}; текст: "${snap.body}"`
+      ? `JSON: ${rc.stats()}, блоков ${snap.jsonBlobs}; DOM: контейнеров ${snap.containers}, article ${snap.articles}, ссылок-дат ${snap.timeLinks}, пост в DOM ${snap.mainInDom ? "да" : "нет"}${snap.unavailable ? ", «Post not available»" : ""}${snap.repliesOff ? ", ответы ограничены автором" : ""}; url ${snap.url}; текст: "${snap.body}"`
       : `JSON: ${rc.stats()}; DOM недоступен`;
   }
   return { data: out.slice(0, amount), diag };
@@ -1796,13 +1797,16 @@ export async function fetchComments(env: Env, username: string, index: number, a
  * Не нужно заново собирать профиль и угадывать пост по номеру - раньше из-за этого
  * открывался не тот пост (закреплённые, репосты, посты без текста) и показывалось «Комментариев нет».
  */
-export async function fetchCommentsByCode(env: Env, username: string, code: string, amount = 30): Promise<{ data: Comment[] | null; status: ThreadsStatus; account?: string; error?: string }> {
+export async function fetchCommentsByCode(env: Env, username: string, code: string, amount = 30, expectReplies = false): Promise<{ data: Comment[] | null; status: ThreadsStatus; account?: string; error?: string }> {
   const cleanUser = username.toLowerCase().replace(/^@/, "");
   const tried: string[] = [];
   let lastError = "";
+  /** Пустой результат при ненулевом счётчике: диагностика предыдущих аккаунтов */
+  const emptyDiags: string[] = [];
   while (true) {
     const account = await chooseAccount(env, tried);
     if (!account) {
+      if (emptyDiags.length) return { data: [], status: "ok", account: tried.join(", "), error: emptyDiags.join(" || ") };
       return tried.length
         ? { data: null, status: "service_error", account: tried.join(", "), error: lastError || "Ни один аккаунт не открыл страницу поста" }
         : { data: null, status: "all_dead", error: "Нет живых аккаунтов-скраперов" };
@@ -1846,17 +1850,32 @@ export async function fetchCommentsByCode(env: Env, username: string, code: stri
       }
       await sleep(2500);
       await opened.page.evaluate(() => window.scrollBy(0, 800)).catch(() => {});
-      const { data, diag } = await collectCommentsFull(opened.page, rc, amount, code);
+      let { data, diag } = await collectCommentsFull(opened.page, rc, amount, code);
+      if (!data.length && expectReplies) {
+        // Ответы иногда догружаются позже самого поста: ещё раз прокручиваем и ждём на той же странице
+        await opened.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
+        await sleep(3000);
+        await opened.page.evaluate(() => window.scrollBy(0, -300)).catch(() => {});
+        await sleep(1500);
+        ({ data, diag } = await collectCommentsFull(opened.page, rc, amount, code));
+      }
       let updated: string | null = null;
       try {
         updated = keepSessionCookies(JSON.stringify(await opened.context.cookies()));
       } catch {}
       await markSuccess(env, account.name, data.length, updated || undefined);
       await logSystem(env, data.length ? "info" : "warn", "scraper", `Комментарии @${cleanUser}/${code}: ${data.length} шт. через [${account.name}]${diag ? `. Диагностика: ${diag}` : ""}`);
-      return { data, status: "ok", account: account.name, error: diag ? `[${account.name}] ${diag}` : undefined };
+      if (!data.length && expectReplies && diag) {
+        emptyDiags.push(`[${account.name}] ${diag}`);
+        // Аккаунт мог видеть пост урезанно (ограничения автора, «Post not available») - пробуем ещё один
+        if (tried.length < 2) continue;
+      }
+      return { data, status: "ok", account: account.name, error: emptyDiags.length ? emptyDiags.join(" || ") : diag ? `[${account.name}] ${diag}` : undefined };
     } catch (error) {
       const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 300);
       await markTransientError(env, account.name, error);
+      // Первый аккаунт честно открыл пост и собрал 0 - сбой повторной попытки не превращаем в ошибку
+      if (emptyDiags.length) return { data: [], status: "ok", account: tried.join(", "), error: `${emptyDiags.join(" || ")} || [${account.name}] повтор не удался: ${errMsg.slice(0, 120)}` };
       if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name, error: errMsg };
       lastError = `[${account.name}] ${errMsg}`;
       if (/target page|context or browser has been closed|browser has been closed|session closed|ws connection closed|timeout/i.test(errMsg) && tried.length < 2) continue;

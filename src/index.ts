@@ -71,6 +71,33 @@ function chatIdOf(update: TelegramUpdate): number | undefined {
 }
 
 const ipScraperLimits = new Map<string, { count: number; resetAt: number }>();
+/** Сколько живёт межсерверная блокировка загрузки профиля (дольше самой долгой загрузки) */
+const SCRAPE_LOCK_TTL_MS = 90_000;
+
+/**
+ * Ждём, пока другой сервер положит профиль в D1-кеш. Выходим раньше, если блокировка снята без результата
+ * (у другого сервера загрузка не удалась) - тогда вызывающий качает сам.
+ */
+async function waitForSharedProfile(db: Database, username: string, lockScope: string, maxMs = 60_000): Promise<any | null> {
+  const started = Date.now();
+  while (Date.now() - started < maxMs) {
+    await sleep(1500);
+    const cached = await db.cache<any>(username, "web_profile").catch(() => null);
+    if (cached) return cached;
+    const lock = await db.state(lockScope, "scrape_lock").catch(() => null);
+    if (!lock) {
+      // Блокировка снимается, когда загрузка закончилась, а в кеш результат пишется чуть позже
+      for (let i = 0; i < 3; i++) {
+        await sleep(1000);
+        const late = await db.cache<any>(username, "web_profile").catch(() => null);
+        if (late) return late;
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
 const inFlightProfileFetches = new Map<string, Promise<{ data: ProfileData | null; status: any; account?: string; error?: string }>>();
 
 function isValidThreadsUsername(u: string): boolean {
@@ -975,11 +1002,30 @@ export default {
         // иначе присоединившиеся (API_DEDUP) дублируют строки API_RESULT/API_TRANSIENT.
         const ownsFetch = !fetchPromise;
         if (!fetchPromise) {
+          // Память выше - своя у каждого сервера Cloudflare. Посетители из разных стран попадают на разные
+          // серверы, поэтому раньше один и тот же профиль иногда скачивался двумя браузерами одновременно.
+          // Блокировка в D1 общая: если профиль уже качает другой сервер - ждём его результат в кеше.
+          const lockScope = `scrape:${username}`;
+          const gotLock = await db.tryLock(lockScope, "scrape_lock", SCRAPE_LOCK_TTL_MS).catch(() => true);
+          if (!gotLock) {
+            await logSystem(env, "info", "api", `[API_DEDUP] @${username} уже скачивается другим сервером - ждём результат`);
+            const shared = await waitForSharedProfile(db, username, lockScope);
+            if (shared) {
+              trackLatency(isAdmin, apiTrack.cls);
+              if (shared.notFound || shared.status === "user_not_found") {
+                return Response.json({ ok: false, cached: true, status: "user_not_found", error: "Профиль не найден в Threads" }, { status: 404, headers: { "cache-control": "no-store" } });
+              }
+              const sharedPosts = Array.isArray(shared.posts) ? shared.posts.filter((p: any) => !p.author || String(p.author).toLowerCase() === username) : [];
+              return Response.json({ ok: true, cached: true, ...shared, posts: sharedPosts }, { headers: { "cache-control": "no-store" } });
+            }
+            // Чужая загрузка не дала результата за отведённое время - качаем сами
+          }
           await logSystem(env, "info", "api", `[API_FETCH] Запуск скрапера для @${username} (аккаунтов доступно: ${counts.alive})`);
           fetchPromise = fetchProfileWithPosts(env, username, 20);
           inFlightProfileFetches.set(username, fetchPromise);
           fetchPromise.finally(() => {
             inFlightProfileFetches.delete(username);
+            ctx.waitUntil(db.clearState(lockScope, "scrape_lock").then(() => {}, () => {}));
           });
         } else {
           await logSystem(env, "info", "api", `[API_DEDUP] Запрос @${username} подключен к текущему скраперу`);
@@ -1118,7 +1164,7 @@ export default {
 
       try {
         const fetched = postCode
-          ? await fetchCommentsByCode(env, username, postCode, 30)
+          ? await fetchCommentsByCode(env, username, postCode, 30, expectReplies)
           : await fetchComments(env, username, postIndex, 30);
         // «Счётчик показывает ответы, а собрали 0» - отдельный статус, чтобы видеть это в админке
         const emptyButExpected = fetched.status === "ok" && !(fetched.data?.length) && expectReplies;
