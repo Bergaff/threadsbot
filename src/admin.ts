@@ -896,10 +896,21 @@ const COUNTRY_INFO: Record<string, { name: string }> = {
   AU: { name: "Австралия" },
 };
 
+/** Название страны по-русски для кодов, которых нет в COUNTRY_INFO (например IS - Исландия). */
+export function countryNameRu(code: string): string {
+  const c = String(code || "").toUpperCase();
+  if (!/^[A-Z]{2}$/.test(c) || c === "XX" || c === "T1") return "Не определена";
+  try {
+    return new (Intl as any).DisplayNames(["ru"], { type: "region" }).of(c) || c;
+  } catch {
+    return c;
+  }
+}
+
 function renderCountryList(list: Array<{ country: string; count: number; percent: number }>) {
   if (!list.length) return '<div style="color:#777;font-size:0.82rem;padding:8px 0;">Данные пока собираются...</div>';
   return list.map(item => {
-    const info = COUNTRY_INFO[item.country] || { name: item.country === "XX" ? "Не определена" : item.country };
+    const info = COUNTRY_INFO[item.country] || { name: countryNameRu(item.country) };
     return `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #282828;font-size:0.84rem;">
         <span><b>${esc(info.name)}</b> <span style="color:#777;font-size:0.75rem;">(${esc(item.country)})</span></span>

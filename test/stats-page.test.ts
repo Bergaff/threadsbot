@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { classifySource, parseDevice } from "../src/analytics";
 import { handleStatsRoute, setStatsAccess, statsAccessInfo } from "../src/statsPage";
-import { renderStatsAccessSection } from "../src/admin";
+import { countryNameRu, renderStatsAccessSection } from "../src/admin";
 import { Database } from "../src/db";
 import type { Env } from "../src/config";
 import worker from "../src/index";
@@ -188,6 +188,10 @@ describe("advertiser report", () => {
     expect(en).toContain("Daily visitors (average)");
     expect(en).toContain("Russia");
     expect(en).toContain("covers 1 of 30 days");
+    // До начала сбора (since) дни не рисуются: ни в графике, ни в таблице - там нули значили «данных нет»
+    const old = new Date(Date.now() - 20 * 86_400_000).toISOString().slice(0, 10);
+    expect(en).not.toContain(old);
+    expect(en).toContain(`<td>${today}</td>`);
     const csv = await handleStatsRoute(new Request("https://threadsviewer.online/stats/export.csv?days=7", { headers }), env);
     expect(csv.headers.get("content-type")).toContain("text/csv");
     const lines = (await csv.text()).trim().split("\n");
@@ -229,6 +233,14 @@ describe("advertiser report", () => {
     expect(html).toContain("Не подтверждены браузером и не учтены: 3 посетителей, больше всего - Соединенные Штаты 2");
     // Главная цифра - подтверждённые (90), а не все 120
     expect(html).toMatch(/Посетителей в день \(среднее\)<\/div><div class="v">90</);
+  });
+});
+
+describe("country names in admin", () => {
+  it("uses Intl for codes missing from the built-in list", () => {
+    expect(countryNameRu("IS")).toBe("Исландия");
+    expect(countryNameRu("XX")).toBe("Не определена");
+    expect(countryNameRu("??")).toBe("Не определена");
   });
 });
 

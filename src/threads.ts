@@ -224,8 +224,26 @@ async function closeBrowser(env: Env, opened?: Opened) {
 
 /** Прокрутка ленты: колесо мыши (на него реагирует IntersectionObserver ленты) + scroll как запасной путь. */
 async function scrollFeed(page: Page, stall: number): Promise<void> {
-  try { await (page as any).mouse.move(400, 500); } catch {}
+  // Подгрузку следующей порции Threads запускает, когда в кадр попадает конец ленты. Лента может
+  // прокручиваться не окном, а внутренним блоком - поэтому крутим и последний пост в кадр, и прокручиваемых предков.
+  await page.evaluate(() => {
+    const cards = document.querySelectorAll('div[data-pressable-container="true"]');
+    const last = cards[cards.length - 1] as HTMLElement | undefined;
+    if (!last) return;
+    last.scrollIntoView({ block: "end" });
+    let el: HTMLElement | null = last.parentElement;
+    while (el && el !== document.body) {
+      const st = getComputedStyle(el);
+      if (/(auto|scroll)/.test(st.overflowY) && el.scrollHeight > el.clientHeight + 10) el.scrollTop = el.scrollHeight;
+      el = el.parentElement;
+    }
+  }).catch(() => {});
+  try {
+    const vp = (page as any).viewportSize?.() as { width: number; height: number } | null;
+    await (page as any).mouse.move(Math.round((vp?.width || 800) / 2), Math.round((vp?.height || 1000) * 0.6));
+  } catch {}
   try { await (page as any).mouse.wheel(0, stall === 0 ? 1600 : 3200); } catch {}
+  if (stall >= 2) { try { await (page as any).keyboard.press("End"); } catch {} }
   if (stall === 0) {
     await page.evaluate(() => window.scrollBy(0, 600)).catch(() => {});
   } else {
@@ -694,7 +712,26 @@ async function collectPosts(page: Page, target = 20, expectedUsername?: string, 
     await scrollFeed(page, stall);
     await sleep(stall === 0 ? 900 : 1200 + stall * 700);
   }
-  return combined().slice(0, target);
+  const result = combined().slice(0, target);
+  if (feed && result.length < target && feed.hasNextPage !== false) {
+    // Лента не догрузилась, хотя Threads не сообщал о конце: запоминаем, как выглядела страница
+    const s = await page.evaluate(() => {
+      const se = document.scrollingElement || document.documentElement;
+      let inner = 0;
+      document.querySelectorAll("div").forEach((el) => {
+        if (inner < 3 && el.scrollHeight > el.clientHeight + 200 && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) inner++;
+      });
+      return {
+        y: Math.round(window.scrollY), h: se.scrollHeight, vh: window.innerHeight, inner,
+        cards: document.querySelectorAll('div[data-pressable-container="true"]').length,
+        tail: (document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(-120),
+      };
+    }).catch(() => null);
+    feed.scrollDiag = s
+      ? `прокрутка: y=${s.y} из ${s.h} (окно ${s.vh}), внутр. прокручиваемых блоков ${s.inner}, карточек ${s.cards}; конец страницы: "${s.tail}"`
+      : "прокрутка: страница недоступна";
+  }
+  return result;
 }
 
 /**
@@ -1577,7 +1614,7 @@ export async function fetchProfileWithPosts(
         // Safe: never fail if browser or context closed right after scraping
       }
       await markSuccess(env, account.name, posts.length, updated || undefined);
-      await logSystem(env, "info", "scraper", `Успешно загружен профиль @${username}: ${posts.length} постов через [${account.name}] (цель ${amount}; из сети ${feed.posts.length}, JSON-ответов ${feed.responses}, has_next_page=${feed.hasNextPage === null ? "нет данных" : feed.hasNextPage})`);
+      await logSystem(env, "info", "scraper", `Успешно загружен профиль @${username}: ${posts.length} постов через [${account.name}] (цель ${amount}; из сети ${feed.posts.length}, JSON-ответов ${feed.responses}, has_next_page=${feed.hasNextPage === null ? "нет данных" : feed.hasNextPage})${feed.scrollDiag ? `. Не догрузилось - ${feed.scrollDiag}` : ""}`);
       return { data: { profile, posts, source: "browser", endReached }, status: "ok", account: account.name };
     } catch (error) {
       const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 300);

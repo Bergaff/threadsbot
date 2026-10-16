@@ -142,6 +142,8 @@ export class FeedCollector {
   hasNextPage: boolean | null = null;
   endCursor: string | null = null;
   responses = 0;
+  /** Диагностика прокрутки, если лента не догрузилась до цели (заполняет скрапер) */
+  scrollDiag = "";
 
   constructor(username: string) {
     this.username = username.toLowerCase().replace(/^@/, "");

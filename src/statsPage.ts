@@ -488,15 +488,18 @@ function reportPage(env: Env, lang: Lang, r: AdvertiserReport, host: string): Re
   const unverifiedDays = Math.max(0, r.visitorDays - r.jsVisitorDays);
   const kpi = (l: string, v: string, h = "") => `<div class="kpi"><div class="l">${esc(l)}</div><div class="v">${v}</div>${h ? `<div class="h">${esc(h)}</div>` : ""}</div>`;
 
-  const maxV = Math.max(1, ...r.daily.map((d) => Math.max(d.pv, d.uv, d.js)));
-  const step = r.daily.length > 14 ? 3 : 1;
+  // Дни ДО начала сбора по текущей методике не показываем: нули там означают «данных нет», а не «посетителей нет»
+  const sinceDay = r.since ? String(r.since).slice(0, 10) : "";
+  const daily = sinceDay ? r.daily.filter((d) => d.day >= sinceDay) : r.daily;
+  const maxV = Math.max(1, ...daily.map((d) => Math.max(d.pv, d.uv, d.js)));
+  const step = daily.length > 14 ? 3 : 1;
   const chart = `
     <div class="legend"><span><i style="background:#16a34a"></i>${esc(t.legendJs)}</span><span><i style="background:#d1d5db"></i>${esc(t.legendAll)}</span><span><i style="background:#bfdbfe"></i>${esc(t.legendPv)} (${esc(t.pageviewsAllHint)})</span></div>
-    <div class="chart">${r.daily.map((d) => `<div class="col" title="${esc(d.day)}: ${esc(t.legendJs)} ${d.js}, ${esc(t.legendAll)} ${d.uv}, ${esc(t.legendPv)} ${d.pv}"><div class="js" style="height:${(d.js / maxV) * 100}%"></div><div class="uv" style="height:${(d.uv / maxV) * 100}%"></div><div class="pv" style="height:${(d.pv / maxV) * 100}%"></div></div>`).join("")}</div>
-    <div class="xl">${r.daily.map((d, i) => `<span>${i % step === 0 ? esc(d.day.slice(8, 10) + "." + d.day.slice(5, 7)) : ""}</span>`).join("")}</div>`;
+    <div class="chart">${daily.map((d) => `<div class="col" title="${esc(d.day)}: ${esc(t.legendJs)} ${d.js}, ${esc(t.legendAll)} ${d.uv}, ${esc(t.legendPv)} ${d.pv}"><div class="js" style="height:${(d.js / maxV) * 100}%"></div><div class="uv" style="height:${(d.uv / maxV) * 100}%"></div><div class="pv" style="height:${(d.pv / maxV) * 100}%"></div></div>`).join("")}</div>
+    <div class="xl">${daily.map((d, i) => `<span>${i % step === 0 ? esc(d.day.slice(8, 10) + "." + d.day.slice(5, 7)) : ""}</span>`).join("")}</div>`;
 
   const dailyTable = `<table><thead><tr><th>${lang === "ru" ? "Дата" : "Date"}</th><th class="n">${esc(t.jsShare)}</th><th class="n">${esc(t.unverified)}</th><th class="n">${esc(t.legendPv)} (${esc(t.pageviewsAllHint)})</th></tr></thead><tbody>${
-    [...r.daily].reverse().map((d) => `<tr><td>${esc(d.day)}</td><td class="n"><b>${nf.format(d.js)}</b></td><td class="n">${nf.format(Math.max(0, d.uv - d.js))}</td><td class="n">${nf.format(d.pv)}</td></tr>`).join("")
+    [...daily].reverse().map((d) => `<tr><td>${esc(d.day)}</td><td class="n"><b>${nf.format(d.js)}</b></td><td class="n">${nf.format(Math.max(0, d.uv - d.js))}</td><td class="n">${nf.format(d.pv)}</td></tr>`).join("")
   }</tbody></table>`;
 
   const kindsTotal = Object.values(b.pvKinds).reduce((a, c) => a + c, 0);
