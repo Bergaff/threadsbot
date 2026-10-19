@@ -308,6 +308,7 @@ export class Database {
       this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='web_comments' AND timestamp>?`).bind(one),
       this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='web_bot_crawl' AND timestamp>?`).bind(one),
       this.db.prepare(`SELECT COUNT(*) c FROM user_events WHERE event_type='web_bot_crawl' AND timestamp>?`).bind(seven),
+      this.db.prepare(`SELECT COUNT(DISTINCT user_id) c FROM user_events WHERE event_type='bot_blocked' AND timestamp>?`).bind(seven),
     ];
     const r=await this.db.batch(queries); const modes=(r[5]?.results || []) as {event_data?:string;c:number}[];
     const count=(i:number)=>Number((r[i]?.results?.[0] as {c:number}|undefined)?.c||0);
@@ -317,12 +318,14 @@ export class Database {
     const webComments = count(10);
     const botCrawls24h = count(11);
     const botCrawls7d = count(12);
+    const blocked7d = count(13);
     const webHumanRequests = webViews + webApi + webComments;
     const webRequests = webHumanRequests + botCrawls24h;
     return {
       newUsers: count(0),
       dau: count(1),
       active7d: count(2),
+      blocked7d,
       requests: botReqs,
       botRequests: botReqs,
       webViews,

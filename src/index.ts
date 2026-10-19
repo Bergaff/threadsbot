@@ -8,7 +8,7 @@ import { Bot } from "./bot";
 import { adminIds, type Env } from "./config";
 import { Database, STALE_PROFILE_MS } from "./db";
 import { diagnoseAccountCookies } from "./cookies";
-import { Telegram, type TelegramUpdate } from "./telegram";
+import { isChatUnavailable, Telegram, type TelegramUpdate } from "./telegram";
 import { fetchComments, fetchCommentsByCode, fetchProfileWithPosts, logSystem, probeAccount, refreshAccountCookies, sleep, type ProfileData, type Comment } from "./threads";
 
 /** Сколько аккаунтов прогревать за один запуск cron, чтобы не выбирать лимит Browser Rendering. */
@@ -128,7 +128,23 @@ function checkScraperRateLimit(ip: string, limit = 20, windowMs = 300_000): { al
   return { allowed: true, remaining: limit - entry.count, retryAfter: 0 };
 }
 
+/**
+ * Пользователь заблокировал бота / удалил аккаунт: не алертим админам (раньше одна такая ошибка давала
+ * до 5 одинаковых ALERT из-за повторов очереди) - только записываем событие для статистики.
+ */
+async function handleChatUnavailable(env: Env, update: TelegramUpdate | null, error: unknown): Promise<boolean> {
+  if (!isChatUnavailable(error)) return false;
+  const uid = update ? chatIdOf(update) : null;
+  console.warn("chat unavailable", uid, String(error));
+  if (uid && env.DB) {
+    const reason = /blocked/i.test(String(error)) ? "blocked" : /deactivated/i.test(String(error)) ? "deactivated" : "unavailable";
+    await new Database(env).logEvent(uid, "bot_blocked", reason).catch(() => {});
+  }
+  return true;
+}
+
 async function notifyError(env: Env, error: unknown) {
+  if (isChatUnavailable(error)) { console.warn(String(error)); return; }
   console.error(error);
   const telegram = new Telegram(env.TELEGRAM_TOKEN);
   const value = `🚨 <b>ALERT</b>\n\nBot error: ${String(error).slice(0, 500)}`;
@@ -515,7 +531,7 @@ export default {
         ctx.waitUntil(
           (async () => {
             try { await new Bot(env).update(update); }
-            catch (error) { await notifyError(env, error); }
+            catch (error) { if (!(await handleChatUnavailable(env, update, error))) await notifyError(env, error); }
           })(),
         );
       }
@@ -1325,6 +1341,15 @@ export default {
           .run();
         message.ack();
       } catch (error) {
+        if (await handleChatUnavailable(env, update, error)) {
+          // Повтор ничего не даст (чат закрыт для бота), а повторно занял бы браузер
+          await env.DB
+            .prepare("UPDATE processed_updates SET status='done',updated_at=? WHERE update_id=?")
+            .bind(new Date().toISOString(), update.update_id)
+            .run();
+          message.ack();
+          continue;
+        }
         await env.DB
           .prepare("DELETE FROM processed_updates WHERE update_id=?")
           .bind(update.update_id)

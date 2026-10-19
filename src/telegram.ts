@@ -18,6 +18,16 @@ function blobFromBytes(bytes: Uint8Array, type: string): Blob {
   return new Blob([copy], { type });
 }
 
+/**
+ * Чат недоступен для бота: пользователь заблокировал бота, удалил аккаунт, чат не найден.
+ * Это не сбой - повторять бессмысленно, алерт админам не нужен.
+ */
+export function isChatUnavailable(error: unknown): boolean {
+  const s = String((error as any)?.message ?? error ?? "");
+  if (!/^(Error: )?Telegram \w+:/.test(s)) return false;
+  return /Forbidden|bot was blocked by the user|user is deactivated|chat not found|bot can't initiate conversation|bot was kicked/i.test(s);
+}
+
 export class Telegram {
   constructor(private readonly token: string) {}
   private async call<T>(method: string, body: Record<string, unknown>): Promise<T> {

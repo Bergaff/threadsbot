@@ -1165,6 +1165,7 @@ function renderTruthSections(env: Env, t: SiteTruth, analytics: any, retention: 
           <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.5;">
             <div>- Активных пользователей: ${analytics.dau} (7 дней: ${analytics.active7d})</div>
             <div>- Новых (/start): ${analytics.newUsers}</div>
+            <div>- Заблокировали бота (7 дней): ${Number((analytics as any).blocked7d || 0)}</div>
             <div>- Текст: ${analytics.text}, фото: ${analytics.img}, комментарии: ${analytics.comments}</div>
             <div>- Упёрлись в бесплатный лимит: ${analytics.exhausted}</div>
           </div>
