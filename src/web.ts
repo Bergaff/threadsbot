@@ -21,26 +21,16 @@ export const POPULAR_CREATORS = [
 ];
 
 export function detectLanguage(request: Request): Lang {
+  // Язык меняется только явным выбором (?lang= или cookie после переключателя). Раньше он угадывался по
+  // Accept-Language/стране, и Googlebot (США, без Accept-Language) видел на "/" английскую страницу с
+  // canonical на /?lang=en - русская главная для Google не существовала. Основная аудитория русскоязычная.
   const url = new URL(request.url);
   const q = url.searchParams.get("lang")?.toLowerCase();
   if (q === "en" || q === "ru") return q;
-
   const cookieHeader = request.headers.get("cookie") || "";
   const match = cookieHeader.match(/(?:^|;\s*)lang=(ru|en)/i);
   if (match) return match[1].toLowerCase() as Lang;
-
-  const accept = (request.headers.get("accept-language") || "").toLowerCase();
-  if (accept.startsWith("ru") || accept.includes(",ru") || accept.includes("be") || accept.includes("uk")) {
-    return "ru";
-  }
-
-  const country = (request.headers.get("cf-ipcountry") || (request as any).cf?.country || "").toUpperCase();
-  const cisCountries = ["RU", "BY", "KZ", "UA", "KG", "UZ", "TJ", "AM", "AZ", "MD"];
-  if (cisCountries.includes(country)) {
-    return "ru";
-  }
-
-  return "en";
+  return "ru";
 }
 
 export function esc(value: unknown): string {
@@ -1948,8 +1938,8 @@ export function renderHomePage(
 ): Response {
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
-  const homeCanonical = `${origin}/${lang === 'en' ? '?lang=en' : ''}`;
-  const ver = env.VERSION || "pr80-2026-10-16-stats-scroll";
+  const homeCanonical = `${origin}/${lang === 'en' ? 'en/' : ''}`;
+  const ver = env.VERSION || "pr81-2026-10-19-seo";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1968,7 +1958,7 @@ export function renderHomePage(
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
   <meta name="verification" content="7d97667a3e056acab9aaf653807b4a03">
   <link rel="canonical" href="${homeCanonical}">
-  <link rel="alternate" hreflang="ru" href="${origin}/ru/">
+  <link rel="alternate" hreflang="ru" href="${origin}/">
   <link rel="alternate" hreflang="en" href="${origin}/en/">
   <link rel="alternate" hreflang="x-default" href="${origin}/">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(ver)}">
@@ -2419,6 +2409,9 @@ export function renderProfilePage(
   // Данные получены из публичной HTML-разметки Threads, а не через браузер.
   // Постов может не быть - это не значит, что автор ничего не публиковал.
   const isPartial = Boolean((initialData as any)?.partial);
+  // Сохранённая копия (старше 15 мин): показываем сразу, а в браузере тихо запрашиваем свежую
+  const isStale = hasData && Boolean((initialData as any)?.stale);
+  const staleAt = isStale ? String((initialData as any)?.staleAt || "") : "";
   const emptyFeedNote = posts.length === 0 && isPartial
     ? (lang === 'en'
       ? 'Profile data loaded from the public Threads page. Posts are temporarily unavailable because the scraper accounts need a session refresh.'
@@ -2537,7 +2530,7 @@ export function renderProfilePage(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
-  ${errorMessage ? '<meta name="robots" content="noindex, follow">' : ''}
+  ${errorMessage || !hasData ? '<meta name="robots" content="noindex, follow">' : ''}
   <title>${pageTitle}</title>
   <meta name="description" content="${ogDesc}">
   <meta name="keywords" content="${esc(cleanUser)}, @${esc(cleanUser)}, threads, тредс, читать threads без впн, смотреть профиль ${esc(cleanUser)}">
@@ -2552,9 +2545,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr80-2026-10-16-stats-scroll')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr80-2026-10-16-stats-scroll')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr80-2026-10-16-stats-scroll')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr81-2026-10-19-seo')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr81-2026-10-19-seo')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr81-2026-10-19-seo')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2673,6 +2666,7 @@ export function renderProfilePage(
 
     ${renderSponsorSlot(env, lang, isPremium, country)}
 
+    ${isStale ? `<div id="staleNote" class="muted" style="font-size:0.8rem;color:#888;margin:4px 0 10px;">${lang === 'en' ? 'Saved copy' : 'Сохранённая копия'}${staleAt ? ` ${lang === 'en' ? 'from' : 'от'} ${esc(staleAt.slice(0, 16).replace('T', ' '))} UTC` : ''}. ${lang === 'en' ? 'Refreshing from Threads...' : 'Обновляем из Threads...'}</div>` : ''}
     <section class="feed" id="postsFeed">
       ${postsHtml}
     </section>
@@ -2729,6 +2723,7 @@ export function renderProfilePage(
       } catch (e) {}
     })();
     var isLoaded = ${hasData ? "true" : "false"};
+    var isStale = ${isStale ? "true" : "false"};
     var loadedPostCount = ${posts.length};
     var currentProfile = ${JSON.stringify(initialData?.profile ? { displayName: initialData.profile.displayName || "", avatar: initialData.profile.avatar || "" } : null).replace(/</g, "\\u003c")};
     var moreBusy = false;
@@ -3144,7 +3139,14 @@ export function renderProfilePage(
       else feed.innerHTML = html;
     }
 
-    if (!isLoaded) {
+    function staleDone(ok) {
+      var n = document.getElementById('staleNote');
+      if (!n) return;
+      if (ok) n.parentNode.removeChild(n);
+      else n.innerText = currentLang === 'en' ? 'Saved copy. Could not refresh from Threads right now.' : 'Сохранённая копия. Сейчас не удалось обновить из Threads.';
+    }
+
+    if (!isLoaded || isStale) {
       var stepIdx = 0;
       var stepsRu = [
         'Запрашиваем профиль, посты и медиа с серверов Threads...',
@@ -3171,6 +3173,8 @@ export function renderProfilePage(
         .then(function(res) { return res.json(); })
         .then(function(res) {
           clearInterval(stepInterval);
+          if (isStale && !(res.ok && ((res.posts && res.posts.length) || res.profile))) { staleDone(false); return; }
+          if (isStale) staleDone(true);
           if (res.ok && (res.posts || res.profile)) {
             var box = document.getElementById('loadingBox');
             if (box) box.style.display = 'none';
@@ -3240,6 +3244,7 @@ export function renderProfilePage(
         })
         .catch(function() {
           clearInterval(stepInterval);
+          if (isStale) { staleDone(false); return; }
           var box = document.getElementById('loadingBox');
           var title = document.getElementById('loadingStatusTitle');
           var txt = document.getElementById('loadingStatusText');
@@ -3628,9 +3633,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr80-2026-10-16-stats-scroll">
-  <link rel="alternate icon" href="/favicon.ico?v=pr80-2026-10-16-stats-scroll">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr80-2026-10-16-stats-scroll">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr81-2026-10-19-seo">
+  <link rel="alternate icon" href="/favicon.ico?v=pr81-2026-10-19-seo">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr81-2026-10-19-seo">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3752,7 +3757,6 @@ export function renderSitemap(origin: string, popularProfiles: string[]): Respon
   const now = new Date().toISOString().slice(0, 10);
   const urls = [
     { loc: `${origin}/`, priority: "1.0", freq: "daily" },
-    { loc: `${origin}/ru/`, priority: "0.9", freq: "daily" },
     { loc: `${origin}/en/`, priority: "0.9", freq: "daily" },
     { loc: `${origin}/terms`, priority: "0.5", freq: "monthly" },
     { loc: `${origin}/privacy`, priority: "0.5", freq: "monthly" },
@@ -3878,7 +3882,7 @@ function renderShopShell(
   <meta property="og:title" content="${esc(opts.title)}">
   <meta property="og:description" content="${esc(opts.description)}">
   <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr80-2026-10-16-stats-scroll">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr81-2026-10-19-seo">
   <script>
     (function(){
       var t = localStorage.getItem("threads_theme");

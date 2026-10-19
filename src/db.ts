@@ -33,6 +33,9 @@ export type StateName =
   /** История самодиагностики: последние 14 запусков [{at, ok, fails}] */
   | "diag_history";
 
+/** Сколько хранится копия профиля для страницы (поисковики, первый показ). Свежесть для API - LIMITS.cacheMinutes. */
+export const STALE_PROFILE_MS = 7 * 86_400_000;
+
 export class Database {
   constructor(private readonly env: Env) {}
   private get db() { return this.env.DB; }
@@ -188,6 +191,24 @@ export class Database {
         if (age >= 120_000) return null;
       }
       return parsed as T;
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * Сохранённая копия профиля старше обычного TTL (до maxAgeMs). Нужна, чтобы страница профиля
+   * для поисковиков и первых посетителей содержала посты, а не «Загрузка…». Отрицательный кеш не отдаём.
+   */
+  async cacheStale<T>(username:string, mode:string, maxAgeMs:number, page=0): Promise<{ data: T; ageMs: number; cachedAt: string }|null> {
+    if (!this.db?.prepare) return null;
+    const row = await this.db.prepare("SELECT data,cached_at FROM cache WHERE username=? AND mode=? AND page=?").bind(username,mode,page).first<{data:string;cached_at:string}>();
+    if (!row) return null;
+    const ageMs = Date.now() - new Date(row.cached_at).getTime();
+    if (!(ageMs < maxAgeMs)) return null;
+    try {
+      const parsed = JSON.parse(row.data) as any;
+      if (!parsed || parsed.notFound || parsed.status === "user_not_found") return null;
+      return { data: parsed as T, ageMs, cachedAt: row.cached_at };
     } catch {
       return null;
     }
@@ -907,7 +928,7 @@ export class Database {
     }
   }
 
-  cleanup() { return this.db.batch([this.db.prepare("DELETE FROM request_log WHERE timestamp<?").bind(since(14*86_400_000)),this.db.prepare("DELETE FROM cache WHERE cached_at<?").bind(since(LIMITS.cacheMinutes*60_000)),this.db.prepare("DELETE FROM bot_state WHERE updated_at<? AND state_key IN ('waiting_support','admin_reply')").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM processed_updates WHERE status='done' AND updated_at<?").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM user_events WHERE user_id=0 AND timestamp<?").bind(since(30*86_400_000))]); }
+  cleanup() { return this.db.batch([this.db.prepare("DELETE FROM request_log WHERE timestamp<?").bind(since(14*86_400_000)),this.db.prepare("DELETE FROM cache WHERE cached_at<? AND mode<>'web_profile'").bind(since(LIMITS.cacheMinutes*60_000)),this.db.prepare("DELETE FROM cache WHERE mode='web_profile' AND cached_at<?").bind(since(STALE_PROFILE_MS)),this.db.prepare("DELETE FROM bot_state WHERE updated_at<? AND state_key IN ('waiting_support','admin_reply')").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM processed_updates WHERE status='done' AND updated_at<?").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM user_events WHERE user_id=0 AND timestamp<?").bind(since(30*86_400_000))]); }
 }
 
 export interface Dist { count: number; median: number; p95: number; max: number }

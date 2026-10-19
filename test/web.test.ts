@@ -52,11 +52,13 @@ describe("Language Detection", () => {
     expect(detectLanguage(reqBy)).toBe("ru");
   });
 
-  it("defaults to English for other locales", () => {
+  it("defaults to Russian without an explicit choice (one language per URL for search engines)", () => {
     const reqUs = new Request("https://site.com/", {
       headers: { "accept-language": "en-US,en;q=0.9", "cf-ipcountry": "US" },
     });
-    expect(detectLanguage(reqUs)).toBe("en");
+    expect(detectLanguage(reqUs)).toBe("ru");
+    expect(detectLanguage(new Request("https://site.com/?lang=en"))).toBe("en");
+    expect(detectLanguage(new Request("https://site.com/", { headers: { cookie: "a=1; lang=en" } }))).toBe("en");
   });
 });
 
@@ -519,9 +521,9 @@ describe("Web Viewer SSR & Routing", () => {
 
       const ruReq = new Request("https://threadsviewer.online/ru/");
       const ruRes = await worker.fetch(ruReq, mockEnv, fakeCtx);
-      expect(ruRes.status).toBe(200);
-      const ruHtml = await ruRes.text();
-      expect(ruHtml).toContain('lang="ru"');
+      expect(ruRes.status).toBe(301);
+      expect(ruRes.headers.get("location")).toBe("https://threadsviewer.online/");
+      expect(ruRes.headers.get("set-cookie")).toContain("lang=ru");
 
       const enReq = new Request("https://threadsviewer.online/en/");
       const enRes = await worker.fetch(enReq, mockEnv, fakeCtx);
@@ -576,7 +578,8 @@ describe("Web Viewer SSR & Routing", () => {
       expect(res.status).toBe(200);
       expect(res.headers.get("cache-control")).toContain("public, max-age=3600");
       const xml = await res.text();
-      expect(xml).toContain("<loc>https://threadsviewer.online/ru/</loc>");
+      expect(xml).not.toContain("<loc>https://threadsviewer.online/ru/</loc>");
+      expect(xml).toContain("<loc>https://threadsviewer.online/</loc>");
       expect(xml).toContain("<loc>https://threadsviewer.online/en/</loc>");
       expect(xml).toContain("<loc>https://threadsviewer.online/@zuck</loc>");
     });

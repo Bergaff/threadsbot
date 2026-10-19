@@ -6,7 +6,7 @@ import { FAVICON_SVG, FAVICON_ICO_BASE64, FAVICON_DATA_URL } from "./assets";
 import { matchEdgeCache, putEdgeCache } from "./cache";
 import { Bot } from "./bot";
 import { adminIds, type Env } from "./config";
-import { Database } from "./db";
+import { Database, STALE_PROFILE_MS } from "./db";
 import { diagnoseAccountCookies } from "./cookies";
 import { Telegram, type TelegramUpdate } from "./telegram";
 import { fetchComments, fetchCommentsByCode, fetchProfileWithPosts, logSystem, probeAccount, refreshAccountCookies, sleep, type ProfileData, type Comment } from "./threads";
@@ -140,6 +140,20 @@ async function notifyError(env: Env, error: unknown) {
 const SEARCH_ENGINES_NO_LIMIT = new Set(["Googlebot", "YandexBot", "Bingbot", "DuckDuckBot", "Baiduspider"]);
 const MORE_POSTS_STEP = 20;
 const MORE_POSTS_MAX = 100;
+
+/** Сохранённая копия профиля для страницы: помечена stale, чтобы клиент обновил её в фоне. */
+async function staleProfile(db: Database, username: string): Promise<ProfileData | null> {
+  try {
+    const hit = await db.cacheStale<any>(username, "web_profile", STALE_PROFILE_MS);
+    if (!hit) return null;
+    const d = hit.data;
+    if (!d || (!d.profile && !(Array.isArray(d.posts) && d.posts.length))) return null;
+    if (Array.isArray(d.posts)) d.posts = d.posts.filter((p: any) => !p?.author || String(p.author).toLowerCase() === username);
+    return { ...d, stale: true, staleAt: hit.cachedAt } as ProfileData;
+  } catch {
+    return null;
+  }
+}
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -570,8 +584,15 @@ export default {
     }
 
     // Главная страница (включая языковые маршруты /ru, /ru/, /en, /en/)
-    if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/ru" || url.pathname === "/ru/" || url.pathname === "/en" || url.pathname === "/en/") {
-      const pageLang = url.pathname.startsWith("/en") ? "en" : (url.pathname.startsWith("/ru") ? "ru" : lang);
+    // /ru/ - дубль главной: русская версия живёт на "/", английская на "/en/"
+    if (url.pathname === "/ru" || url.pathname === "/ru/") {
+      const target = new URL("/", url.origin);
+      url.searchParams.forEach((v, k) => { if (k !== "lang") target.searchParams.set(k, v); });
+      return new Response(null, { status: 301, headers: { location: target.toString(), "set-cookie": "lang=ru; Path=/; Max-Age=31536000; SameSite=Lax" } });
+    }
+    if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/en" || url.pathname === "/en/") {
+      const qLang = url.searchParams.get("lang");
+      const pageLang = qLang === "en" || qLang === "ru" ? qLang : (url.pathname.startsWith("/en") ? "en" : lang);
       const paymentParam = url.searchParams.get("payment");
       const paymentStatus = paymentParam === "success" ? "success" : (paymentParam === "fail" || paymentParam === "cancel" ? "fail" : null);
 
@@ -617,7 +638,8 @@ export default {
       try {
         if (env.DB) {
           const rows = await env.DB.prepare(
-            "SELECT DISTINCT username FROM cache WHERE mode='web_profile' ORDER BY cached_at DESC LIMIT 100"
+            // Только профили с сохранённым содержимым (не «не найден»): копии живут 7 дней
+            "SELECT DISTINCT username FROM cache WHERE mode='web_profile' AND page=0 AND data NOT LIKE '%\"notFound\":true%' AND data NOT LIKE '%user_not_found%' ORDER BY cached_at DESC LIMIT 300"
           ).all<{ username: string }>();
           if (rows.results?.length) {
             extraUsers = rows.results.map((r: any) => r.username).filter(Boolean);
@@ -717,13 +739,14 @@ export default {
       const db = new Database(env);
       trackLatency(postTrack.isAdmin, postTrack.cls);
       const { isPremium, newAuthCookie } = await checkPremiumUser(request, env);
-      const cached = await db.cache<ProfileData>(username, "web_profile");
+      const fresh = await db.cache<ProfileData>(username, "web_profile");
+      const cached = fresh || (await staleProfile(db, username));
       let res = renderProfilePage(env, username, cached, null, lang, isPremium, country, targetPostId, url.origin);
       if (newAuthCookie) {
         res = new Response(res.body, res);
         res.headers.append("Set-Cookie", newAuthCookie);
       } else if (cached && !isPremium) {
-        putEdgeCache(request, res, ctx, 900);
+        putEdgeCache(request, res, ctx, fresh ? 900 : 300);
       }
       return res;
     }
@@ -760,7 +783,10 @@ export default {
         }
       }
       const isNotFound = cached && (cached.notFound || cached.status === "user_not_found");
-      const initialData = isNotFound ? null : (cached as ProfileData);
+      // Свежего кеша нет - показываем сохранённую копию (до 7 дней), страница сама обновит её в фоне.
+      // Без этого поисковики, которые не выполняют JS, видели пустую страницу «Загрузка постов…».
+      const stale = !cached && !forceRefresh ? await staleProfile(db, username) : null;
+      const initialData = isNotFound ? null : ((cached || stale) as ProfileData);
       const errorMsg = isNotFound ? (lang === "en" ? "Profile Not Found in Threads" : "Профиль не найден в Threads") : null;
       let res = renderProfilePage(env, username, initialData, errorMsg, lang, isPremium, country, undefined, url.origin);
       if (isNotFound) {
@@ -774,6 +800,8 @@ export default {
         res.headers.append("Set-Cookie", newAuthCookie);
       } else if (cached && !isPremium && !isNotFound) {
         putEdgeCache(request, res, ctx, 900);
+      } else if (stale && !isPremium) {
+        putEdgeCache(request, res, ctx, 300);
       }
       return res;
     }

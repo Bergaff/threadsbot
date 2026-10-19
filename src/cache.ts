@@ -3,6 +3,17 @@
  * Provides fast CDN caching for anonymous web traffic and search engine bots.
  */
 
+/**
+ * Ключ кеша: URL + язык из cookie. Страницы отличаются языком, а язык (кроме ?lang=) берётся из cookie,
+ * поэтому без этого посетитель с lang=en мог получить русскую копию и наоборот.
+ */
+function edgeCacheKey(request: Request, url: URL): Request {
+  const m = (request.headers.get("cookie") || "").match(/(?:^|;\s*)lang=(ru|en)/i);
+  const key = new URL(url.toString());
+  if (m && !key.searchParams.has("lang")) key.searchParams.set("__lang", m[1].toLowerCase());
+  return new Request(key.toString(), { method: "GET" });
+}
+
 export async function matchEdgeCache(request: Request): Promise<Response | null> {
   try {
     if (typeof caches === "undefined" || !(caches as any).default) return null;
@@ -19,7 +30,7 @@ export async function matchEdgeCache(request: Request): Promise<Response | null>
     const cc = request.headers.get("cache-control") || "";
     if (cc.includes("no-cache") || cc.includes("no-store")) return null;
 
-    const cacheKey = new Request(url.toString(), { method: "GET" });
+    const cacheKey = edgeCacheKey(request, url);
     const cached = await (caches as any).default.match(cacheKey);
     if (cached) {
       const headers = new Headers(cached.headers);
@@ -74,7 +85,7 @@ export function putEdgeCache(
       headers,
     });
 
-    const cacheKey = new Request(url.toString(), { method: "GET" });
+    const cacheKey = edgeCacheKey(request, url);
     const putPromise = (caches as any).default.put(cacheKey, toStore).catch(() => {});
     if (ctx && typeof (ctx as any).waitUntil === "function") {
       ctx.waitUntil(putPromise);
