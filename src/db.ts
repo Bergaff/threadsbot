@@ -11,6 +11,12 @@ export type StateName =
   | "fetch_lock"
   /** Межсерверная блокировка «профиль уже скачивается» (scope scrape:<username>), значение - Date.now() */
   | "scrape_lock"
+  /** IndexNow: профиль уже отправлен (scope indexnow:<username>), значение - Date.now() */
+  | "indexnow_lock"
+  /** IndexNow: результат последней отправки (JSON) */
+  | "indexnow_last"
+  /** IndexNow: версия, для которой главные страницы уже отправлены после деплоя */
+  | "indexnow_version"
   | "last_daily_probe"
   /** Карта {токен: ISO-дата истечения} активных админских сессий. */
   | "admin_sessions"
@@ -931,7 +937,7 @@ export class Database {
     }
   }
 
-  cleanup() { return this.db.batch([this.db.prepare("DELETE FROM request_log WHERE timestamp<?").bind(since(14*86_400_000)),this.db.prepare("DELETE FROM cache WHERE cached_at<? AND mode<>'web_profile'").bind(since(LIMITS.cacheMinutes*60_000)),this.db.prepare("DELETE FROM cache WHERE mode='web_profile' AND cached_at<?").bind(since(STALE_PROFILE_MS)),this.db.prepare("DELETE FROM bot_state WHERE updated_at<? AND state_key IN ('waiting_support','admin_reply')").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM processed_updates WHERE status='done' AND updated_at<?").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM user_events WHERE user_id=0 AND timestamp<?").bind(since(30*86_400_000))]); }
+  cleanup() { return this.db.batch([this.db.prepare("DELETE FROM request_log WHERE timestamp<?").bind(since(14*86_400_000)),this.db.prepare("DELETE FROM cache WHERE cached_at<? AND mode<>'web_profile'").bind(since(LIMITS.cacheMinutes*60_000)),this.db.prepare("DELETE FROM cache WHERE mode='web_profile' AND cached_at<?").bind(since(STALE_PROFILE_MS)),this.db.prepare("DELETE FROM bot_state WHERE updated_at<? AND state_key IN ('waiting_support','admin_reply','indexnow_lock','scrape_lock')").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM processed_updates WHERE status='done' AND updated_at<?").bind(since(7*86_400_000)),this.db.prepare("DELETE FROM user_events WHERE user_id=0 AND timestamp<?").bind(since(30*86_400_000))]); }
 }
 
 export interface Dist { count: number; median: number; p95: number; max: number }

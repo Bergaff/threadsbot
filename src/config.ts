@@ -9,6 +9,8 @@ export interface Env {
   STATS_EXCLUDE_IDS?: string;
   BASE_URL?: string;
   VERSION?: string;
+  /** Ключ IndexNow (необязательно; по умолчанию встроенный, он публичный по протоколу) */
+  INDEXNOW_KEY?: string;
   ADMIN_PASSWORD?: string;
   /** Запасной логин/пароль страницы /stats, если в админке доступ не настроен */
   STATS_LOGIN?: string;

@@ -9,6 +9,7 @@ import { adminIds, type Env } from "./config";
 import { Database, STALE_PROFILE_MS } from "./db";
 import { diagnoseAccountCookies } from "./cookies";
 import { isChatUnavailable, Telegram, type TelegramUpdate } from "./telegram";
+import { indexNowKeyFileResponse, notifyAfterDeploy, notifyProfileUpdated } from "./indexnow";
 import { fetchComments, fetchCommentsByCode, fetchProfileWithPosts, logSystem, probeAccount, refreshAccountCookies, sleep, type ProfileData, type Comment } from "./threads";
 
 /** Сколько аккаунтов прогревать за один запуск cron, чтобы не выбирать лимит Browser Rendering. */
@@ -675,6 +676,12 @@ export default {
       return res;
     }
 
+    // Файл ключа IndexNow (/<ключ>.txt) - до маршрута «/<ник>», который иначе принял бы его за профиль
+    if (url.pathname.endsWith(".txt")) {
+      const keyFile = indexNowKeyFileResponse(env, url.pathname);
+      if (keyFile) return keyFile;
+    }
+
     // Верификация поисковых систем (Яндекс.Вебмастер и Google Search Console)
     const yandexMatch = url.pathname.match(/^\/yandex_([a-zA-Z0-9]+)\.html$/);
     if (yandexMatch) {
@@ -1086,6 +1093,10 @@ export default {
             fetched.data.posts = fetched.data.posts.filter((p: any) => !p.author || p.author.toLowerCase() === username);
           }
           await db.setCache(username, "web_profile", fetched.data);
+          if (fetched.data.posts?.length) {
+            // Страница профиля теперь с содержимым (сохранённая копия) - сообщаем Яндексу/Bing
+            ctx.waitUntil(notifyProfileUpdated(env, username, url.hostname).catch(() => null));
+          }
           const res = Response.json({ ok: true, cached: false, ...fetched.data }, {
             headers: {
               "cache-control": "public, max-age=600, s-maxage=900, stale-while-revalidate=1800",
@@ -1366,6 +1377,8 @@ export default {
       (async () => {
         const db = new Database(env);
         await db.cleanup();
+        // IndexNow: после деплоя новой версии - главные страницы (один раз на версию)
+        await notifyAfterDeploy(env, env.VERSION || "").catch((e) => console.error("IndexNow:", e));
         const stats = await db.accountStats() as Array<{ name: string; is_alive: number; cookies: string }>;
         const issues: string[] = [];
         for (const a of stats) {

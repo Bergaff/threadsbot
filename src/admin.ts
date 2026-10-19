@@ -4,6 +4,7 @@ import { Database, type SiteTruth } from "./db";
 import { diagnoseAccountCookies, normalizeCookiesJson } from "./cookies";
 import { probeAccount, refreshAccountCookies, resetAccountStatuses } from "./threads";
 import { clearStatsAccess, setStatsAccess, statsAccessInfo } from "./statsPage";
+import { indexNowKey, parseIndexNowResult, siteHost, submitIndexNow, type IndexNowResult } from "./indexnow";
 
 function esc(value: unknown): string {
   return String(value ?? "")
@@ -428,6 +429,19 @@ export async function handleAdminRoute(request: Request, env: Env): Promise<Resp
     const form = await request.formData().catch(() => null);
     if (String(form?.get("notify") || "") === "1") await sendDiagToAdmins(env, report);
     return new Response(null, { status: 303, headers: { Location: "/admin#diag" } });
+  }
+
+  // IndexNow вручную: главные страницы + профили с сохранённой копией (до 500)
+  if (path === "/admin/api/indexnow/run" && request.method === "POST") {
+    let profiles: string[] = [];
+    try {
+      const rows = await env.DB.prepare(
+        "SELECT DISTINCT username FROM cache WHERE mode='web_profile' AND page=0 AND data NOT LIKE '%\"notFound\":true%' AND data NOT LIKE '%user_not_found%' ORDER BY cached_at DESC LIMIT 500"
+      ).all<{ username: string }>();
+      profiles = (rows.results || []).map((r) => String(r.username || "")).filter((u) => /^[a-z0-9._]{1,40}$/.test(u));
+    } catch {}
+    await submitIndexNow(env, ["/", "/en/", "/ru/", "/terms", "/privacy", ...profiles.map((u) => `/@${u}`)], "вручную из админки");
+    return new Response(null, { status: 303, headers: { Location: "/admin#indexnow" } });
   }
 
   // Доступ к странице статистики для рекламодателей (/stats)
@@ -942,6 +956,28 @@ const ROBOT_KIND_LABEL: Record<string, string> = {
 };
 
 /** Миллисекунды -> «1.2 сек». Нет данных -> прочерк (никаких подставных значений). */
+/** Блок «IndexNow»: последняя отправка в Яндекс/Bing и кнопка ручной отправки. */
+export function renderIndexNowSection(env: Env, r: IndexNowResult | null): string {
+  const host = siteHost(env);
+  const keyUrl = `https://${host}/${indexNowKey(env)}.txt`;
+  const when = r ? new Date(r.at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) : "";
+  return `
+    <section class="admin-card" id="indexnow">
+      <div class="admin-card-title">IndexNow (Яндекс, Bing)</div>
+      <div style="font-size:0.8rem;color:#999;margin-bottom:10px;line-height:1.5;">
+        Сайт сам сообщает Яндексу о новых и обновлённых страницах: профиль после успешной загрузки (раз в сутки на профиль) и главные страницы после каждого деплоя. Google IndexNow не поддерживает. Файл ключа: <a href="${esc(keyUrl)}" target="_blank" rel="noopener" style="color:#93c5fd;">${esc(keyUrl)}</a>
+      </div>
+      ${r ? `<div style="font-size:0.85rem;line-height:1.6;">
+        Последняя отправка: <b>${esc(when)}</b> МСК (${esc(r.reason)}), адресов: <b>${r.count}</b> -
+        ${r.ok ? `<span style="color:#4ade80;">принято (HTTP ${r.status})</span>` : `<span style="color:#f87171;">ошибка${r.status ? ` HTTP ${r.status}` : ""}: ${esc(r.error || "")}</span>`}
+        ${r.sample?.length ? `<div style="font-size:0.75rem;color:#777;word-break:break-all;">${r.sample.map((u) => esc(u)).join(", ")}${r.count > r.sample.length ? " ..." : ""}</div>` : ""}
+      </div>` : `<div style="font-size:0.85rem;color:#888;">Отправок ещё не было.</div>`}
+      <form method="POST" action="/admin/api/indexnow/run" style="margin-top:12px;" onsubmit="this.querySelector('button').disabled=true;">
+        <button type="submit" class="btn-admin">Отправить сейчас (главная + профили с копией)</button>
+      </form>
+    </section>`;
+}
+
 /** Блок «Ежедневная диагностика»: последний отчёт, история, кнопка запуска. */
 /** Касса RollyPay: настроена ли и последние события платежей (из вебхуков). */
 export function renderRollySection(env: Env, rows: Array<{ data: string; ts: string }>): string {
@@ -1262,7 +1298,7 @@ function renderTruthSections(env: Env, t: SiteTruth, analytics: any, retention: 
 }
 
 async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Promise<Response> {
-  const [counts, stats, system, analytics, retention, truth, statsAccess, diagRaw, diagHistRaw, rollyRows] = await Promise.all([
+  const [counts, stats, system, analytics, retention, truth, statsAccess, diagRaw, diagHistRaw, rollyRows, indexNowRaw] = await Promise.all([
     db.accountCounts(),
     db.accountStats() as Promise<any[]>,
     db.systemStats(),
@@ -1273,6 +1309,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
     db.state(0, "diag_last").catch(() => null),
     db.state(0, "diag_history").catch(() => null),
     db.rollypayRecent(20).catch(() => []),
+    db.state(0, "indexnow_last").catch(() => null),
   ]);
   const workingAccounts24h = Object.values(truth.accounts).filter(a => a.ok > 0).length;
 
@@ -1468,6 +1505,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
     ${renderTruthSections(env, truth, analytics, retention)}
 
     ${renderDiagSection(parseReport(diagRaw), parseHistory(diagHistRaw))}
+    ${renderIndexNowSection(env, parseIndexNowResult(indexNowRaw as string | null))}
     ${renderRollySection(env, rollyRows)}
     ${renderStatsAccessSection(env, statsAccess, statsFlash)}
 

@@ -1939,7 +1939,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? 'en/' : ''}`;
-  const ver = env.VERSION || "pr82-2026-10-19-blocked";
+  const ver = env.VERSION || "pr83-2026-10-19-indexnow";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2545,9 +2545,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr82-2026-10-19-blocked')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr82-2026-10-19-blocked')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr82-2026-10-19-blocked')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr83-2026-10-19-indexnow')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr83-2026-10-19-indexnow')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr83-2026-10-19-indexnow')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3633,9 +3633,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr82-2026-10-19-blocked">
-  <link rel="alternate icon" href="/favicon.ico?v=pr82-2026-10-19-blocked">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr82-2026-10-19-blocked">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr83-2026-10-19-indexnow">
+  <link rel="alternate icon" href="/favicon.ico?v=pr83-2026-10-19-indexnow">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr83-2026-10-19-indexnow">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3882,7 +3882,7 @@ function renderShopShell(
   <meta property="og:title" content="${esc(opts.title)}">
   <meta property="og:description" content="${esc(opts.description)}">
   <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr82-2026-10-19-blocked">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr83-2026-10-19-indexnow">
   <script>
     (function(){
       var t = localStorage.getItem("threads_theme");
