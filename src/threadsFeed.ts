@@ -10,6 +10,8 @@
  * Модуль чистый (без playwright), поэтому покрыт юнит-тестами.
  */
 
+import { newReplayStats, type GraphqlTemplate, type ReplayStats } from "./feedReplay";
+
 export interface FeedPost {
   id?: string;
   text: string;
@@ -144,6 +146,19 @@ export class FeedCollector {
   responses = 0;
   /** Диагностика прокрутки, если лента не догрузилась до цели (заполняет скрапер) */
   scrollDiag = "";
+  /** Сколько раз приходил page_info ленты этого автора (по нему узнаём «тот самый» запрос) */
+  pageInfoUpdates = 0;
+  /** Все курсоры ленты автора по порядку */
+  readonly cursors: string[] = [];
+  /** Перехваченный запрос следующей порции (см. feedReplay.ts) */
+  template: GraphqlTemplate | null = null;
+  /** Почему шаблон не пойман (для журнала) */
+  captureNote = "";
+  /** Какие GraphQL-запросы делала страница: имя -> количество */
+  readonly queriesSeen: Record<string, number> = {};
+  readonly replay: ReplayStats = newReplayStats();
+  /** Тела наших повторных запросов - их ответы разбирает сам повтор, а не перехватчик */
+  readonly replayBodies = new Set<string>();
 
   constructor(username: string) {
     this.username = username.toLowerCase().replace(/^@/, "");
@@ -201,7 +216,12 @@ export class FeedCollector {
       // page_info учитываем только у ленты ЭТОГО автора, а не у рекомендаций/ответов
       if (mine && typeof node.page_info.has_next_page === "boolean") {
         this.hasNextPage = node.page_info.has_next_page;
-        if (typeof node.page_info.end_cursor === "string") this.endCursor = node.page_info.end_cursor;
+        this.pageInfoUpdates++;
+        const cur = node.page_info.end_cursor;
+        if (typeof cur === "string") {
+          this.endCursor = cur;
+          if (!this.cursors.includes(cur)) this.cursors.push(cur);
+        }
       }
     } else if (Array.isArray(node.thread_items)) {
       this.takeThreadItems(node.thread_items);

@@ -3,6 +3,7 @@ import type { BrowserContext, Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
 import { diagnoseAccountCookies, playwrightCookies, snapshotHasSession } from "./cookies";
 import { FeedCollector, ReplyCollector, mergeDomWithFeed } from "./threadsFeed";
+import { buildPaginationBody, describeReplayFailure, graphqlFriendlyName, replaySummary, templateFromRequest } from "./feedReplay";
 import { isAccountBlockedUrl, isLoginUrl, isProfileUrl, isThreadsHost, isUserNotFoundPage } from "./profile";
 import { cleanPostText } from "./i18n";
 
@@ -266,10 +267,72 @@ export function attachFeedCollector(page: Page, username: string): FeedCollector
       if (!/\/(?:api\/)?graphql/i.test(u)) return;
       const ct = String(resp.headers()["content-type"] || "");
       if (ct && !/json|javascript|text/i.test(ct)) return;
-      Promise.resolve(resp.text()).then((t: string) => { feed.ingestText(t); }).catch(() => {});
+      let body: string | null = null;
+      let headers: Record<string, string> = {};
+      try { const req = resp.request(); body = req.postData(); headers = req.headers() || {}; } catch {}
+      if (body && feed.replayBodies.has(body)) return; // наш повтор - его ответ разбирает replayNextPage
+      const name = graphqlFriendlyName(headers, body);
+      feed.queriesSeen[name] = (feed.queriesSeen[name] || 0) + 1;
+      const knownCursors = feed.cursors.slice();
+      Promise.resolve(resp.text()).then((t: string) => {
+        const before = feed.pageInfoUpdates;
+        feed.ingestText(t);
+        // Ответ принёс ленту ЭТОГО автора с page_info - значит, это запрос следующей порции: запоминаем шаблон
+        if (feed.pageInfoUpdates > before && !feed.template) {
+          const r = templateFromRequest(u, headers, body, knownCursors);
+          if (r.template) feed.template = r.template;
+          else feed.captureNote = `${name}: ${r.reason}`;
+        }
+      }).catch(() => {});
     } catch {}
   });
   return feed;
+}
+
+/**
+ * Следующая порция ленты повтором перехваченного запроса (fetch внутри страницы, с cookies аккаунта).
+ * Возвращает число новых постов; -1 - повтор недоступен (нет шаблона/курсора, отключён, лента кончилась).
+ * При ошибке или пустом ответе отключает повтор до конца сбора - дальше работает прокрутка.
+ */
+export async function replayNextPage(page: Page, feed: FeedCollector): Promise<number> {
+  const t = feed.template;
+  if (!t || feed.replay.disabled || !feed.endCursor || feed.hasNextPage === false) return -1;
+  const cursor = feed.endCursor;
+  const body = buildPaginationBody(t, cursor);
+  if (!body) {
+    feed.replay.disabled = true;
+    feed.replay.errors.push("не удалось подставить курсор в шаблон");
+    return 0;
+  }
+  feed.replayBodies.add(body);
+  feed.replay.attempts++;
+  let path = t.url;
+  try { const u = new URL(t.url); path = u.pathname + u.search; } catch {}
+  const timeout = new Promise<{ status: number; text: string; error?: string }>((resolve) => setTimeout(() => resolve({ status: 0, text: "", error: "нет ответа за 15 с" }), 15_000));
+  const r = await Promise.race([
+    page.evaluate(async (a: { path: string; headers: Record<string, string>; body: string }) => {
+      try {
+        const res = await fetch(a.path, { method: "POST", headers: a.headers, body: a.body, credentials: "include" });
+        const text = await res.text();
+        return { status: res.status, text: text.length > 4_000_000 ? text.slice(0, 4_000_000) : text };
+      } catch (e) {
+        return { status: 0, text: "", error: String(e) };
+      }
+    }, { path, headers: t.headers, body }).catch((e: any) => ({ status: 0, text: "", error: String(e?.message || e) })),
+    timeout,
+  ]) as { status: number; text: string; error?: string };
+  const before = feed.posts.length;
+  if (r.text) feed.ingestText(r.text);
+  const added = feed.posts.length - before;
+  if (added > 0) {
+    feed.replay.ok++;
+    feed.replay.added += added;
+    return added;
+  }
+  feed.replay.disabled = true;
+  const why = r.error ? `сбой fetch: ${r.error.slice(0, 120)}` : describeReplayFailure(r.status, r.text);
+  feed.replay.errors.push(`${why}${feed.endCursor === cursor && (feed.hasNextPage as boolean | null) !== false ? " (курсор не сдвинулся)" : ""}`);
+  return 0;
 }
 
 /** Подписка страницы поста на GraphQL-ответы: ответы на пост приходят при прокрутке. Вызывать ДО навигации. */
@@ -709,6 +772,12 @@ async function collectPosts(page: Page, target = 20, expectedUsername?: string, 
     // Если Threads подтвердил, что посты ещё есть (has_next_page=true), ждём дольше:
     // по логам сбор сдавался на 10-14 постах при has_next_page=true.
     if (stall >= (feed && feed.hasNextPage === true ? 7 : 4)) break;
+    // Есть перехваченный запрос ленты - берём следующую порцию им, а не прокруткой (быстрее и не зависит
+    // от того, сработает ли подгрузка при скролле). Не вышло - прокрутка, как раньше.
+    if (feed && (await replayNextPage(page, feed)) > 0) {
+      await sleep(250);
+      continue;
+    }
     await scrollFeed(page, stall);
     await sleep(stall === 0 ? 900 : 1200 + stall * 700);
   }
@@ -1614,7 +1683,7 @@ export async function fetchProfileWithPosts(
         // Safe: never fail if browser or context closed right after scraping
       }
       await markSuccess(env, account.name, posts.length, updated || undefined);
-      await logSystem(env, "info", "scraper", `Успешно загружен профиль @${username}: ${posts.length} постов через [${account.name}] (цель ${amount}; из сети ${feed.posts.length}, JSON-ответов ${feed.responses}, has_next_page=${feed.hasNextPage === null ? "нет данных" : feed.hasNextPage})${feed.scrollDiag ? `. Не догрузилось - ${feed.scrollDiag}` : ""}`);
+      await logSystem(env, "info", "scraper", `Успешно загружен профиль @${username}: ${posts.length} постов через [${account.name}] (цель ${amount}; из сети ${feed.posts.length}, JSON-ответов ${feed.responses}, has_next_page=${feed.hasNextPage === null ? "нет данных" : feed.hasNextPage}; ${replaySummary(feed.template, feed.replay, feed.captureNote, feed.queriesSeen)})${feed.scrollDiag ? `. Не догрузилось - ${feed.scrollDiag}` : ""}`);
       return { data: { profile, posts, source: "browser", endReached }, status: "ok", account: account.name };
     } catch (error) {
       const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 300);
