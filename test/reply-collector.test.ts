@@ -97,3 +97,50 @@ describe("ReplyCollector (комментарии из JSON страницы по
     expect(rc.bestReplies.map((r) => r.code)).toEqual(["R1", "R2", "R2a"]);
   });
 });
+
+describe("ReplyCollector: ответы вне thread_items (запасной путь, pr85)", () => {
+  /** Другая форма ответа: replies -> edges -> node -> post, без thread_items и без кода поста */
+  const repliesOnly = () => ({
+    data: {
+      replies: {
+        edges: [
+          { node: { post: post("X1", "ewa", "Super!", "ewelina_wnuk") } },
+          { node: { post: post("X2", "marek", "Zgadzam się", "ewelina_wnuk", { quoted: post("Q1", "other", "cytat", null) }) } },
+          { node: { post: post("X3", "ewelina_wnuk", "dzięki", "ewa") } },
+          { node: { post: post("TOP", "stranger", "polecany post", null) } },
+          { node: { post: post("GONE2", "x", "usunięty", "ewelina_wnuk", { is_post_unavailable: true }) } },
+        ],
+      },
+    },
+  });
+
+  it("берёт посты с reply_to_author из любой формы JSON, без рекомендаций и недоступных", () => {
+    const rc = new ReplyCollector("MAINPL", "ewelina_wnuk");
+    rc.ingestText(JSON.stringify(repliesOnly()));
+    expect(rc.replies).toHaveLength(0);
+    expect(rc.bestReplies.map((r) => r.code)).toEqual(["X1", "X2", "X3"]);
+    expect(rc.stats()).toContain("вне thread_items 3");
+    expect(rc.stats()).toContain("пост в JSON нет");
+  });
+
+  it("строгий путь (thread_items) важнее запасного и не дублируется в нём", () => {
+    const rc = new ReplyCollector("MAIN1", "alina.kuzina");
+    rc.ingestJson(postPage());
+    expect(rc.loose).toHaveLength(0);
+    expect(rc.bestReplies.map((r) => r.code)).toEqual(["R1", "R2", "R2a"]);
+  });
+
+  it("сам пост вне thread_items отмечается в диагностике", () => {
+    const rc = new ReplyCollector("MAINPL", "ewelina_wnuk");
+    rc.ingestJson({ data: { post: post("MAINPL", "ewelina_wnuk", "post", null) } });
+    expect(rc.mainSeenAnywhere).toBe(true);
+    expect(rc.stats()).toContain("пост в JSON да (вне thread_items)");
+  });
+
+  it("в сводке видно, с каких адресов приходили ответы сети", () => {
+    const rc = new ReplyCollector("M");
+    rc.endpoints["/graphql/query"] = 28;
+    rc.endpoints["/api/v1/text_feed/N/replies/"] = 2;
+    expect(rc.stats()).toContain("/graphql/query×28, /api/v1/text_feed/N/replies/×2");
+  });
+});

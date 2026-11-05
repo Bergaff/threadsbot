@@ -303,6 +303,19 @@ export class ReplyCollector {
   /** Постов в thread_items (кроме самого поста), отброшенных как «не ответ» / недоступных */
   droppedTopLevel: FeedReply[] = [];
   droppedUnavailable = 0;
+  /**
+   * Ответы, найденные ВНЕ thread_items (любой объект-пост с reply_to_author). Запасной путь на случай,
+   * если Threads отдаёт страницу поста в другой форме: по логам на ~5% постов в JSON не было ни
+   * thread_items, ни кода поста, и строгий разбор собирал 0.
+   */
+  loose: FeedReply[] = [];
+  /** Сам пост встречался где угодно в JSON (не только в thread_items) */
+  mainSeenAnywhere = false;
+  /** Откуда приходили ответы сети: путь -> количество (диагностика) */
+  readonly endpoints: Record<string, number> = {};
+  private looseCodes = new Set<string>();
+  /** Коды постов, уже разобранных строгим путём (thread_items) - в запасной список их не берём */
+  private threadCodes = new Set<string>();
   private codes = new Set<string>();
   private droppedCodes = new Set<string>();
   private ancestors = new Set<string>();
@@ -328,14 +341,17 @@ export class ReplyCollector {
    * (посты самого автора в этом случае - скорее «ещё от автора», чем ответы).
    */
   get bestReplies(): FeedReply[] {
-    if (this.replies.length || this.mainSeen) return this.replies;
+    if (this.replies.length) return this.replies;
+    if (this.loose.length) return this.loose.filter((r) => !this.ancestors.has(r.code));
+    if (this.mainSeen) return this.replies;
     const author = this.mainAuthor ? "@" + this.mainAuthor : "";
     return this.droppedTopLevel.filter((r) => !this.ancestors.has(r.code) && (!author || r.author !== author));
   }
 
   /** Короткая сводка для диагностики пустого результата. */
   stats(): string {
-    return `ответов ${this.replies.length}, пост в JSON ${this.mainSeen ? "да" : "нет"}, ответов сети ${this.responses} (с кодом поста ${this.textsWithMain}, с thread_items ${this.textsWithThreads}), отброшено «не ответ» ${this.droppedTopLevel.length}, недоступных ${this.droppedUnavailable}`;
+    const ep = Object.entries(this.endpoints).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k}×${v}`).join(", ");
+    return `ответов ${this.replies.length} (вне thread_items ${this.loose.length}), пост в JSON ${this.mainSeen ? "да" : this.mainSeenAnywhere ? "да (вне thread_items)" : "нет"}, ответов сети ${this.responses} (с кодом поста ${this.textsWithMain}, с thread_items ${this.textsWithThreads}${ep ? `; ${ep}` : ""}), отброшено «не ответ» ${this.droppedTopLevel.length}, недоступных ${this.droppedUnavailable}`;
   }
 
   ingestJson(root: any): number {
@@ -347,6 +363,7 @@ export class ReplyCollector {
 
   private takeThread(items: any[]): void {
     const posts = items.map((it) => it?.post).filter((p) => isThreadsPost(p));
+    for (const p of posts) this.threadCodes.add(String(p.code));
     const mainIdx = posts.findIndex((p) => p.code === this.mainCode);
     if (mainIdx >= 0) {
       this.mainSeen = true;
@@ -356,6 +373,27 @@ export class ReplyCollector {
       return;
     }
     for (const p of posts) this.add(p);
+  }
+
+  /** Пост вне thread_items: ответ, если у него заполнен reply_to_author */
+  private addLoose(node: any): void {
+    const code = String(node.code);
+    if (code === this.mainCode) { this.mainSeenAnywhere = true; return; }
+    if (this.threadCodes.has(code) || this.looseCodes.has(code) || this.ancestors.has(code)) return;
+    const info = node.text_post_app_info;
+    if (!info || typeof info !== "object" || info.is_post_unavailable === true) return;
+    const to = info.reply_to_author;
+    if (!to || typeof to !== "object" || typeof to.username !== "string") return;
+    const p = normalizeThreadsPost(node);
+    if (!p) return;
+    this.looseCodes.add(code);
+    this.loose.push({
+      code,
+      author: "@" + (p.author || "anonymous"),
+      text: p.text || (p.has_video ? "🎥" : p.has_image ? "📷" : ""),
+      avatar: p.authorAvatar,
+      likes: p.likes,
+    });
   }
 
   private markAncestor(code: string): void {
@@ -394,6 +432,7 @@ export class ReplyCollector {
       return;
     }
     if (Array.isArray(node.thread_items)) this.takeThread(node.thread_items);
+    else if (isThreadsPost(node)) this.addLoose(node);
     for (const k of Object.keys(node)) {
       const v = node[k];
       if (v && typeof v === "object") this.walk(v, depth + 1);

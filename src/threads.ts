@@ -341,9 +341,16 @@ function attachReplyCollector(page: Page, mainCode: string, mainAuthor = ""): Re
   page.on("response", (resp: any) => {
     try {
       const u: string = resp.url();
-      if (!/\/(?:api\/)?graphql/i.test(u)) return;
+      // Не только /graphql: ответы могут приходить и через /api/v1/..., /ajax/... (раньше их не слушали)
+      if (!/\/(?:api\/)?graphql|\/api\/v\d|\/ajax\//i.test(u)) return;
+      let host = "";
+      try { host = new URL(u).hostname; } catch {}
+      if (host && !/threads\.(net|com)$|instagram\.com$/i.test(host)) return;
       const ct = String(resp.headers()["content-type"] || "");
       if (ct && !/json|javascript|text/i.test(ct)) return;
+      let path = "?";
+      try { path = new URL(u).pathname.replace(/\d{5,}/g, "N").slice(0, 40); } catch {}
+      rc.endpoints[path] = (rc.endpoints[path] || 0) + 1;
       Promise.resolve(resp.text()).then((t: string) => { rc.ingestText(t); }).catch(() => {});
     } catch {}
   });
@@ -355,10 +362,12 @@ function attachReplyCollector(page: Page, mainCode: string, mainAuthor = ""): Re
  * При пустом результате возвращает диагностику - что именно было на странице.
  */
 async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: number, code: string): Promise<{ data: Comment[]; diag: string }> {
-  await ingestPreloadedJson(page, rc);
+  // Встроенный JSON: не только блоки с thread_items, но и любые с кодом поста или полями постов Threads
+  const needles = ["thread_items", code, "reply_to_author"];
+  await ingestPreloadedJson(page, rc, needles);
   const dom = await collectComments(page, amount, code).catch(() => [] as Comment[]);
   // Повторно - то, что догрузилось при прокрутке внутри collectComments
-  await ingestPreloadedJson(page, rc);
+  await ingestPreloadedJson(page, rc, needles);
   // Второй DOM-способ: по ссылкам-датам ответов (не зависит от data-pressable-container)
   const byTime = await collectRepliesByTimeLinks(page, code).catch(() => [] as Comment[]);
   const out: Comment[] = [];
@@ -385,11 +394,19 @@ async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: numbe
         unavailable: /post not available|post unavailable|пост недоступен|публикация недоступна/i.test(document.body?.innerText || ""),
         repliesOff: /replies (are )?(turned off|limited|disabled)|can'?t reply|only (people|profiles) .{0,40} can reply|some replies (are )?hidden|ответы (отключены|ограничены|скрыты)|отвечать могут только/i.test(document.body?.innerText || ""),
         jsonBlobs: Array.from(document.querySelectorAll('script[type="application/json"]')).filter((e) => (e.textContent || "").includes("thread_items")).length,
+        blobsWithCode: Array.from(document.querySelectorAll('script[type="application/json"]')).filter((e) => (e.textContent || "").includes(mainCode)).length,
+        htmlHasCode: (document.documentElement?.outerHTML || "").split(mainCode).length - 1,
+        title: (document.title || "").slice(0, 60),
         body: (document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 320),
       };
     }, code).catch(() => null);
+    // Сначала то, что объясняет причину (куда попала страница, есть ли пост, что написано), - это видно и
+    // в обрезанной строке Telegram; подробности JSON/DOM - дальше.
+    let path = "";
+    try { const u = new URL(snap?.url || ""); path = u.pathname + (u.search ? u.search.slice(0, 40) : ""); } catch { path = snap?.url || ""; }
     diag = snap
-      ? `JSON: ${rc.stats()}, блоков ${snap.jsonBlobs}; DOM: контейнеров ${snap.containers}, article ${snap.articles}, ссылок-дат ${snap.timeLinks}, пост в DOM ${snap.mainInDom ? "да" : "нет"}${snap.unavailable ? ", «Post not available»" : ""}${snap.repliesOff ? ", ответы ограничены автором" : ""}; url ${snap.url}; текст: "${snap.body}"`
+      ? `стр. ${path}${path.includes(`/post/${code}`) ? "" : " (НЕ страница поста)"}; пост в DOM ${snap.mainInDom ? "да" : "нет"}${snap.unavailable ? ", «Post not available»" : ""}${snap.repliesOff ? ", ответы ограничены автором" : ""}; title "${snap.title}"; текст: "${snap.body.slice(0, 140)}"; ` +
+        `JSON: ${rc.stats()}, блоков с thread_items ${snap.jsonBlobs}, с кодом поста ${snap.blobsWithCode}, код в HTML ${snap.htmlHasCode}×; DOM: контейнеров ${snap.containers}, article ${snap.articles}, ссылок-дат ${snap.timeLinks}; текст дальше: "${snap.body.slice(140, 320)}"`
       : `JSON: ${rc.stats()}; DOM недоступен`;
   }
   return { data: out.slice(0, amount), diag };
@@ -443,18 +460,18 @@ export async function collectRepliesByTimeLinks(page: Page, mainCode: string): P
 }
 
 /** Предзагруженный JSON страницы (первая порция ленты и её page_info). */
-async function ingestPreloadedJson(page: Page, feed: { ingestText(t: string): number }): Promise<void> {
-  const blobs = await page.evaluate(() => {
+async function ingestPreloadedJson(page: Page, feed: { ingestText(t: string): number }, needles: string[] = ["thread_items"]): Promise<void> {
+  const blobs = await page.evaluate((needles: string[]) => {
     const out: string[] = [];
     let total = 0;
     document.querySelectorAll('script[type="application/json"]').forEach((el) => {
       const t = el.textContent || "";
-      if (total > 6_000_000 || !t.includes("thread_items")) return;
+      if (total > 6_000_000 || !needles.some((n) => t.includes(n))) return;
       total += t.length;
       out.push(t);
     });
     return out;
-  }).catch(() => [] as string[]);
+  }, needles).catch(() => [] as string[]);
   for (const b of blobs as string[]) feed.ingestText(b);
 }
 

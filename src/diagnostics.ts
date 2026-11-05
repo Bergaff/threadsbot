@@ -232,7 +232,7 @@ export function formatDiagTelegram(r: DiagReport, siteUrl = "https://threadsview
   if (r.users24h.top.length) {
     lines.push("", "<b>Ошибки у людей за 24ч:</b>");
     for (const g of r.users24h.top) {
-      lines.push(`• ${escHtml(KIND[g.kind] || g.kind)} - ${escHtml(STATUS_RU[g.status] || g.status)} ×${g.count}${g.error ? `: <i>${escHtml(g.error.slice(0, 140))}</i>` : ""}`);
+      lines.push(`• ${escHtml(KIND[g.kind] || g.kind)} - ${escHtml(STATUS_RU[g.status] || g.status)} ×${g.count}${g.error ? `: <i>${escHtml(g.error.slice(0, 420))}</i>` : ""}`);
     }
   }
   lines.push("", `Подробно: ${siteUrl}/admin#diag`);
