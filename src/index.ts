@@ -10,7 +10,7 @@ import { Database, STALE_PROFILE_MS } from "./db";
 import { diagnoseAccountCookies } from "./cookies";
 import { isChatUnavailable, Telegram, type TelegramUpdate } from "./telegram";
 import { indexNowKeyFileResponse, notifyAfterDeploy, notifyProfileUpdated } from "./indexnow";
-import { fetchComments, fetchCommentsByCode, fetchProfileWithPosts, logSystem, probeAccount, refreshAccountCookies, sleep, type ProfileData, type Comment } from "./threads";
+import { fetchComments, fetchCommentsByCode, type CommentsDump, fetchProfileWithPosts, logSystem, probeAccount, refreshAccountCookies, sleep, type ProfileData, type Comment } from "./threads";
 
 /** Сколько аккаунтов прогревать за один запуск cron, чтобы не выбирать лимит Browser Rendering. */
 const KEEPALIVE_BATCH = 3;
@@ -1165,8 +1165,10 @@ export default {
       // С pr74 сайт передаёт код поста: комментарии открываются прямо по ссылке поста
       const codeParam = url.searchParams.get("code") || "";
       const postCode = isPostCode(codeParam) ? codeParam : "";
-      // r=1 - у поста по счётчику есть ответы (для диагностики «счётчик есть, комментариев нет»)
-      const expectReplies = url.searchParams.get("r") === "1";
+      // r=N - число ответов по счётчику поста (с pr86; раньше r=1 - «ответы есть»).
+      // Нужно, чтобы отличать «собрано 1 из ~40» от успеха и не кэшировать неполный список надолго.
+      const expectedReplies = parseExpectedReplies(url.searchParams.get("r"));
+      const expectReplies = expectedReplies > 0;
       const cmtTarget = postCode ? `@${username}/post/${postCode}` : `@${username}#${postIndex}`;
       const cmtTrack = await trackSite("comments", "", `комментарии @${username}#${postIndex}`);
       const db = new Database(env);
@@ -1219,14 +1221,20 @@ export default {
 
       try {
         const fetched = postCode
-          ? await fetchCommentsByCode(env, username, postCode, 30, expectReplies)
+          ? await fetchCommentsByCode(env, username, postCode, 30, expectedReplies)
           : await fetchComments(env, username, postIndex, 30);
         // «Счётчик показывает ответы, а собрали 0» - отдельный статус, чтобы видеть это в админке
         const emptyButExpected = fetched.status === "ok" && !(fetched.data?.length) && expectReplies;
-        const trackStatus = emptyButExpected ? "empty_but_replies" : fetched.status;
+        // «Собрано 1 из ~40» - тоже не успех (pr86)
+        const partial = fetched.status === "ok" && Boolean(fetched.data?.length) && Boolean((fetched as { partial?: boolean }).partial);
+        const trackStatus = emptyButExpected ? "empty_but_replies" : partial ? "partial" : fetched.status;
         const trackError = emptyButExpected
-          ? `Счётчик показывает ответы, собрано 0. ${fetched.error || ""}`.trim()
-          : (fetched.status === "ok" ? "" : (fetched.error || ""));
+          ? `Счётчик показывает ответы${expectedReplies > 1 ? ` (~${expectedReplies})` : ""}, собрано 0. ${fetched.error || ""}`.trim()
+          : partial
+            ? `Собрано ${fetched.data?.length || 0} из ~${expectedReplies} по счётчику. ${fetched.error || ""}`.trim()
+            : (fetched.status === "ok" ? "" : (fetched.error || ""));
+        const dump = (fetched as { dump?: CommentsDump }).dump;
+        if ((emptyButExpected || partial) && dump) ctx.waitUntil(sendCommentsDump(env, dump).catch(() => {}));
         if (!isAuthAdmin) {
           ctx.waitUntil(trackScrape(env, "comments", trackStatus, fetched.data?.length || 0, Date.now() - reqStart, cmtTarget, trackError).catch(() => {}));
         }
@@ -1236,6 +1244,10 @@ export default {
         if (fetched.status === "ok" && fetched.data && !fetched.data.length) {
           // Пустой результат не кешируем - следующая попытка снова пойдёт в Threads
           return Response.json({ ok: true, cached: false, comments: [], expected: expectReplies }, { headers: { "cache-control": "no-store" } });
+        }
+        if (partial && fetched.data) {
+          // Неполный список отдаём, но не кэшируем: следующий заход снова попробует собрать всё
+          return Response.json({ ok: true, cached: false, comments: fetched.data, partial: true, expected: expectedReplies }, { headers: { "cache-control": "no-store" } });
         }
         if (fetched.status === "ok" && fetched.data) {
           await db.setCache(cacheKey, "comments", fetched.data);
@@ -1497,3 +1509,23 @@ export default {
     );
   },
 } satisfies ExportedHandler<Env, TelegramUpdate>;
+
+/** r=N из запроса комментариев: число ответов по счётчику (r=1 в старых версиях клиента - «есть ответы») */
+export function parseExpectedReplies(raw: string | null): number {
+  const n = Number(String(raw || "").trim());
+  return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 1_000_000) : 0;
+}
+
+/**
+ * Сырые данные пустого/неполного сбора комментариев - файлом первому админу, не чаще раза в 6 часов.
+ * По ним видно, в какой форме Threads отдал ответы, и можно поправить разбор.
+ */
+async function sendCommentsDump(env: Env, dump: CommentsDump): Promise<void> {
+  const admin = adminIds(env)[0];
+  if (!admin || !env.TELEGRAM_TOKEN) return;
+  const db = new Database(env);
+  if (!(await db.tryLock("diag", "cmt_dump", 6 * 3600_000))) return;
+  const body = JSON.stringify({ version: env.VERSION || "", at: new Date().toISOString(), ...dump }, null, 1);
+  const bytes = new TextEncoder().encode(body.length > 900_000 ? body.slice(0, 900_000) : body);
+  await new Telegram(env.TELEGRAM_TOKEN).sendDocument(admin, bytes, `comments-${dump.code}-${dump.got}of${dump.expected}.json`);
+}

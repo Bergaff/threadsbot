@@ -1064,6 +1064,7 @@ export const SCRAPE_STATUS_LABEL: Record<string, string> = {
   user_not_found: "Профиль не найден",
   post_not_found: "Пост не найден (удалён или скрыт)",
   empty_but_replies: "Счётчик показывает ответы, а комментариев собрано 0",
+  partial: "Собрано заметно меньше комментариев, чем по счётчику",
   exception: "Исключение в коде",
 };
 const SCRAPE_KIND_LABEL: Record<string, string> = { profile: "Профиль", more: "Загрузить ещё", comments: "Комментарии", diag: "Диагностика" };

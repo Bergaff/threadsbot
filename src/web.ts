@@ -1,4 +1,4 @@
-import { hasReplies, postCodeOf } from "./postCode";
+import { hasReplies, parseCount, postCodeOf } from "./postCode";
 import type { Env } from "./config";
 import { DONATE_CSS, renderAdPlaceholder, renderDonateBody, renderDonateCardStubBody, renderDonateResultBody } from "./donate";
 import type { Donation } from "./plans";
@@ -1939,7 +1939,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? 'en/' : ''}`;
-  const ver = env.VERSION || "pr85-2026-11-05-comments";
+  const ver = env.VERSION || "pr86-2026-11-06-order";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2485,7 +2485,7 @@ export function renderProfilePage(
           </a>
         </div>
 
-        <div class="comments-box" id="comments-${idx}" data-code="${esc(postCodeOf(post))}" data-replies="${hasReplies(post.replies) ? 1 : 0}"></div>
+        <div class="comments-box" id="comments-${idx}" data-code="${esc(postCodeOf(post))}" data-replies="${hasReplies(post.replies) ? Math.max(1, parseCount(post.replies)) : 0}"></div>
       </article>
     `;
   }).join("")
@@ -2545,9 +2545,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr85-2026-11-05-comments')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr85-2026-11-05-comments')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr85-2026-11-05-comments')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr86-2026-11-06-order')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr86-2026-11-06-order')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr86-2026-11-06-order')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2929,10 +2929,12 @@ export function renderProfilePage(
       box.innerHTML = '<div class="comments-loading"><span class="loading-bar"></span> ${t.loading_comments}</div>';
 
       var code = box.getAttribute('data-code') || '';
-      var expect = box.getAttribute('data-replies') === '1';
+      // data-replies - число ответов по счётчику (pr86), 0 - нет
+      var expectN = parseInt(box.getAttribute('data-replies') || '0', 10) || 0;
+      var expect = expectN > 0;
       var q = [];
       if (code) q.push('code=' + encodeURIComponent(code));
-      if (expect) q.push('r=1');
+      if (expect) q.push('r=' + expectN);
       if (refresh) q.push('refresh=1');
       var retryBtn = '<div style="margin-top:8px;"><button class="btn-sharp" style="font-size:0.8rem;padding:4px 12px;" onclick="loadCommentsForPost(currentUsername, ' + idx + ', true)">${t.comments_retry}</button></div>';
 
@@ -2943,6 +2945,8 @@ export function renderProfilePage(
             box.dataset.loaded = 'true';
             box._allComments = data.comments;
             box._shownCount = 10;
+            // Threads отдал заметно меньше, чем показывает счётчик: честно пишем об этом (pr86)
+            box._partialOf = data.partial ? (Number(data.expected) || 0) : 0;
             renderCommentsList(box, idx, username);
             return;
           }
@@ -2963,6 +2967,19 @@ export function renderProfilePage(
           delete box.dataset.loaded;
           box.innerHTML = '<div class="comments-error">${t.comments_failed}' + retryBtn + '</div>';
         });
+    }
+
+    // Счётчик ответов "40" / "1,2K" / "3 тыс." -> число; есть, но не разобран -> 1
+    function replyCountClient(v) {
+      var s = String(v || '').replace(/\\s/g, '').toLowerCase();
+      if (!s || /^0+$/.test(s)) return 0;
+      if (/^\\d{1,3}([.,]\\d{3})+$/.test(s)) s = s.replace(/[.,]/g, '');
+      s = s.replace(',', '.');
+      var m = s.match(/^(\\d+(?:\\.\\d+)?)(k|к|тыс\\.?|m|м|млн)?/);
+      if (!m) return 1;
+      var n = parseFloat(m[1]) || 0;
+      var mul = m[2] ? (/^(m|м|млн)/.test(m[2]) ? 1e6 : 1e3) : 1;
+      return Math.max(1, Math.round(n * mul));
     }
 
     function postCodeClient(post) {
@@ -3004,6 +3021,11 @@ export function renderProfilePage(
       moreBtns += '<button class="btn-sharp" style="font-size:0.8rem;padding:4px 12px;opacity:0.85;" onclick="loadCommentsForPost(currentUsername, ' + idx + ', true)">' + (currentLang === 'en' ? 'Refresh comments' : 'Обновить комментарии') + '</button>';
       moreBtns += '</div>';
 
+      if (box._partialOf) {
+        html += '<div class="comments-empty" style="margin-top:8px;font-size:0.8rem;">' + (currentLang === 'en'
+          ? 'Threads returned only ' + comments.length + ' of ~' + box._partialOf + ' replies. Try refreshing in a minute.'
+          : 'Threads отдал только ' + comments.length + ' из ~' + box._partialOf + ' комментариев. Попробуйте обновить через минуту.') + '</div>';
+      }
       html += moreBtns;
       box.innerHTML = html;
     }
@@ -3132,7 +3154,7 @@ export function renderProfilePage(
             '</button>' +
             '<a href="https://t.me/${esc(tgUser)}?start=sub_' + escHtml(currentUsername) + '" target="_blank" rel="noopener" class="toolbar-btn" style="margin-left:auto;">${t.in_bot}</a>' +
           '</div>' +
-          '<div class="comments-box" id="comments-' + idx + '" data-code="' + escHtml(postCodeClient(post)) + '" data-replies="' + (post.replies && String(post.replies).trim() && !/^0+$/.test(String(post.replies).trim()) ? 1 : 0) + '"></div>' +
+          '<div class="comments-box" id="comments-' + idx + '" data-code="' + escHtml(postCodeClient(post)) + '" data-replies="' + replyCountClient(post.replies) + '"></div>' +
         '</article>';
       }
       if (startIdx > 0) feed.insertAdjacentHTML('beforeend', html);
@@ -3633,9 +3655,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr85-2026-11-05-comments">
-  <link rel="alternate icon" href="/favicon.ico?v=pr85-2026-11-05-comments">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr85-2026-11-05-comments">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr86-2026-11-06-order">
+  <link rel="alternate icon" href="/favicon.ico?v=pr86-2026-11-06-order">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr86-2026-11-06-order">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3882,7 +3904,7 @@ function renderShopShell(
   <meta property="og:title" content="${esc(opts.title)}">
   <meta property="og:description" content="${esc(opts.description)}">
   <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr85-2026-11-05-comments">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr86-2026-11-06-order">
   <script>
     (function(){
       var t = localStorage.getItem("threads_theme");

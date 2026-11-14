@@ -1,3 +1,4 @@
+import { postTimeMs, sortPostsNewestFirst } from "./threadsFeed";
 /** Threads кладёт несуществующий профиль на /login. Это не значит, что сессия мертва. */
 
 export function isLoginUrl(url: string): boolean {
@@ -144,16 +145,27 @@ function postKey(p: any): string {
 
 /**
  * Объединяет кеш и свежий скрап. Порядок уже показанных постов не меняется
- * (клиент дорисовывает хвост по индексу), новые посты дописываются в конец.
+ * (клиент дорисовывает хвост по индексу), новые посты дописываются в конец - от свежего к старому.
+ * Пост новее самого старого из уже показанных в хвост не ставим (иначе «час назад» окажется под
+ * «5 дней назад»): он появится сверху при следующем обновлении профиля.
  */
 export function mergePostLists(base: any[], fresh: any[]): any[] {
   const out = base.slice();
   const seen = new Set(out.map(postKey));
+  let oldest = Infinity;
+  for (const p of base) {
+    const t = postTimeMs(p?.date);
+    if (Number.isFinite(t) && t < oldest) oldest = t;
+  }
+  const tail: any[] = [];
   for (const p of fresh) {
     const k = postKey(p);
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push(p);
+    const t = postTimeMs(p?.date);
+    if (Number.isFinite(t) && Number.isFinite(oldest) && t > oldest) continue;
+    tail.push(p);
   }
+  out.push(...sortPostsNewestFirst(tail));
   return out;
 }

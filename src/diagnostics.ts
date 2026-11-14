@@ -10,7 +10,7 @@ import { adminIds, type Env } from "./config";
 import { Database, type SiteTruth } from "./db";
 import { Telegram } from "./telegram";
 import { fetchCommentsByCode, fetchProfileWithPosts, fetchPublicProfile, logSystem, type Post } from "./threads";
-import { hasReplies, postCodeOf } from "./postCode";
+import { hasReplies, parseCount, postCodeOf } from "./postCode";
 import { trackScrape } from "./analytics";
 
 /** Эталонный публичный профиль: существует всегда, у постов много ответов. */
@@ -34,15 +34,8 @@ export interface DiagHistoryItem { at: string; ok: boolean; fails: string[]; tri
 const ICON: Record<DiagStatus, string> = { ok: "✅", warn: "⚠️", fail: "❌", skip: "⏭" };
 const KIND: Record<string, string> = { profile: "профиль", more: "«загрузить ещё»", comments: "комментарии" };
 
-/** "1,2K" / "12" / "3 тыс." -> число (для выбора поста с ответами) */
-export function parseCount(v?: string | null): number {
-  const s = String(v || "").replace(/\s/g, "").replace(",", ".").toLowerCase();
-  const m = s.match(/^([\d.]+)(k|к|тыс\.?|m|м|млн)?/);
-  if (!m) return 0;
-  const n = parseFloat(m[1]) || 0;
-  const mul = m[2] ? (/^(m|м|млн)/.test(m[2]) ? 1e6 : 1e3) : 1;
-  return Math.round(n * mul);
-}
+/** "1,2K" / "12" / "3 тыс." -> число (для выбора поста с ответами); живёт в postCode.ts */
+export { parseCount };
 
 /** Пост для проверки комментариев: есть код и есть ответы; берём тот, где ответов больше. */
 export function pickPostForComments(posts: Post[]): { code: string; replies: number; post: Post } | null {
@@ -217,7 +210,7 @@ export function parseReport(raw: string | null): DiagReport | null {
 
 const STATUS_RU: Record<string, string> = {
   service_error: "сбой", browser_busy: "браузер занят", all_dead: "нет живых аккаунтов", session_expired: "сессия истекла",
-  no_posts: "нет постов", empty_but_replies: "счётчик есть, комментариев 0", exception: "исключение",
+  no_posts: "нет постов", empty_but_replies: "счётчик есть, комментариев 0", partial: "собрано меньше счётчика", exception: "исключение",
 };
 
 function escHtml(v: unknown): string {

@@ -56,6 +56,48 @@ function formatDate(ts: unknown): string | undefined {
   return d.toISOString().replace("T", " ").slice(0, 16);
 }
 
+/**
+ * Время поста в мс из поля date: "2026-09-15 23:01" (UTC, формат DOM/JSON-парсеров),
+ * полный ISO ("2026-09-15T23:01:39.000Z") или число секунд/мс. Нет даты - NaN.
+ */
+export function postTimeMs(date?: string | number | null, now = Date.now()): number {
+  if (typeof date === "number") return Number.isFinite(date) && date > 0 ? (date < 1e11 ? date * 1000 : date) : NaN;
+  const s = String(date || "").trim();
+  if (!s) return NaN;
+  if (/^\d{9,13}$/.test(s)) return postTimeMs(Number(s));
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m && !/[+-]\d{2}:?\d{2}$|Z$/i.test(s)) return Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+  // Относительная дата из текста DOM, если нет атрибута datetime: "2h", "5d", "3 дн.", "10 мин"
+  const r = s.toLowerCase().match(/^(\d+)\s*(s|sec|с|сек|m|min|мин|h|hr|ч|d|д|дн|w|нед|н|y|г)\.?/);
+  if (r) {
+    const unit: Record<string, number> = { s: 1, sec: 1, "с": 1, "сек": 1, m: 60, min: 60, "мин": 60, h: 3600, hr: 3600, "ч": 3600, d: 86400, "д": 86400, "дн": 86400, w: 604800, "нед": 604800, "н": 604800, y: 31536000, "г": 31536000 };
+    return now - Number(r[1]) * (unit[r[2]] || 0) * 1000;
+  }
+  // Прочее парсим, только если есть год: иначе Date.parse("Sep 15") даёт 2001 год
+  if (!/\b\d{4}\b/.test(s)) return NaN;
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : NaN;
+}
+
+/**
+ * Посты от свежего к старому (pr86). Threads отдаёт ленту с закреплёнными постами сверху, а склейка DOM
+ * и сетевого JSON дописывает найденные только в сети посты в конец - из-за этого лента шла вразнобой.
+ * Сортировка устойчивая; посту без даты достаётся время соседа сверху, чтобы он остался на своём месте.
+ */
+export function sortPostsNewestFirst<T extends { date?: string }>(posts: T[]): T[] {
+  const keys: number[] = new Array(posts.length);
+  let prev = Infinity;
+  for (let i = 0; i < posts.length; i++) {
+    const t = postTimeMs(posts[i]?.date);
+    if (Number.isFinite(t)) prev = t;
+    keys[i] = Number.isFinite(t) ? t : prev;
+  }
+  return posts
+    .map((p, i) => ({ p, i, k: keys[i] }))
+    .sort((a, b) => (b.k === a.k ? a.i - b.i : b.k > a.k ? 1 : -1))
+    .map((x) => x.p);
+}
+
 function bestCandidate(iv: any): string {
   const list = iv?.candidates;
   if (!Array.isArray(list) || !list.length) return "";
@@ -313,6 +355,24 @@ export class ReplyCollector {
   mainSeenAnywhere = false;
   /** Откуда приходили ответы сети: путь -> количество (диагностика) */
   readonly endpoints: Record<string, number> = {};
+  /**
+   * Форма данных (диагностика, pr86): все объекты-посты где угодно в JSON, кроме самого поста, -
+   * сколько с reply_to_author (ответ), с null (верхний уровень), без поля; где лежат (путь ключей); ключи примера.
+   */
+  readonly shapeCounts = { posts: 0, replyTo: 0, nullTo: 0, noField: 0, noInfo: 0 };
+  readonly shapePaths: Record<string, number> = {};
+  shapeSample = "";
+  private shapeSeen = new Set<string>();
+  /** Образцы ответов сети/встроенного JSON для разбора новой формы данных (самые информативные) */
+  readonly samples: Array<{ src: string; score: number; text: string }> = [];
+  /**
+   * Третий, самый мягкий запасной путь (pr86): посты вне thread_items, у которых в text_post_app_info
+   * НЕТ поля reply_to_author (неизвестная форма), найденные в том же JSON-документе, где есть сам пост.
+   * Посты с reply_to_author = null (верхний уровень, рекомендации) сюда не попадают.
+   */
+  soft: FeedReply[] = [];
+  private softCodes = new Set<string>();
+  private curHasMain = false;
   private looseCodes = new Set<string>();
   /** Коды постов, уже разобранных строгим путём (thread_items) - в запасной список их не берём */
   private threadCodes = new Set<string>();
@@ -326,12 +386,51 @@ export class ReplyCollector {
     this.mainAuthor = mainAuthor.toLowerCase().replace(/^@/, "");
   }
 
-  ingestText(text: string): number {
-    if (text.includes(this.mainCode)) this.textsWithMain++;
+  ingestText(text: string, src = "net"): number {
+    const hasMain = text.includes(this.mainCode);
+    if (hasMain) this.textsWithMain++;
     if (text.includes("thread_items")) this.textsWithThreads++;
+    this.keepSample(text, src, hasMain);
     let added = 0;
-    for (const doc of parseThreadsPayload(text)) added += this.ingestJson(doc);
+    for (const doc of parseThreadsPayload(text)) added += this.ingestJson(doc, hasMain);
     return added;
+  }
+
+  /** Держим до 4 самых информативных текстов (с кодом поста / reply_to_author / thread_items), по 60 КБ */
+  private keepSample(text: string, src: string, hasMain: boolean): void {
+    const score = (hasMain ? 4 : 0) + (text.includes("reply_to_author") ? 2 : 0) + (text.includes("thread_items") ? 1 : 0) + (text.includes('"code"') ? 1 : 0);
+    if (!score) return;
+    const cut = text.length > 60_000 ? text.slice(0, 60_000) + `…[обрезано, всего ${text.length} симв.]` : text;
+    if (this.samples.some((s) => s.text === cut)) return;
+    this.samples.push({ src, score, text: cut });
+    this.samples.sort((a, b) => b.score - a.score);
+    if (this.samples.length > 4) this.samples.length = 4;
+  }
+
+  /** Сводка формы данных для диагностики */
+  shape(): string {
+    const c = this.shapeCounts;
+    const paths = Object.entries(this.shapePaths).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k}×${v}`).join(", ");
+    return `JSON-постов кроме самого ${c.posts} (с reply_to_author ${c.replyTo}, с null ${c.nullTo}, без поля ${c.noField}, без text_post_app_info ${c.noInfo})${paths ? `; где: ${paths}` : ""}${this.shapeSample ? `; пример: ${this.shapeSample}` : ""}`;
+  }
+
+  private noteShape(node: any, path: string[]): void {
+    const code = String(node.code);
+    if (code === this.mainCode || this.shapeSeen.has(code)) return;
+    this.shapeSeen.add(code);
+    const c = this.shapeCounts;
+    c.posts++;
+    const info = node.text_post_app_info;
+    if (!info || typeof info !== "object") c.noInfo++;
+    else if (!("reply_to_author" in info)) c.noField++;
+    else if (info.reply_to_author == null) c.nullTo++;
+    else c.replyTo++;
+    const where = path.filter((k) => !/^\d+$/.test(k)).slice(-4).join(".") || "(корень)";
+    this.shapePaths[where] = (this.shapePaths[where] || 0) + 1;
+    if (!this.shapeSample) {
+      const infoKeys = info && typeof info === "object" ? Object.keys(info).slice(0, 12).join(",") : "-";
+      this.shapeSample = `@${node.user?.username} ключи {${Object.keys(node).slice(0, 14).join(",")}} text_post_app_info {${infoKeys}}`;
+    }
   }
 
   /**
@@ -344,6 +443,7 @@ export class ReplyCollector {
     if (this.replies.length) return this.replies;
     if (this.loose.length) return this.loose.filter((r) => !this.ancestors.has(r.code));
     if (this.mainSeen) return this.replies;
+    if (this.soft.length) return this.soft.filter((r) => !this.ancestors.has(r.code));
     const author = this.mainAuthor ? "@" + this.mainAuthor : "";
     return this.droppedTopLevel.filter((r) => !this.ancestors.has(r.code) && (!author || r.author !== author));
   }
@@ -351,13 +451,14 @@ export class ReplyCollector {
   /** Короткая сводка для диагностики пустого результата. */
   stats(): string {
     const ep = Object.entries(this.endpoints).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k}×${v}`).join(", ");
-    return `ответов ${this.replies.length} (вне thread_items ${this.loose.length}), пост в JSON ${this.mainSeen ? "да" : this.mainSeenAnywhere ? "да (вне thread_items)" : "нет"}, ответов сети ${this.responses} (с кодом поста ${this.textsWithMain}, с thread_items ${this.textsWithThreads}${ep ? `; ${ep}` : ""}), отброшено «не ответ» ${this.droppedTopLevel.length}, недоступных ${this.droppedUnavailable}`;
+    return `ответов ${this.replies.length} (вне thread_items ${this.loose.length}, мягко ${this.soft.length}), пост в JSON ${this.mainSeen ? "да" : this.mainSeenAnywhere ? "да (вне thread_items)" : "нет"}, ответов сети ${this.responses} (с кодом поста ${this.textsWithMain}, с thread_items ${this.textsWithThreads}${ep ? `; ${ep}` : ""}), отброшено «не ответ» ${this.droppedTopLevel.length}, недоступных ${this.droppedUnavailable}`;
   }
 
-  ingestJson(root: any): number {
+  ingestJson(root: any, hasMain?: boolean): number {
     const before = this.replies.length;
     this.responses++;
-    this.walk(root, 0);
+    this.curHasMain = hasMain ?? JSON.stringify(root ?? null).includes(this.mainCode);
+    this.walk(root, 0, []);
     return this.replies.length - before;
   }
 
@@ -376,24 +477,33 @@ export class ReplyCollector {
   }
 
   /** Пост вне thread_items: ответ, если у него заполнен reply_to_author */
-  private addLoose(node: any): void {
+  private addLoose(node: any, path: string[] = []): void {
     const code = String(node.code);
     if (code === this.mainCode) { this.mainSeenAnywhere = true; return; }
     if (this.threadCodes.has(code) || this.looseCodes.has(code) || this.ancestors.has(code)) return;
     const info = node.text_post_app_info;
-    if (!info || typeof info !== "object" || info.is_post_unavailable === true) return;
-    const to = info.reply_to_author;
-    if (!to || typeof to !== "object" || typeof to.username !== "string") return;
+    if (info != null && typeof info !== "object") return;
+    if (info?.is_post_unavailable === true) return;
     const p = normalizeThreadsPost(node);
     if (!p) return;
-    this.looseCodes.add(code);
-    this.loose.push({
+    const reply: FeedReply = {
       code,
       author: "@" + (p.author || "anonymous"),
       text: p.text || (p.has_video ? "🎥" : p.has_image ? "📷" : ""),
       avatar: p.authorAvatar,
       likes: p.likes,
-    });
+    };
+    if (!info || !("reply_to_author" in info)) {
+      // Неизвестная форма: берём только если документ относится к этому посту и это не цитата/репост внутри поста
+      const embedded = path.some((k) => /quot|repost|share|attach|link_preview/i.test(k));
+      if (this.curHasMain && !embedded && !this.softCodes.has(code)) { this.softCodes.add(code); this.soft.push(reply); }
+      return;
+    }
+    // Любое непустое значение (объект с username, id, строка) - это ответ; null - верхний уровень
+    const to = info.reply_to_author;
+    if (!to) return;
+    this.looseCodes.add(code);
+    this.loose.push(reply);
   }
 
   private markAncestor(code: string): void {
@@ -425,17 +535,18 @@ export class ReplyCollector {
     this.replies.push(reply);
   }
 
-  private walk(node: any, depth: number): void {
+  private walk(node: any, depth: number, path: string[]): void {
     if (!node || typeof node !== "object" || depth > 40) return;
     if (Array.isArray(node)) {
-      for (const x of node) this.walk(x, depth + 1);
+      for (let i = 0; i < node.length; i++) this.walk(node[i], depth + 1, path);
       return;
     }
+    if (isThreadsPost(node)) this.noteShape(node, path);
     if (Array.isArray(node.thread_items)) this.takeThread(node.thread_items);
-    else if (isThreadsPost(node)) this.addLoose(node);
+    else if (isThreadsPost(node)) this.addLoose(node, path);
     for (const k of Object.keys(node)) {
       const v = node[k];
-      if (v && typeof v === "object") this.walk(v, depth + 1);
+      if (v && typeof v === "object") this.walk(v, depth + 1, path.length < 12 ? [...path, k] : path);
     }
   }
 }

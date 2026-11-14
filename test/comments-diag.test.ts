@@ -77,7 +77,7 @@ describe("/api/comments", () => {
     const body: any = await res.json();
     expect(body.ok).toBe(true);
     expect(body.comments).toHaveLength(1);
-    expect(threadsMock.fetchCommentsByCode).toHaveBeenCalledWith(env, "zuck", "DAbc_12-xY", 30, true);
+    expect(threadsMock.fetchCommentsByCode).toHaveBeenCalledWith(env, "zuck", "DAbc_12-xY", 30, 1);
     expect(threadsMock.fetchComments).not.toHaveBeenCalled();
   });
 
@@ -107,6 +107,22 @@ describe("/api/comments", () => {
     expect(cacheSets).toHaveLength(0);
     await new Promise((r) => setTimeout(r, 0));
     expect(events.find((e) => e.type === "scrape")?.data).toContain("comments|empty_but_replies|0|");
+  });
+
+  it("1 из ~40 - статус partial, не кэшируется и передаётся число ответов (pr86)", async () => {
+    const { env, events, cacheSets } = makeEnv();
+    threadsMock.fetchCommentsByCode.mockResolvedValue({ status: "ok", data: [{ author: "@a", text: "hi" }], account: "2", partial: true, error: "[2] собрано 1 из ~40" });
+    const res = await worker.fetch(new Request("https://threadsviewer.online/api/comments/zuck/0?code=DAbc_12-xY&r=40"), env, ctx);
+    expect(threadsMock.fetchCommentsByCode).toHaveBeenCalledWith(env, "zuck", "DAbc_12-xY", 30, 40);
+    const body: any = await res.json();
+    expect(body).toMatchObject({ ok: true, partial: true, expected: 40 });
+    expect(body.comments).toHaveLength(1);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(cacheSets).toHaveLength(0);
+    await new Promise((r) => setTimeout(r, 0));
+    const scrape = events.find((e) => e.type === "scrape")?.data || "";
+    expect(scrape).toContain("comments|partial|1|");
+    expect(scrape).toContain("Собрано 1 из ~40 по счётчику");
   });
 
   it("without a code falls back to the old index-based path", async () => {

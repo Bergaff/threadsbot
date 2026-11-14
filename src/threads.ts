@@ -2,7 +2,7 @@ import { postCodeFromUrl } from "./postCode";
 import type { BrowserContext, Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
 import { diagnoseAccountCookies, playwrightCookies, snapshotHasSession } from "./cookies";
-import { FeedCollector, ReplyCollector, mergeDomWithFeed } from "./threadsFeed";
+import { FeedCollector, ReplyCollector, mergeDomWithFeed, sortPostsNewestFirst } from "./threadsFeed";
 import { buildPaginationBody, describeReplayFailure, graphqlFriendlyName, replaySummary, templateFromRequest } from "./feedReplay";
 import { isAccountBlockedUrl, isLoginUrl, isProfileUrl, isThreadsHost, isUserNotFoundPage } from "./profile";
 import { cleanPostText } from "./i18n";
@@ -361,7 +361,17 @@ function attachReplyCollector(page: Page, mainCode: string, mainAuthor = ""): Re
  * Комментарии к открытой странице поста: JSON (надёжно) + DOM (запасной вариант).
  * При пустом результате возвращает диагностику - что именно было на странице.
  */
-async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: number, code: string): Promise<{ data: Comment[]; diag: string }> {
+/**
+ * Собрано подозрительно мало: меньше трети от счётчика (в пределах лимита amount), при счётчике от 6.
+ * Счётчик включает скрытые/удалённые ответы, поэтому порог мягкий.
+ */
+export function isFewComments(got: number, expected: number, amount = 30): boolean {
+  if (!(expected >= 6)) return false;
+  const want = Math.min(expected, amount);
+  return got * 3 < want;
+}
+
+async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: number, code: string, expected = 0): Promise<{ data: Comment[]; diag: string; pageText: string }> {
   // Встроенный JSON: не только блоки с thread_items, но и любые с кодом поста или полями постов Threads
   const needles = ["thread_items", code, "reply_to_author"];
   await ingestPreloadedJson(page, rc, needles);
@@ -382,7 +392,8 @@ async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: numbe
     if (!seen.has(key(c))) { seen.add(key(c)); out.push(c); }
   }
   let diag = "";
-  if (!out.length) {
+  let pageText = "";
+  if (!out.length || isFewComments(out.length, expected, amount)) {
     const snap = await page.evaluate((mainCode: string) => {
       const cont = document.querySelectorAll('div[data-pressable-container="true"]');
       return {
@@ -398,18 +409,20 @@ async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: numbe
         htmlHasCode: (document.documentElement?.outerHTML || "").split(mainCode).length - 1,
         title: (document.title || "").slice(0, 60),
         body: (document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 320),
+        long: (document.body?.innerText || "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, 6000),
       };
     }, code).catch(() => null);
-    // Сначала то, что объясняет причину (куда попала страница, есть ли пост, что написано), - это видно и
-    // в обрезанной строке Telegram; подробности JSON/DOM - дальше.
+    pageText = snap?.long || "";
     let path = "";
     try { const u = new URL(snap?.url || ""); path = u.pathname + (u.search ? u.search.slice(0, 40) : ""); } catch { path = snap?.url || ""; }
+    // Порядок: сначала то, что объясняет причину (видно и в обрезанной строке Telegram)
+    const got = `собрано ${out.length}${expected ? ` из ~${expected} по счётчику` : ""} (JSON ${rc.bestReplies.length}, DOM ${dom.length}, по датам ${byTime.length})`;
     diag = snap
-      ? `стр. ${path}${path.includes(`/post/${code}`) ? "" : " (НЕ страница поста)"}; пост в DOM ${snap.mainInDom ? "да" : "нет"}${snap.unavailable ? ", «Post not available»" : ""}${snap.repliesOff ? ", ответы ограничены автором" : ""}; title "${snap.title}"; текст: "${snap.body.slice(0, 140)}"; ` +
-        `JSON: ${rc.stats()}, блоков с thread_items ${snap.jsonBlobs}, с кодом поста ${snap.blobsWithCode}, код в HTML ${snap.htmlHasCode}×; DOM: контейнеров ${snap.containers}, article ${snap.articles}, ссылок-дат ${snap.timeLinks}; текст дальше: "${snap.body.slice(140, 320)}"`
-      : `JSON: ${rc.stats()}; DOM недоступен`;
+      ? `${got}; стр. ${path}${path.includes(`/post/${code}`) ? "" : " (НЕ страница поста)"}; пост в DOM ${snap.mainInDom ? "да" : "нет"}${snap.unavailable ? ", «Post not available»" : ""}${snap.repliesOff ? ", ответы ограничены автором" : ""}; DOM: контейнеров ${snap.containers}, ссылок-дат ${snap.timeLinks}; ` +
+        `${rc.shape()}; JSON: ${rc.stats()}, блоков с thread_items ${snap.jsonBlobs}, с кодом поста ${snap.blobsWithCode}, код в HTML ${snap.htmlHasCode}×; title "${snap.title}"; текст: "${snap.body.slice(0, 200)}"`
+      : `${got}; ${rc.shape()}; JSON: ${rc.stats()}; DOM недоступен`;
   }
-  return { data: out.slice(0, amount), diag };
+  return { data: out.slice(0, amount), diag, pageText };
 }
 
 /**
@@ -460,7 +473,7 @@ export async function collectRepliesByTimeLinks(page: Page, mainCode: string): P
 }
 
 /** Предзагруженный JSON страницы (первая порция ленты и её page_info). */
-async function ingestPreloadedJson(page: Page, feed: { ingestText(t: string): number }, needles: string[] = ["thread_items"]): Promise<void> {
+async function ingestPreloadedJson(page: Page, feed: { ingestText(t: string, src?: string): number }, needles: string[] = ["thread_items"]): Promise<void> {
   const blobs = await page.evaluate((needles: string[]) => {
     const out: string[] = [];
     let total = 0;
@@ -472,7 +485,7 @@ async function ingestPreloadedJson(page: Page, feed: { ingestText(t: string): nu
     });
     return out;
   }, needles).catch(() => [] as string[]);
-  for (const b of blobs as string[]) feed.ingestText(b);
+  for (const b of blobs as string[]) feed.ingestText(b, "html");
 }
 
 async function collectPosts(page: Page, target = 20, expectedUsername?: string, feed?: FeedCollector): Promise<Post[]> {
@@ -798,7 +811,8 @@ async function collectPosts(page: Page, target = 20, expectedUsername?: string, 
     await scrollFeed(page, stall);
     await sleep(stall === 0 ? 900 : 1200 + stall * 700);
   }
-  const result = combined().slice(0, target);
+  // От свежего к старому: закреплённые посты и посты, найденные только в сети, иначе шли вразнобой
+  const result = sortPostsNewestFirst(combined()).slice(0, target);
   if (feed && result.length < target && feed.hasNextPage !== false) {
     // Лента не догрузилась, хотя Threads не сообщал о конце: запоминаем, как выглядела страница
     const s = await page.evaluate(() => {
@@ -1423,7 +1437,7 @@ export async function fetchPublicProfile(username: string): Promise<PublicProfil
             }
           }
         }
-        posts.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+        posts.splice(0, posts.length, ...sortPostsNewestFirst(posts));
 
         return {
           exists: true,
@@ -1920,16 +1934,47 @@ export async function fetchComments(env: Env, username: string, index: number, a
  * Не нужно заново собирать профиль и угадывать пост по номеру - раньше из-за этого
  * открывался не тот пост (закреплённые, репосты, посты без текста) и показывалось «Комментариев нет».
  */
-export async function fetchCommentsByCode(env: Env, username: string, code: string, amount = 30, expectReplies = false): Promise<{ data: Comment[] | null; status: ThreadsStatus; account?: string; error?: string }> {
+export type CommentsDump = { code: string; username: string; account: string; expected: number; got: number; diag: string; pageText: string; samples: Array<{ src: string; score: number; text: string }> };
+export type CommentsResult = {
+  data: Comment[] | null;
+  status: ThreadsStatus;
+  account?: string;
+  error?: string;
+  /** Собрано заметно меньше, чем показывает счётчик (pr86) */
+  partial?: boolean;
+  /** Сырые данные для разбора пустого/неполного результата (уходят админу файлом) */
+  dump?: CommentsDump;
+};
+
+/**
+ * expected - число ответов по счётчику поста (true = «есть, число неизвестно»).
+ * Если собрано пусто или заметно меньше счётчика, пробуем второй аккаунт и отдаём лучший результат.
+ */
+export async function fetchCommentsByCode(env: Env, username: string, code: string, amount = 30, expected: number | boolean = 0): Promise<CommentsResult> {
   const cleanUser = username.toLowerCase().replace(/^@/, "");
+  const expectedN = typeof expected === "number" ? Math.max(0, Math.floor(expected) || 0) : expected ? 1 : 0;
+  const expectReplies = expectedN > 0;
   const tried: string[] = [];
   let lastError = "";
-  /** Пустой результат при ненулевом счётчике: диагностика предыдущих аккаунтов */
+  /** Пустой/неполный результат при ненулевом счётчике: диагностика предыдущих аккаунтов */
   const emptyDiags: string[] = [];
+  /** Лучший (самый полный) из неполных результатов по аккаунтам */
+  let best: { data: Comment[]; account: string; dump?: CommentsDump } | null = null;
+  const finishBest = (extra = ""): CommentsResult => {
+    const data = best?.data || [];
+    return {
+      data,
+      status: "ok",
+      account: best?.account || tried.join(", "),
+      error: (emptyDiags.join(" || ") + extra) || undefined,
+      partial: data.length > 0 && isFewComments(data.length, expectedN, amount),
+      dump: best?.dump,
+    };
+  };
   while (true) {
     const account = await chooseAccount(env, tried);
     if (!account) {
-      if (emptyDiags.length) return { data: [], status: "ok", account: tried.join(", "), error: emptyDiags.join(" || ") };
+      if (emptyDiags.length) return finishBest();
       return tried.length
         ? { data: null, status: "service_error", account: tried.join(", "), error: lastError || "Ни один аккаунт не открыл страницу поста" }
         : { data: null, status: "all_dead", error: "Нет живых аккаунтов-скраперов" };
@@ -1968,19 +2013,25 @@ export async function fetchCommentsByCode(env: Env, username: string, code: stri
         lastError = `[${account.name}] страница поста пустая (title="${snap.title.slice(0, 60)}", body=${snap.body.length} симв.: "${snippet}")`;
         await markTransientError(env, account.name, new Error(lastError));
         await logSystem(env, "warn", "scraper", `Комментарии @${cleanUser}/${code}: ${lastError}`);
-        if (tried.length >= 2) return { data: null, status: "service_error", account: account.name, error: lastError };
+        if (tried.length >= 2) return emptyDiags.length ? finishBest(` || ${lastError}`) : { data: null, status: "service_error", account: account.name, error: lastError };
         continue;
       }
       await sleep(2500);
       await opened.page.evaluate(() => window.scrollBy(0, 800)).catch(() => {});
-      let { data, diag } = await collectCommentsFull(opened.page, rc, amount, code);
-      if (!data.length && expectReplies) {
-        // Ответы иногда догружаются позже самого поста: ещё раз прокручиваем и ждём на той же странице
-        await opened.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
-        await sleep(3000);
-        await opened.page.evaluate(() => window.scrollBy(0, -300)).catch(() => {});
-        await sleep(1500);
-        ({ data, diag } = await collectCommentsFull(opened.page, rc, amount, code));
+      let { data, diag, pageText } = await collectCommentsFull(opened.page, rc, amount, code, expectedN);
+      const short = () => (!data.length && expectReplies) || isFewComments(data.length, expectedN, amount);
+      if (short()) {
+        // Ответы иногда догружаются позже самого поста или по мере прокрутки: ещё прокручиваем и ждём
+        for (let i = 0; i < (data.length ? 3 : 1); i++) {
+          await opened.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
+          await sleep(i ? 2000 : 3000);
+          await opened.page.evaluate(() => window.scrollBy(0, -300)).catch(() => {});
+          await sleep(1200);
+        }
+        const again = await collectCommentsFull(opened.page, rc, amount, code, expectedN);
+        // DOM виртуализирован: после прокрутки часть верхних ответов может пропасть - берём больший список
+        if (again.data.length >= data.length) ({ data, diag, pageText } = again);
+        else diag = again.diag || diag;
       }
       let updated: string | null = null;
       try {
@@ -1988,17 +2039,25 @@ export async function fetchCommentsByCode(env: Env, username: string, code: stri
       } catch {}
       await markSuccess(env, account.name, data.length, updated || undefined);
       await logSystem(env, data.length ? "info" : "warn", "scraper", `Комментарии @${cleanUser}/${code}: ${data.length} шт. через [${account.name}]${diag ? `. Диагностика: ${diag}` : ""}`);
-      if (!data.length && expectReplies && diag) {
-        emptyDiags.push(`[${account.name}] ${diag}`);
-        // Аккаунт мог видеть пост урезанно (ограничения автора, «Post not available») - пробуем ещё один
+      if (short()) {
+        if (diag) emptyDiags.push(`[${account.name}] ${diag}`);
+        if (!best || data.length > best.data.length || (!best.dump && data.length === best.data.length)) {
+          best = {
+            data,
+            account: account.name,
+            dump: { code, username: cleanUser, account: account.name, expected: expectedN, got: data.length, diag, pageText, samples: rc.samples.slice() },
+          };
+        }
+        // Аккаунт мог видеть пост урезанно (ограничения автора, «Post not available», мало ответов) - пробуем ещё один
         if (tried.length < 2) continue;
+        return finishBest();
       }
       return { data, status: "ok", account: account.name, error: emptyDiags.length ? emptyDiags.join(" || ") : diag ? `[${account.name}] ${diag}` : undefined };
     } catch (error) {
       const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 300);
       await markTransientError(env, account.name, error);
       // Первый аккаунт честно открыл пост и собрал 0 - сбой повторной попытки не превращаем в ошибку
-      if (emptyDiags.length) return { data: [], status: "ok", account: tried.join(", "), error: `${emptyDiags.join(" || ")} || [${account.name}] повтор не удался: ${errMsg.slice(0, 120)}` };
+      if (emptyDiags.length) return finishBest(` || [${account.name}] повтор не удался: ${errMsg.slice(0, 120)}`);
       if (error instanceof BrowserBusyError || isBrowserRateLimit(error)) return { data: null, status: "browser_busy", account: account.name, error: errMsg };
       lastError = `[${account.name}] ${errMsg}`;
       if (/target page|context or browser has been closed|browser has been closed|session closed|ws connection closed|timeout/i.test(errMsg) && tried.length < 2) continue;
