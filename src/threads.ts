@@ -2,6 +2,7 @@ import { postCodeFromUrl } from "./postCode";
 import type { BrowserContext, Page } from "@cloudflare/playwright";
 import { LIMITS, type Env } from "./config";
 import { diagnoseAccountCookies, playwrightCookies, snapshotHasSession } from "./cookies";
+import { syncMaintenance } from "./maintenance";
 import { FeedCollector, ReplyCollector, mergeDomWithFeed, sortPostsNewestFirst } from "./threadsFeed";
 import { buildPaginationBody, describeReplayFailure, graphqlFriendlyName, replaySummary, templateFromRequest } from "./feedReplay";
 import { isAccountBlockedUrl, isLoginUrl, isProfileUrl, isThreadsHost, isUserNotFoundPage } from "./profile";
@@ -1479,6 +1480,8 @@ async function markSuccess(env: Env, name: string, posts = 0, updatedCookies?: s
 async function markSessionExpired(env: Env, name: string) {
   await logBrowser(env, "acct", `${name}|dead`);
   await env.DB.prepare("UPDATE threads_accounts SET is_alive=0,last_error='Session expired',errors_count=errors_count+1,updated_at=? WHERE name=?").bind(iso(), name).run();
+  // Умер последний живой аккаунт - сайт уходит на заглушку, админам сообщение в Telegram
+  await syncMaintenance(env).catch(() => {});
 }
 async function markTransientError(env: Env, name: string, error: unknown) {
   // Занятость браузера Cloudflare - не вина аккаунта, ошибку ему не засчитываем

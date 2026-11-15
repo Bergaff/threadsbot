@@ -4,6 +4,7 @@ import { Database, type SiteTruth } from "./db";
 import { diagnoseAccountCookies, normalizeCookiesJson } from "./cookies";
 import { probeAccount, refreshAccountCookies, resetAccountStatuses } from "./threads";
 import { clearStatsAccess, setStatsAccess, statsAccessInfo } from "./statsPage";
+import { getMaintenance, parseMode, setMaintenanceMode, type MaintenanceState } from "./maintenance";
 import { indexNowKey, parseIndexNowResult, siteHost, submitIndexNow, type IndexNowResult } from "./indexnow";
 
 function esc(value: unknown): string {
@@ -424,6 +425,13 @@ export async function handleAdminRoute(request: Request, env: Env): Promise<Resp
   }
 
   // Ручной запуск ежедневной самодиагностики
+  // Заглушка «технические неполадки»: авто / включить / выключить
+  if (path === "/admin/api/maintenance" && request.method === "POST") {
+    const form = await request.formData().catch(() => null);
+    await setMaintenanceMode(env, parseMode(String(form?.get("mode") || "auto")));
+    return new Response(null, { status: 303, headers: { Location: "/admin#maintenance" } });
+  }
+
   if (path === "/admin/api/diag/run" && request.method === "POST") {
     const report = await runDiagnostics(env, "manual");
     const form = await request.formData().catch(() => null);
@@ -1299,7 +1307,7 @@ function renderTruthSections(env: Env, t: SiteTruth, analytics: any, retention: 
 }
 
 async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Promise<Response> {
-  const [counts, stats, system, analytics, retention, truth, statsAccess, diagRaw, diagHistRaw, rollyRows, indexNowRaw] = await Promise.all([
+  const [counts, stats, system, analytics, retention, truth, statsAccess, diagRaw, diagHistRaw, rollyRows, indexNowRaw, maintenance] = await Promise.all([
     db.accountCounts(),
     db.accountStats() as Promise<any[]>,
     db.systemStats(),
@@ -1311,6 +1319,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
     db.state(0, "diag_history").catch(() => null),
     db.rollypayRecent(20).catch(() => []),
     db.state(0, "indexnow_last").catch(() => null),
+    getMaintenance(env, { fresh: true }).catch(() => null),
   ]);
   const workingAccounts24h = Object.values(truth.accounts).filter(a => a.ok > 0).length;
 
@@ -1437,6 +1446,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
   </header>
 
   <main class="admin-container">
+    ${renderMaintenanceSection(maintenance)}
     <section class="admin-card">
       <div class="admin-card-title">Системный статус и инфраструктура</div>
       <div class="stats-grid">
@@ -2106,5 +2116,26 @@ export function renderStatsAccessSection(
         <button type="submit" class="btn-admin btn-admin-primary">Сохранить доступ</button>
       </form>
       ${info?.source === "admin" ? `<form method="POST" action="/admin/api/stats-access" style="margin-top:10px;" onsubmit="return confirm('Отключить доступ к /stats?');"><input type="hidden" name="action" value="disable"><button type="submit" class="btn-admin btn-admin-danger">Отключить доступ</button></form>` : ""}
+    </section>`;
+}
+
+/** Блок «Заглушка»: состояние и переключатель режима (pr87) */
+export function renderMaintenanceSection(m: MaintenanceState | null): string {
+  if (!m) return "";
+  const since = m.since ? new Date(m.since).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) + " МСК" : "";
+  const state = m.on
+    ? `<span class="status-badge-err">Сайт на заглушке</span>${since ? ` с ${esc(since)}` : ""}`
+    : `<span class="status-badge-ok">Сайт работает</span>`;
+  const why = m.mode === "on" ? "включена вручную" : m.mode === "off" ? "выключена вручную - не включится, даже если все аккаунты умрут" : `авто: включается, когда у всех аккаунтов умерли cookies (живых сейчас ${m.alive} из ${m.enabled})`;
+  const btn = (mode: string, label: string) =>
+    `<button type="submit" name="mode" value="${mode}" class="btn-admin${m.mode === mode ? " btn-admin-primary" : ""}">${label}</button>`;
+  return `
+    <section class="admin-card" id="maintenance"${m.on ? ' style="border-color:#f87171;"' : ""}>
+      <div class="admin-card-title">Заглушка «Технические неполадки»</div>
+      <div style="font-size:0.88rem;line-height:1.6;">${state}<br><span style="color:#999;">Режим: ${esc(why)}.</span></div>
+      <div style="font-size:0.76rem;color:#888;margin-top:6px;">На заглушке закрыты главная, профили, посты и их API (503). Админка, /stats, донаты и бот-вебхук работают. Бот отвечает «Технические неполадки». Вход и выход из заглушки - сообщение админам в Telegram. Админ может открыть сайт в обход заглушки по ссылке на самой заглушке.</div>
+      <form method="POST" action="/admin/api/maintenance" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        ${btn("auto", "Авто")}${btn("on", "Включить")}${btn("off", "Выключить")}
+      </form>
     </section>`;
 }

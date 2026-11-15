@@ -15,6 +15,7 @@ import { fetchComments, fetchCommentsByCode, type CommentsDump, fetchProfileWith
 /** Сколько аккаунтов прогревать за один запуск cron, чтобы не выбирать лимит Browser Rendering. */
 const KEEPALIVE_BATCH = 3;
 import { verifyAuthToken } from "./auth";
+import { getMaintenance, isMaintenanceGated, maintenanceApiResponse, renderMaintenancePage, syncMaintenance } from "./maintenance";
 import { detectBotType, mergePostLists } from "./profile";
 import { classifyTraffic, trackJsBeacon, trackRequest, trackScrape, type PageKind, type TrafficClass } from "./analytics";
 import {
@@ -53,6 +54,10 @@ import { createJhpayPayment } from "./payment";
  * уходит в Queue — там строгая последовательность (max_concurrency=1),
  * чтобы аккаунты не пересекались.
  */
+function fromIdOf(update: TelegramUpdate): number {
+  return Number(update.message?.from?.id || update.callback_query?.from?.id || 0);
+}
+
 function needsBrowser(update: TelegramUpdate): boolean {
   // Только реплай на сообщение бота = запрос комментариев (нужен браузер).
   if (update.message?.reply_to_message?.from?.is_bot) return true;
@@ -383,7 +388,10 @@ export default {
     // ВЕБ-АДМИНКА (СТАТУС БОТОВ, АККАУНТЫ, ПАРОЛЬ)
     // ==========================================
     if (url.pathname.startsWith("/admin")) {
-      return handleAdminRoute(request, env);
+      const adminRes = await handleAdminRoute(request, env);
+      // Загрузка cookies / сброс статусов / удаление аккаунта: сразу пересчитываем заглушку (и пишем в Telegram)
+      if (request.method === "POST" && url.pathname.startsWith("/admin/api/")) ctx.waitUntil(syncMaintenance(env).catch(() => {}));
+      return adminRes;
     }
 
     // Страница статистики для рекламодателей (отдельный логин/пароль, не считается в статистике)
@@ -533,6 +541,8 @@ export default {
           (async () => {
             try { await new Bot(env).update(update); }
             catch (error) { if (!(await handleChatUnavailable(env, update, error))) await notifyError(env, error); }
+            // Админ мог загрузить cookies или сбросить статусы через бота - пересчитываем заглушку
+            if (adminIds(env).includes(fromIdOf(update))) await syncMaintenance(env).catch(() => {});
           })(),
         );
       }
@@ -598,6 +608,36 @@ export default {
         return { isPremium: true, newAuthCookie };
       }
       return { isPremium: false };
+    }
+
+    // ==========================================
+    // ЗАГЛУШКА «ТЕХНИЧЕСКИЕ НЕПОЛАДКИ» (pr87): cookies всех аккаунтов перестали работать.
+    // Закрываем только то, что без аккаунтов не работает (главная, профили, посты, их API).
+    // Админка, /stats, донаты, вебхуки, robots/sitemap, файлы верификации работают как обычно.
+    // ==========================================
+    if (url.pathname === "/api/maintenance") {
+      const m = await getMaintenance(env, { defer: (p) => ctx.waitUntil(p) });
+      return Response.json({ ok: true, on: m.on }, { headers: { "cache-control": "no-store" } });
+    }
+    if (isMaintenanceGated(url.pathname)) {
+      const m = await getMaintenance(env, { defer: (p) => ctx.waitUntil(p) });
+      if (m.on) {
+        const isAdm = await verifyAdmin(request, env);
+        const wantsBypass = url.searchParams.get("bypass") === "1";
+        const hasBypass = /(?:^|;\s*)mnt_bypass=1/.test(request.headers.get("cookie") || "");
+        if (!(isAdm && (wantsBypass || hasBypass))) {
+          const mLang = url.pathname.startsWith("/en") || url.searchParams.get("lang") === "en" ? "en" : lang === "en" ? "en" : "ru";
+          if (url.pathname.startsWith("/api/")) return maintenanceApiResponse(mLang);
+          const sep = url.search ? "&" : "?";
+          return renderMaintenancePage(mLang, { isAdmin: isAdm, bypassUrl: `${url.pathname}${url.search}${sep}bypass=1` });
+        }
+        if (wantsBypass && !hasBypass) {
+          // Админ открыл сайт в обход заглушки: кука на сессию браузера, чтобы работали и запросы страницы к API
+          const target = new URL(url.toString());
+          target.searchParams.delete("bypass");
+          return new Response(null, { status: 302, headers: { location: target.pathname + target.search, "set-cookie": "mnt_bypass=1; Path=/; HttpOnly; Secure; SameSite=Lax", "cache-control": "no-store" } });
+        }
+      }
     }
 
     // Главная страница (включая языковые маршруты /ru, /ru/, /en, /en/)
@@ -1358,6 +1398,7 @@ export default {
         .run();
       try {
         await new Bot(env).update(update);
+        if (adminIds(env).includes(fromIdOf(update))) await syncMaintenance(env).catch(() => {});
         await env.DB
           .prepare("UPDATE processed_updates SET status='done',updated_at=? WHERE update_id=?")
           .bind(new Date().toISOString(), update.update_id)
@@ -1389,6 +1430,8 @@ export default {
       (async () => {
         const db = new Database(env);
         await db.cleanup();
+        // Заглушка: на случай, если смена состояния прошла мимо (например, аккаунты правили прямо в D1)
+        await syncMaintenance(env).catch(() => {});
         // IndexNow: после деплоя новой версии - главные страницы (один раз на версию)
         await notifyAfterDeploy(env, env.VERSION || "").catch((e) => console.error("IndexNow:", e));
         const stats = await db.accountStats() as Array<{ name: string; is_alive: number; cookies: string }>;
