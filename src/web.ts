@@ -1939,7 +1939,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? 'en/' : ''}`;
-  const ver = env.VERSION || "pr88-2026-11-17-metrika";
+  const ver = env.VERSION || "pr89-2026-11-17-metrika-on";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2545,9 +2545,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr88-2026-11-17-metrika')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr88-2026-11-17-metrika')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr88-2026-11-17-metrika')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr89-2026-11-17-metrika-on')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr89-2026-11-17-metrika-on')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr89-2026-11-17-metrika-on')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3528,7 +3528,7 @@ export function renderPrivacyPage(lang: Lang = "ru", origin = "https://threadsvi
     <p>- Cookie notice acknowledgment (stored in LocalStorage to avoid repeated prompts);</p>
     <p>- Optional authentication token (threads_auth) for verified Telegram bot subscribers requesting an ad-free view.</p>
     ${metrika
-      ? `<p>The Service uses Yandex Metrica (YANDEX LLC) to count visits: it sets its own cookies (_ym_uid and similar) and collects anonymous technical data about the visit (pages viewed, referrer, device type, approximate region by IP). Session replay (Webvisor) is disabled. You can block these cookies in your browser settings; the Service keeps working.</p>`
+      ? `<p>The Service uses Yandex Metrica (YANDEX LLC) to count visits: it sets its own cookies (_ym_uid and similar) and collects anonymous technical data about the visit (pages viewed, referrer, device type, approximate region by IP). Webvisor records page interactions (scrolling, clicks) in anonymised form; text typed into fields is not recorded. You can block these cookies in your browser settings; the Service keeps working.</p>`
       : ""}
     <p>The Service does not deploy third-party cross-site advertising trackers or social surveillance scripts.</p>
 
@@ -3568,7 +3568,7 @@ export function renderPrivacyPage(lang: Lang = "ru", origin = "https://threadsvi
     <p>- Фиксация согласия с уведомлением об использовании файлов cookie (в LocalStorage);</p>
     <p>- Сессионный токен авторизации (threads_auth) для подписчиков Telegram-бота, использующих режим без рекламы.</p>
     ${metrika
-      ? `<p>Для подсчёта посещаемости используется сервис Яндекс Метрика (ООО «ЯНДЕКС»): он устанавливает собственные файлы cookie (_ym_uid и подобные) и собирает обезличенные технические данные о визите (просмотренные страницы, источник перехода, тип устройства, примерный регион по IP-адресу). Запись действий посетителей (Вебвизор) отключена. Эти cookie можно запретить в настройках браузера - сайт продолжит работать.</p>
+      ? `<p>Для подсчёта посещаемости используется сервис Яндекс Метрика (ООО «ЯНДЕКС»): он устанавливает собственные файлы cookie (_ym_uid и подобные) и собирает обезличенные технические данные о визите (просмотренные страницы, источник перехода, тип устройства, примерный регион по IP-адресу). Вебвизор записывает действия на странице (прокрутку, клики) в обезличенном виде, текст, вводимый в поля, не записывается. Эти cookie можно запретить в настройках браузера - сайт продолжит работать.</p>
     <p>Сервис не применяет сторонние межсайтовые трекеры и пиксели рекламных сетей.</p>`
       : `<p>Сервис не применяет сторонние межсайтовые трекеры, пиксели рекламных сетей или аналитические системы с передачей персональных данных.</p>`}
 
@@ -3661,9 +3661,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr88-2026-11-17-metrika">
-  <link rel="alternate icon" href="/favicon.ico?v=pr88-2026-11-17-metrika">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr88-2026-11-17-metrika">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr89-2026-11-17-metrika-on">
+  <link rel="alternate icon" href="/favicon.ico?v=pr89-2026-11-17-metrika-on">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr89-2026-11-17-metrika-on">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3910,7 +3910,7 @@ function renderShopShell(
   <meta property="og:title" content="${esc(opts.title)}">
   <meta property="og:description" content="${esc(opts.description)}">
   <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr88-2026-11-17-metrika">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr89-2026-11-17-metrika-on">
   <script>
     (function(){
       var t = localStorage.getItem("threads_theme");

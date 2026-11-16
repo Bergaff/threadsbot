@@ -6,8 +6,7 @@
  * и из других поисковиков ему не видны) и отклоняет сайт: «Недостаточно реальных посетителей».
  *
  * Номер счётчика задаётся переменной YANDEX_METRIKA_ID в wrangler.toml. Пусто - счётчика нет.
- * Код вставляется перед </head> во все HTML-страницы сайта, кроме админки и /stats.
- * Вебвизор выключен (тяжёлый и записывает действия посетителей), остальное - стандартный набор.
+ * Код вставляется в начало <head> всех HTML-страниц сайта, кроме админки и /stats.
  */
 import type { Env } from "./config";
 
@@ -16,12 +15,35 @@ export function metrikaId(env: Pick<Env, "YANDEX_METRIKA_ID">): string {
   return /^\d{5,12}$/.test(id) ? id : "";
 }
 
+/** Код счётчика в точности как выдала Метрика (настройки: Вебвизор, карта кликов, SSR, электронная коммерция) */
 export function metrikaTag(id: string): string {
   if (!id) return "";
   return `<!-- Yandex.Metrika counter -->
-<script type="text/javascript">(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");ym(${id},"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true});</script>
-<noscript><div><img src="https://mc.yandex.ru/watch/${id}" style="position:absolute;left:-9999px;" alt="" /></div></noscript>
+<script type="text/javascript">
+    (function(m,e,t,r,i,k,a){
+        m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+        m[i].l=1*new Date();
+        for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+        k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+    })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=${id}', 'ym');
+
+    ym(${id}, 'init', {ssr:true, webvisor:true, clickmap:true, ecommerce:"dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+</script>
+<noscript><div><img src="https://mc.yandex.ru/watch/${id}" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
 <!-- /Yandex.Metrika counter -->`;
+}
+
+/**
+ * Куда вставить счётчик: как можно ближе к началу страницы (так просит Метрика) - сразу после <head>,
+ * а если в начале head стоит <meta charset>, то после него (кодировка должна идти в первых байтах страницы).
+ */
+export function metrikaInsertAt(html: string): number {
+  const head = /<head(?:\s[^>]*)?>/i.exec(html);
+  if (!head) return -1;
+  let at = head.index + head[0].length;
+  const charset = /^\s*<meta\s+charset=[^>]*>/i.exec(html.slice(at, at + 300));
+  if (charset) at += charset[0].length;
+  return at;
 }
 
 /** Страницы, куда счётчик не ставим: админка и закрытая статистика для рекламодателей */
@@ -39,9 +61,9 @@ export async function withMetrika(request: Request, env: Env, res: Response): Pr
   if (skipMetrika(new URL(request.url).pathname)) return res;
   const html = await res.text();
   if (html.includes("mc.yandex.ru/metrika/tag.js")) return new Response(html, res);
-  const i = html.search(/<\/head>/i);
+  const i = metrikaInsertAt(html);
   if (i < 0) return new Response(html, res);
-  const out = html.slice(0, i) + metrikaTag(id) + "\n" + html.slice(i);
+  const out = html.slice(0, i) + "\n" + metrikaTag(id) + "\n" + html.slice(i);
   const headers = new Headers(res.headers);
   headers.delete("content-length");
   return new Response(out, { status: res.status, statusText: res.statusText, headers });
