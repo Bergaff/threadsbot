@@ -1,5 +1,7 @@
 export interface Env {
   DB: D1Database;
+  /** Номер счётчика Яндекс Метрики (pr88); пусто - счётчика нет */
+  YANDEX_METRIKA_ID?: string;
   BROWSER: import("@cloudflare/playwright").BrowserWorker;
   UPDATES: Queue<import("./telegram").TelegramUpdate>;
   TELEGRAM_TOKEN: string;

@@ -15,6 +15,7 @@ import { fetchComments, fetchCommentsByCode, type CommentsDump, fetchProfileWith
 /** Сколько аккаунтов прогревать за один запуск cron, чтобы не выбирать лимит Browser Rendering. */
 const KEEPALIVE_BATCH = 3;
 import { verifyAuthToken } from "./auth";
+import { metrikaId, withMetrika } from "./metrika";
 import { getMaintenance, isMaintenanceGated, maintenanceApiResponse, renderMaintenancePage, syncMaintenance } from "./maintenance";
 import { detectBotType, mergePostLists } from "./profile";
 import { classifyTraffic, trackJsBeacon, trackRequest, trackScrape, type PageKind, type TrafficClass } from "./analytics";
@@ -177,8 +178,7 @@ async function staleProfile(db: Database, username: string): Promise<ProfileData
   }
 }
 
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const reqStart = Date.now();
     const url = new URL(request.url);
     const lowerPath = url.pathname.toLowerCase();
@@ -678,7 +678,7 @@ export default {
       return res;
     }
     if (url.pathname === "/privacy") {
-      const res = renderPrivacyPage(lang, url.origin);
+      const res = renderPrivacyPage(lang, url.origin, Boolean(metrikaId(env)));
       putEdgeCache(request, res, ctx, 86400);
       return res;
     }
@@ -1377,6 +1377,12 @@ export default {
     }
 
     return renderNotFoundPage(lang, url.origin);
+}
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Счётчик Яндекс Метрики во все HTML-страницы сайта (кроме админки и /stats), если задан YANDEX_METRIKA_ID
+    return withMetrika(request, env, await handleFetch(request, env, ctx));
   },
 
   async queue(batch: MessageBatch<TelegramUpdate>, env: Env) {

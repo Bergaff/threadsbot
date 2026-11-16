@@ -53,7 +53,7 @@ STATS_EXCLUDE_IDS = "369330135,657708753"
 BASE_URL = "https://www.threads.com"
 SITE_URL = "https://threadsviewer.online"
 SITE_DOMAIN = "threadsviewer.online"
-VERSION = "pr87-2026-11-07-maintenance"
+VERSION = "pr88-2026-11-17-metrika"
 BOT_USERNAME = "threadsreaderbot"
 # Касса RollyPay (оплата картой/СБП). UUID кассы не секрет.
 # Секреты задаются командами: npx wrangler secret put ROLLYPAY_API_KEY / ROLLYPAY_SIGNING_SECRET
@@ -62,6 +62,9 @@ JHPAY_TOKEN = "940e2c5aec5bf97eab483ac86c07c0db"
 # Как часто прогревать каждый аккаунт, чтобы Meta продлевала sessionid.
 # Меньше значение - сессии живут дольше, но больше запусков браузера.
 KEEPALIVE_HOURS = "12"
+# Номер счётчика Яндекс Метрики (metrika.yandex.ru -> Добавить счётчик). Пусто - счётчика на сайте нет.
+# Нужен Рекламной сети Яндекса: без него Яндекс не видит посетителей сайта.
+YANDEX_METRIKA_ID = ""
 
 # Custom domain
 [[routes]]
