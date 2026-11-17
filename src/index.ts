@@ -16,6 +16,7 @@ import { fetchComments, fetchCommentsByCode, type CommentsDump, fetchProfileWith
 const KEEPALIVE_BATCH = 3;
 import { verifyAuthToken } from "./auth";
 import { metrikaId, withMetrika } from "./metrika";
+import { canonicalHostRedirect } from "./canonicalHost";
 import { getMaintenance, isMaintenanceGated, maintenanceApiResponse, renderMaintenancePage, syncMaintenance } from "./maintenance";
 import { detectBotType, mergePostLists } from "./profile";
 import { classifyTraffic, trackJsBeacon, trackRequest, trackScrape, type PageKind, type TrafficClass } from "./analytics";
@@ -1381,6 +1382,9 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // www.<домен> -> основной домен (иначе Google видит две копии сайта)
+    const hostRedirect = canonicalHostRedirect(request, env);
+    if (hostRedirect) return hostRedirect;
     // Счётчик Яндекс Метрики во все HTML-страницы сайта (кроме админки и /stats), если задан YANDEX_METRIKA_ID
     return withMetrika(request, env, await handleFetch(request, env, ctx));
   },
