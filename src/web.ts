@@ -1939,7 +1939,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? 'en/' : ''}`;
-  const ver = env.VERSION || "pr89-2026-11-17-metrika-on";
+  const ver = env.VERSION || "pr90-2026-11-18-comments-nofollow";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2545,9 +2545,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr89-2026-11-17-metrika-on')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr89-2026-11-17-metrika-on')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr89-2026-11-17-metrika-on')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr90-2026-11-18-comments-nofollow')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr90-2026-11-18-comments-nofollow')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr90-2026-11-18-comments-nofollow')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2900,10 +2900,14 @@ export function renderProfilePage(
         .replace(/'/g, '&#39;');
     }
 
-    function formatPostTextClient(text) {
+    // ugc=true - текст комментария: ссылки помечаются nofollow ugc, чтобы
+    // поисковики не обходили сотни пустых профилей авторов комментариев.
+    function formatPostTextClient(text, ugc) {
       var escaped = escHtml(text);
-      var withUrls = escaped.replace(/(https?:\\\/\\\/[^\\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="post-link">$1<\\\/a>');
-      var withMentions = withUrls.replace(/(^|\\s)@([A-Za-z0-9._]+)/g, '$1<a href="/@$2" class="post-mention">@$2<\\\/a>');
+      var extRel = ugc ? 'nofollow ugc noopener noreferrer' : 'noopener noreferrer';
+      var mentionRel = ugc ? ' rel="nofollow ugc"' : '';
+      var withUrls = escaped.replace(/(https?:\\\/\\\/[^\\s<]+)/g, '<a href="$1" target="_blank" rel="' + extRel + '" class="post-link">$1<\\\/a>');
+      var withMentions = withUrls.replace(/(^|\\s)@([A-Za-z0-9._]+)/g, '$1<a href="/@$2"' + mentionRel + ' class="post-mention">@$2<\\\/a>');
       return withMentions.replace(/\\n/g, '<br>');
     }
 
@@ -3006,9 +3010,9 @@ export function renderProfilePage(
         html += '<div class="comment-row">' +
           '<div class="comment-author-block">' +
             avatarHtml +
-            '<a href="/@' + encodeURIComponent(handle) + (currentLang === 'en' ? '?lang=en' : '') + '" class="comment-author-name">' + escHtml(a) + '</a>' +
+            '<a href="/@' + encodeURIComponent(handle) + (currentLang === 'en' ? '?lang=en' : '') + '" rel="nofollow ugc" class="comment-author-name">' + escHtml(a) + '</a>' +
           '</div>' +
-          '<div class="comment-content">' + formatPostTextClient(c.text || '') + '</div>' +
+          '<div class="comment-content">' + formatPostTextClient(c.text || '', true) + '</div>' +
         '</div>';
       }
       html += '</div>';
@@ -3661,9 +3665,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr89-2026-11-17-metrika-on">
-  <link rel="alternate icon" href="/favicon.ico?v=pr89-2026-11-17-metrika-on">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr89-2026-11-17-metrika-on">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr90-2026-11-18-comments-nofollow">
+  <link rel="alternate icon" href="/favicon.ico?v=pr90-2026-11-18-comments-nofollow">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr90-2026-11-18-comments-nofollow">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3910,7 +3914,7 @@ function renderShopShell(
   <meta property="og:title" content="${esc(opts.title)}">
   <meta property="og:description" content="${esc(opts.description)}">
   <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr89-2026-11-17-metrika-on">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr90-2026-11-18-comments-nofollow">
   <script>
     (function(){
       var t = localStorage.getItem("threads_theme");
