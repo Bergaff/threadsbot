@@ -1747,6 +1747,9 @@ export async function fetchPosts(env: Env, username: string, mode: "text" | "img
     let opened: Opened | undefined;
     try {
       opened = await openBrowser(env, account);
+      // pr92: как на сайте - посты и из DOM, и из JSON-ответов ленты (GraphQL + повтор запроса).
+      // Раньше бот брал только видимые в DOM посты, и в Telegram их бывало 2-3 вместо 20.
+      const feed = attachFeedCollector(opened.page, username);
       const verdict = await checkProfile(opened.page, env, username);
       const outcome = await resolveVerdict(env, account, username, verdict, state);
       if (outcome.action === "rotate") continue;
@@ -1754,7 +1757,7 @@ export async function fetchPosts(env: Env, username: string, mode: "text" | "img
         return { data: outcome.data.posts, status: "ok", account: "public-http" };
       }
       if (outcome.action === "return") return { data: null, status: outcome.status, account: outcome.account, error: outcome.error };
-      let data = await collectPosts(opened.page, amount, username);
+      let data = await collectPosts(opened.page, amount, username, feed);
       if (!data.length) return { data: null, status: "no_posts", account: account.name };
       if (mode === "img") data = await capturePosts(opened.page, data, captureFrom, 5);
       let updated: string | null = null;

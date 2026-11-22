@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const threadsMock = vi.hoisted(() => ({ fetchPosts: vi.fn() }));
+const threadsMock = vi.hoisted(() => {
+  const m: any = { fetchPosts: vi.fn() };
+  // pr92: текстовый режим бота собирает посты тем же сборщиком, что и сайт
+  m.fetchProfileWithPosts = async (env: any, username: string, amount: number) => {
+    const r = await m.fetchPosts(env, username, "text", amount, 0);
+    return { ...r, data: r?.data ? { profile: { username, displayName: username, bio: "", avatar: "", followers: "", verified: false }, posts: r.data } : null };
+  };
+  return m;
+});
 vi.mock("../src/threads", async (orig) => ({ ...(await orig<any>()), ...threadsMock, logSystem: async () => {} }));
 
 import { Bot } from "../src/bot";
 
-function makeEnv() {
+function makeEnv(cache = new Map<string, string>()) {
   const state = new Map<string, string>();
   const DB: any = {
     prepare(sql: string) {
@@ -19,6 +27,7 @@ function makeEnv() {
         },
         first: async () => {
           if (/FROM bot_state/.test(sql)) { const v = state.get(`${args[0]}|${args[1]}`); return v == null ? null : { value: v }; }
+          if (/FROM cache WHERE/.test(sql)) { const v = cache.get(`${args[0]}|${args[1]}`); return v == null ? null : { data: v, cached_at: new Date().toISOString() }; }
           return null;
         },
         all: async () => ({ results: [] }),
@@ -89,5 +98,18 @@ describe("bot: post pages", () => {
     const post = calls.find((c) => c.method === "sendMessage" && String(c.body.text).startsWith("<b>1.</b>"));
     expect(post).toBeTruthy();
     expect(String(post!.body.text).length).toBeLessThanOrEqual(4096);
+  });
+
+  it("pr92: в кеше сайта 12 постов - бот показывает те же 12, без запуска браузера", async () => {
+    const calls = tgMock();
+    const cache = new Map<string, string>();
+    cache.set("zuck|text", JSON.stringify(posts.slice(0, 2)));
+    cache.set("zuck|web_profile", JSON.stringify({ profile: { username: "zuck", avatar: "a" }, posts: posts.slice(0, 12) }));
+    await press(new Bot(makeEnv(cache)), "text:zuck:0");
+    expect(threadsMock.fetchPosts).not.toHaveBeenCalled();
+    const texts = calls.filter((c) => c.method === "sendMessage").map((c) => String(c.body.text));
+    expect(texts.some((t) => t.includes("1–5") && t.includes("12"))).toBe(true);
+    expect(texts.some((t) => t.includes("12 постов"))).toBe(true);
+    expect(JSON.stringify(calls.map((c) => c.body.reply_markup || ""))).toContain("text:zuck:1");
   });
 });
