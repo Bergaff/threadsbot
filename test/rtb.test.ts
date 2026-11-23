@@ -38,7 +38,14 @@ window.yaContextCb.push(() => {
       expect(html).toContain(rtbBlock("R-A-20435188-1"));
       expect(count(html, 'id="yandex_rtb_R-A-20435188-1"')).toBe(1);
       expect(html).not.toContain("Здесь может быть ваша реклама");
-      expect(html).toContain('<a href="https://t.me/olekksiy" target="_blank" rel="noopener nofollow">Реклама на сайте</a>');
+      // pr96: кнопка в шапке сразу справа от «Telegram Бот», под блоком ссылки больше нет
+      const tg = html.indexOf('class="btn-nav-tg"');
+      const ads = html.indexOf('href="https://t.me/olekksiy"');
+      expect(tg).toBeGreaterThan(0);
+      expect(ads).toBeGreaterThan(tg);
+      expect(html.slice(tg, ads).split("<a ").length - 1).toBe(1);
+      expect(html.slice(ads, ads + 300)).toContain("Реклама на сайте");
+      expect(html).not.toContain('class="rtb-contact"');
       expect(html).toContain("показа рекламы");
     }
   });
