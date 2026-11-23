@@ -53,7 +53,7 @@ STATS_EXCLUDE_IDS = "369330135,657708753"
 BASE_URL = "https://www.threads.com"
 SITE_URL = "https://threadsviewer.online"
 SITE_DOMAIN = "threadsviewer.online"
-VERSION = "pr94-2026-11-23-yandex-rtb"
+VERSION = "pr95-2026-11-23-rtb-rails"
 BOT_USERNAME = "threadsreaderbot"
 # Касса RollyPay (оплата картой/СБП). UUID кассы не секрет.
 # Секреты задаются командами: npx wrangler secret put ROLLYPAY_API_KEY / ROLLYPAY_SIGNING_SECRET
@@ -67,8 +67,8 @@ KEEPALIVE_HOURS = "12"
 YANDEX_METRIKA_ID = "114284988"
 # Рекламная сеть Яндекса: у каждого места свой блок (один блок - один раз на странице). Пусто - места нет.
 YANDEX_RTB_MAIN = "R-A-20435188-1"
-YANDEX_RTB_LEFT = ""
-YANDEX_RTB_RIGHT = ""
+YANDEX_RTB_LEFT = "R-A-20435188-2"
+YANDEX_RTB_RIGHT = "R-A-20435188-3"
 
 # Custom domain
 [[routes]]

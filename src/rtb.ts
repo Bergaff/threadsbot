@@ -4,12 +4,16 @@
  * Коды загрузчика и блока - в точности как выдал кабинет РСЯ (partner.yandex.ru).
  * Блоки задаются в wrangler.toml:
  *   YANDEX_RTB_MAIN  - блок на месте бывшей заглушки «Рекламное место» (главная и профиль, все экраны);
- *   YANDEX_RTB_LEFT  - левая колонка, только на широких экранах (от 1320 px);
- *   YANDEX_RTB_RIGHT - правая колонка, только на широких экранах.
+ *   YANDEX_RTB_LEFT  - длинная левая колонка в пустом поле сбоку от ленты (экраны от 1024 px);
+ *   YANDEX_RTB_RIGHT - длинная правая колонка.
+ * Колонки: 160 px шириной на экранах 1024-1319 px, 300 px - от 1320 px; высота до 600 px (вертикальные форматы).
  * Один блок РСЯ можно показать на странице только один раз, поэтому у каждого места свой ID.
  * Пустое значение - места нет. Подписчикам бота (режим без рекламы) реклама не показывается.
  */
 import type { Env } from "./config";
+
+/** Ссылка «Реклама на сайте» под основным блоком */
+export const ADS_CONTACT_URL = "https://t.me/olekksiy";
 
 const RTB_ID_RE = /^R-A-\d{5,12}-\d{1,4}$/;
 
@@ -62,7 +66,7 @@ function rtbRailBlock(id: string, side: "left" | "right"): string {
 <!-- Yandex.RTB ${id} -->
 <div id="yandex_rtb_${id}"></div>
 <script>
-if (window.matchMedia && window.matchMedia("(min-width: 1320px)").matches) {
+if (window.matchMedia && window.matchMedia("(min-width: 1024px)").matches) {
 window.yaContextCb.push(() => {
     Ya.Context.AdvManager.render({
         "blockId": "${id}",
@@ -80,8 +84,13 @@ export const RTB_CSS = `
   .rtb-contact a { color: #8a8a8a; text-decoration: none; }
   .rtb-contact a:hover { text-decoration: underline; }
   .rtb-rail { display: none; }
+  @media (min-width: 1024px) {
+    .rtb-rail { display: block; position: fixed; top: 90px; width: 160px; height: min(600px, calc(100vh - 110px)); overflow: hidden; z-index: 5; }
+    .rtb-rail-left { left: calc(50% - 490px); }
+    .rtb-rail-right { right: calc(50% - 490px); }
+  }
   @media (min-width: 1320px) {
-    .rtb-rail { display: block; position: fixed; top: 90px; width: 300px; max-height: calc(100vh - 110px); overflow: hidden; z-index: 5; }
+    .rtb-rail { width: 300px; }
     .rtb-rail-left { left: calc(50% - 644px); }
     .rtb-rail-right { right: calc(50% - 644px); }
   }

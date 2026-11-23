@@ -1,7 +1,7 @@
 import { hasReplies, parseCount, postCodeOf } from "./postCode";
 import type { Env } from "./config";
-import { RTB_CSS, rtbEnabled, rtbHead, rtbMainSlot, rtbRails } from "./rtb";
-import { ADS_EMAIL, DONATE_CSS, renderAdPlaceholder, renderDonateBody, renderDonateCardStubBody, renderDonateResultBody } from "./donate";
+import { ADS_CONTACT_URL, RTB_CSS, rtbEnabled, rtbHead, rtbMainSlot, rtbRails } from "./rtb";
+import { DONATE_CSS, renderAdPlaceholder, renderDonateBody, renderDonateCardStubBody, renderDonateResultBody } from "./donate";
 import type { Donation } from "./plans";
 import type { Comment, Post, ProfileData } from "./threads";
 
@@ -1877,7 +1877,7 @@ function renderSponsorSlot(env: Env, lang: Lang, isPremium = false, _country = "
   // Подписчикам бота (режим без рекламы) - ничего.
   if (isPremium) return "";
   // pr94: блок РСЯ на месте заглушки + маленькая ссылка для прямых рекламодателей.
-  const contact = `<div class="rtb-contact"><a href="mailto:${ADS_EMAIL}?subject=${encodeURIComponent(lang === "en" ? "Advertising on threadsviewer.online" : "Реклама на threadsviewer.online")}" rel="nofollow">${lang === "en" ? "Advertise on this site" : "Реклама на сайте"}</a></div>`;
+  const contact = `<div class="rtb-contact"><a href="${ADS_CONTACT_URL}" target="_blank" rel="noopener nofollow">${lang === "en" ? "Advertise on this site" : "Реклама на сайте"}</a></div>`;
   const rtb = rtbMainSlot(env, contact);
   // Без РСЯ - прежняя заглушка «Здесь может быть ваша реклама» с контактами.
   return (rtb || renderAdPlaceholder(lang, getBotUsername(env))) + rtbRails(env, isPremium);
@@ -1945,7 +1945,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? 'en/' : ''}`;
-  const ver = env.VERSION || "pr94-2026-11-23-yandex-rtb";
+  const ver = env.VERSION || "pr95-2026-11-23-rtb-rails";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2553,9 +2553,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr94-2026-11-23-yandex-rtb')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr94-2026-11-23-yandex-rtb')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr94-2026-11-23-yandex-rtb')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr95-2026-11-23-rtb-rails')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr95-2026-11-23-rtb-rails')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr95-2026-11-23-rtb-rails')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3677,9 +3677,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr94-2026-11-23-yandex-rtb">
-  <link rel="alternate icon" href="/favicon.ico?v=pr94-2026-11-23-yandex-rtb">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr94-2026-11-23-yandex-rtb">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr95-2026-11-23-rtb-rails">
+  <link rel="alternate icon" href="/favicon.ico?v=pr95-2026-11-23-rtb-rails">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr95-2026-11-23-rtb-rails">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3926,7 +3926,7 @@ function renderShopShell(
   <meta property="og:title" content="${esc(opts.title)}">
   <meta property="og:description" content="${esc(opts.description)}">
   <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr94-2026-11-23-yandex-rtb">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr95-2026-11-23-rtb-rails">
   <script>
     (function(){
       var t = localStorage.getItem("threads_theme");

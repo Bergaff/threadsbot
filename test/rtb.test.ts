@@ -38,7 +38,7 @@ window.yaContextCb.push(() => {
       expect(html).toContain(rtbBlock("R-A-20435188-1"));
       expect(count(html, 'id="yandex_rtb_R-A-20435188-1"')).toBe(1);
       expect(html).not.toContain("Здесь может быть ваша реклама");
-      expect(html).toContain("Реклама на сайте");
+      expect(html).toContain('<a href="https://t.me/olekksiy" target="_blank" rel="noopener nofollow">Реклама на сайте</a>');
       expect(html).toContain("показа рекламы");
     }
   });
@@ -60,7 +60,7 @@ window.yaContextCb.push(() => {
     expect(html).toContain('class="rtb-rail rtb-rail-left"');
     expect(html).toContain('id="yandex_rtb_R-A-20435188-2"');
     expect(html).toContain('id="yandex_rtb_R-A-20435188-3"');
-    expect(html).toContain('matchMedia("(min-width: 1320px)")');
+    expect(html).toContain('matchMedia("(min-width: 1024px)")');
     expect(count(html, "context.js")).toBe(1);
     expect(await renderHomePage(env(), "ru", false).text()).not.toContain('class="rtb-rail rtb-rail-left"');
   });
@@ -74,10 +74,23 @@ window.yaContextCb.push(() => {
     expect(await renderPrivacyPage("ru", "https://threadsviewer.online", true, false).text()).not.toContain("Рекламную сеть Яндекса");
   });
 
+  it("главная: блок 1 стоит прямо перед «Часто задаваемые вопросы», колонки 2 и 3 по бокам", async () => {
+    const html = await renderHomePage(env({ YANDEX_RTB_LEFT: "R-A-20435188-2", YANDEX_RTB_RIGHT: "R-A-20435188-3" }), "ru", false).text();
+    const b1 = html.indexOf('id="yandex_rtb_R-A-20435188-1"');
+    const faq = html.indexOf('class="faq-card"');
+    expect(b1).toBeGreaterThan(0);
+    expect(faq).toBeGreaterThan(b1);
+    expect(html.slice(b1, faq)).not.toContain("<section");
+    expect(html).toMatch(/rtb-rail-left[\s\S]*yandex_rtb_R-A-20435188-2/);
+    expect(html).toMatch(/rtb-rail-right[\s\S]*yandex_rtb_R-A-20435188-3/);
+  });
+
   it("wrangler.toml: основной блок R-A-20435188-1", async () => {
     // @ts-ignore - в проекте нет типов Node
     const fs: any = await import("node:fs");
     const toml: string = fs.readFileSync("wrangler.toml", "utf8");
     expect(toml).toMatch(/^YANDEX_RTB_MAIN = "R-A-20435188-1"$/m);
+    expect(toml).toMatch(/^YANDEX_RTB_LEFT = "R-A-20435188-2"$/m);
+    expect(toml).toMatch(/^YANDEX_RTB_RIGHT = "R-A-20435188-3"$/m);
   });
 });
