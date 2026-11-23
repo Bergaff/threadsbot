@@ -88,7 +88,7 @@ export const RTB_CSS = `
   @media (min-width: 1024px) {
     /* ширина колонки = свободное поле сбоку от ленты (620 px) минус отступы: от 160 до 300 px */
     .rtb-rail { --rail-w: clamp(160px, calc((100vw - 620px) / 2 - 40px), 300px); display: block; position: fixed; top: 90px; width: var(--rail-w); height: min(600px, calc(100vh - 110px)); overflow: hidden; z-index: 5; }
-    .rtb-rail > div[id^="yandex_rtb_"] { width: 100%; height: 100%; }
+    .rtb-rail > div { width: 100%; height: 100%; }
     .rtb-rail-left { left: calc(50% - 330px - var(--rail-w)); }
     .rtb-rail-right { right: calc(50% - 330px - var(--rail-w)); }
   }
