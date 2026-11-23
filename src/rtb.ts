@@ -68,14 +68,20 @@ function rtbRailBlock(id: string, side: "left" | "right"): string {
 <!-- Yandex.RTB ${id} -->
 <div id="yandex_rtb_${id}"></div>
 <script>
-if (window.matchMedia && window.matchMedia("(min-width: 1024px)").matches) {
-window.yaContextCb.push(() => {
-    Ya.Context.AdvManager.render({
-        "blockId": "${id}",
-        "renderTo": "yandex_rtb_${id}"
+(function () {
+  // pr98: колонки стоят в начале страницы, но запрашиваются ПОСЛЕ основного блока
+  // (после разбора всей страницы), чтобы основной блок перед FAQ не оставался без рекламы.
+  function rtbRail() {
+    if (!(window.matchMedia && window.matchMedia("(min-width: 1024px)").matches)) return;
+    window.yaContextCb.push(() => {
+        Ya.Context.AdvManager.render({
+            "blockId": "${id}",
+            "renderTo": "yandex_rtb_${id}"
+        })
     })
-})
-}
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", rtbRail); else rtbRail();
+})();
 </script>
 </aside>`;
 }

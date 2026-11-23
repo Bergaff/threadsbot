@@ -1947,7 +1947,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? 'en/' : ''}`;
-  const ver = env.VERSION || "pr97-2026-11-23-rails-static";
+  const ver = env.VERSION || "pr98-2026-11-23-rtb-main-first";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2556,9 +2556,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr97-2026-11-23-rails-static')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr97-2026-11-23-rails-static')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr97-2026-11-23-rails-static')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr98-2026-11-23-rtb-main-first')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr98-2026-11-23-rtb-main-first')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr98-2026-11-23-rtb-main-first')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3681,9 +3681,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr97-2026-11-23-rails-static">
-  <link rel="alternate icon" href="/favicon.ico?v=pr97-2026-11-23-rails-static">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr97-2026-11-23-rails-static">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr98-2026-11-23-rtb-main-first">
+  <link rel="alternate icon" href="/favicon.ico?v=pr98-2026-11-23-rtb-main-first">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr98-2026-11-23-rtb-main-first">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3930,7 +3930,7 @@ function renderShopShell(
   <meta property="og:title" content="${esc(opts.title)}">
   <meta property="og:description" content="${esc(opts.description)}">
   <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr97-2026-11-23-rails-static">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr98-2026-11-23-rtb-main-first">
   <script>
     (function(){
       var t = localStorage.getItem("threads_theme");

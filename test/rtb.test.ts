@@ -108,6 +108,25 @@ window.yaContextCb.push(() => {
     expect(RTB_CSS).toContain("left: calc(16px - (100vw - 100%) / 2)");
   });
 
+  it("pr98: основной блок запрашивается раньше боковых, хотя колонки выше в разметке", async () => {
+    const e = env({ YANDEX_RTB_LEFT: "R-A-20435188-2", YANDEX_RTB_RIGHT: "R-A-20435188-3" });
+    const html = await renderHomePage(e, "ru", false).text();
+    const body = html.slice(html.indexOf("<body"));
+    const scripts = [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((s) => s.includes("yaContextCb.push"));
+    expect(scripts.length).toBe(3);
+    const order: string[] = [];
+    const listeners: Array<() => void> = [];
+    const win: any = {
+      matchMedia: () => ({ matches: true }),
+      yaContextCb: { push: (fn: () => void) => fn() },
+    };
+    const doc: any = { readyState: "loading", addEventListener: (_: string, fn: () => void) => listeners.push(fn) };
+    const Ya = { Context: { AdvManager: { render: (o: any) => order.push(o.blockId) } } };
+    for (const src of scripts) new Function("window", "document", "Ya", src)(win, doc, Ya);
+    listeners.forEach((fn) => fn());
+    expect(order).toEqual(["R-A-20435188-1", "R-A-20435188-2", "R-A-20435188-3"]);
+  });
+
   it("wrangler.toml: основной блок R-A-20435188-1", async () => {
     // @ts-ignore - в проекте нет типов Node
     const fs: any = await import("node:fs");
