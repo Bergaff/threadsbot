@@ -127,6 +127,17 @@ window.yaContextCb.push(() => {
     expect(order).toEqual(["R-A-20435188-1", "R-A-20435188-2", "R-A-20435188-3"]);
   });
 
+  it("pr99: на телефоне - ссылка на Telegram под блоком и в подвале; страница не шире экрана", async () => {
+    const html = await renderHomePage(env(), "ru", false).text();
+    expect(html).toContain('<div class="rtb-contact rtb-contact-mobile"><a href="https://t.me/olekksiy"');
+    expect(html).toMatch(/@media \(max-width: 480px\) \{ \.rtb-contact-mobile \{ display: block; \} \}/);
+    const footer = html.slice(html.indexOf('class="footer-links-row"'));
+    expect(footer.slice(0, 900)).toContain('href="https://t.me/olekksiy"');
+    expect(html).toContain("@supports (overflow: clip) { body { overflow-x: clip; } }");
+    expect(html).toMatch(/\.footer-links-row \{[^}]*flex-wrap: wrap/);
+    expect(html).toMatch(/\.rtb-slot \{[^}]*overflow: hidden/);
+  });
+
   it("wrangler.toml: основной блок R-A-20435188-1", async () => {
     // @ts-ignore - в проекте нет типов Node
     const fs: any = await import("node:fs");

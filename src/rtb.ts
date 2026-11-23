@@ -87,7 +87,9 @@ function rtbRailBlock(id: string, side: "left" | "right"): string {
 }
 
 export const RTB_CSS = `
-  .rtb-slot { margin: 18px 0; min-height: 50px; }
+  .rtb-slot { margin: 18px 0; min-height: 50px; max-width: 100%; overflow: hidden; }
+  .rtb-contact-mobile { display: none; }
+  @media (max-width: 480px) { .rtb-contact-mobile { display: block; } }
   .rtb-contact { margin: -10px 0 18px; text-align: right; font-size: 0.72rem; }
   .rtb-contact a { color: #8a8a8a; text-decoration: none; }
   .rtb-contact a:hover { text-decoration: underline; }

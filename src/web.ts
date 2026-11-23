@@ -1155,7 +1155,8 @@ ${RTB_CSS}
   .footer-links-row {
     display: flex;
     justify-content: center;
-    gap: 16px;
+    flex-wrap: wrap;
+    gap: 8px 16px;
   }
   .footer-links-row a {
     color: #999999;
@@ -1621,6 +1622,16 @@ ${RTB_CSS}
     color: #777777;
   }
 
+  /* pr99: страница не шире экрана телефона - ничего не должно тянуться вбок */
+  body { overflow-x: hidden; }
+  @supports (overflow: clip) { body { overflow-x: clip; } }
+  .navbar-brand { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 420px) {
+    .navbar { padding: 0 8px; }
+    .navbar-brand { font-size: 0.9rem; }
+    .navbar-actions { gap: 5px; flex-shrink: 1; min-width: 0; }
+    .btn-nav-tg, .btn-lang-toggle, .btn-theme-toggle { padding: 0 7px; font-size: 0.74rem; }
+  }
   @media (max-width: 640px) {
     .navbar-search { display: none; }
     .hero-title { font-size: 1.3rem; }
@@ -1880,7 +1891,8 @@ function renderSponsorSlot(env: Env, lang: Lang, isPremium = false, _country = "
   // Подписчикам бота (режим без рекламы) - ничего.
   if (isPremium) return "";
   // pr94: блок РСЯ на месте заглушки. Кнопка «Реклама на сайте» - в шапке справа от «Telegram Бот» (pr96).
-  const rtb = rtbMainSlot(env, "");
+  // На телефоне кнопки «Реклама на сайте» в шапке нет (не помещается) - ссылка на Telegram под блоком (pr99)
+  const rtb = rtbMainSlot(env, `<div class="rtb-contact rtb-contact-mobile"><a href="${ADS_CONTACT_URL}" target="_blank" rel="noopener nofollow">${lang === "en" ? "Advertise on this site - Telegram" : "Реклама на сайте - Telegram"}</a></div>`);
   // Без РСЯ - прежняя заглушка «Здесь может быть ваша реклама» с контактами.
   return rtb || renderAdPlaceholder(lang, getBotUsername(env));
 }
@@ -1947,7 +1959,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? 'en/' : ''}`;
-  const ver = env.VERSION || "pr98-2026-11-23-rtb-main-first";
+  const ver = env.VERSION || "pr99-2026-11-23-mobile-width";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -2164,6 +2176,7 @@ export function renderHomePage(
       <a href="/donate?lang=${lang}" rel="nofollow">${lang === 'en' ? 'Support the project' : 'Поддержать проект'}</a>
       <a href="/terms?lang=${lang}">${t.tos}</a>
       <a href="/privacy?lang=${lang}">${t.privacy}</a>
+      <a href="${ADS_CONTACT_URL}" target="_blank" rel="noopener nofollow">${lang === "en" ? "Advertise" : "Реклама на сайте"}</a>
     </div>
     <p>${t.footer_text}</p>
   </footer>
@@ -2556,9 +2569,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr98-2026-11-23-rtb-main-first')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr98-2026-11-23-rtb-main-first')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr98-2026-11-23-rtb-main-first')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr99-2026-11-23-mobile-width')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr99-2026-11-23-mobile-width')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr99-2026-11-23-mobile-width')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -2719,6 +2732,7 @@ export function renderProfilePage(
       <a href="/donate?lang=${lang}" rel="nofollow">${lang === 'en' ? 'Support the project' : 'Поддержать проект'}</a>
       <a href="/terms?lang=${lang}">${t.tos}</a>
       <a href="/privacy?lang=${lang}">${t.privacy}</a>
+      <a href="${ADS_CONTACT_URL}" target="_blank" rel="noopener nofollow">${lang === "en" ? "Advertise" : "Реклама на сайте"}</a>
     </div>
     <p>${t.footer_text}</p>
   </footer>
@@ -3681,9 +3695,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr98-2026-11-23-rtb-main-first">
-  <link rel="alternate icon" href="/favicon.ico?v=pr98-2026-11-23-rtb-main-first">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr98-2026-11-23-rtb-main-first">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr99-2026-11-23-mobile-width">
+  <link rel="alternate icon" href="/favicon.ico?v=pr99-2026-11-23-mobile-width">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr99-2026-11-23-mobile-width">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3930,7 +3944,7 @@ function renderShopShell(
   <meta property="og:title" content="${esc(opts.title)}">
   <meta property="og:description" content="${esc(opts.description)}">
   <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr98-2026-11-23-rtb-main-first">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr99-2026-11-23-mobile-width">
   <script>
     (function(){
       var t = localStorage.getItem("threads_theme");
@@ -3953,6 +3967,7 @@ function renderShopShell(
       <a href="/donate?lang=${lang}" rel="nofollow">${lang === "en" ? "Support the project" : "Поддержать проект"}</a>
       <a href="/terms?lang=${lang}">${t.tos}</a>
       <a href="/privacy?lang=${lang}">${t.privacy}</a>
+      <a href="${ADS_CONTACT_URL}" target="_blank" rel="noopener nofollow">${lang === "en" ? "Advertise" : "Реклама на сайте"}</a>
     </div>
     <p>${t.footer_text}</p>
   </footer>
