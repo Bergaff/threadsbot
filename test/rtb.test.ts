@@ -92,6 +92,22 @@ window.yaContextCb.push(() => {
     expect(html).toMatch(/rtb-rail-right[\s\S]*yandex_rtb_R-A-20435188-3/);
   });
 
+  it("pr97: колонки - в якоре в начале ленты (ниже шапки и плашки бота), стоят на месте в странице, у краёв окна", async () => {
+    const e = env({ YANDEX_RTB_LEFT: "R-A-20435188-2", YANDEX_RTB_RIGHT: "R-A-20435188-3" });
+    for (const html of [await renderHomePage(e, "ru", false).text(), await renderProfilePage(e, "zuck", null, null, "ru").text()]) {
+      const main = html.indexOf('<main class="container">');
+      const rails = html.indexOf('<div class="rtb-rails">');
+      expect(main).toBeGreaterThan(html.indexOf('class="notice-bar'));
+      expect(rails).toBeGreaterThan(main);
+      expect(html.slice(main, rails).trim()).toBe('<main class="container">');
+      expect(html.split('class="rtb-rails"').length - 1).toBe(1);
+    }
+    const { RTB_CSS } = await import("../src/rtb");
+    expect(RTB_CSS).toContain("position: absolute");
+    expect(RTB_CSS).not.toContain("position: fixed");
+    expect(RTB_CSS).toContain("left: calc(16px - (100vw - 100%) / 2)");
+  });
+
   it("wrangler.toml: основной блок R-A-20435188-1", async () => {
     // @ts-ignore - в проекте нет типов Node
     const fs: any = await import("node:fs");

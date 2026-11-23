@@ -4,7 +4,8 @@
  * Коды загрузчика и блока - в точности как выдал кабинет РСЯ (partner.yandex.ru).
  * Блоки задаются в wrangler.toml:
  *   YANDEX_RTB_MAIN  - блок на месте бывшей заглушки «Рекламное место» (главная и профиль, все экраны);
- *   YANDEX_RTB_LEFT  - длинная левая колонка в пустом поле сбоку от ленты (экраны от 1024 px);
+ *   YANDEX_RTB_LEFT  - длинная левая колонка у левого края окна, на уровне начала ленты (экраны от 1024 px);
+ *                      стоит на месте в странице (не закреплена на экране) и не заходит на шапку и плашку бота;
  *   YANDEX_RTB_RIGHT - длинная правая колонка.
  * Колонки: ширина по свободному полю сбоку (160-300 px), высота до 600 px - контейнер с заданной высотой,
  * чтобы адаптивный блок мог выбрать вертикальный формат (160x600, 240x400, 300x600).
@@ -84,20 +85,23 @@ export const RTB_CSS = `
   .rtb-contact { margin: -10px 0 18px; text-align: right; font-size: 0.72rem; }
   .rtb-contact a { color: #8a8a8a; text-decoration: none; }
   .rtb-contact a:hover { text-decoration: underline; }
-  .rtb-rail { display: none; }
+  .rtb-rails, .rtb-rail { display: none; }
   @media (min-width: 1024px) {
-    /* ширина колонки = свободное поле сбоку от ленты (620 px) минус отступы: от 160 до 300 px */
-    .rtb-rail { --rail-w: clamp(160px, calc((100vw - 620px) / 2 - 40px), 300px); display: block; position: fixed; top: 90px; width: var(--rail-w); height: min(600px, calc(100vh - 110px)); overflow: hidden; z-index: 5; }
+    /* Якорь в начале ленты (под шапкой и плашкой бота). Колонки стоят на месте в странице
+       и уезжают при прокрутке вместе с ней (не закреплены на экране), прижаты к краям окна. */
+    .rtb-rails { display: block; position: relative; height: 0; }
+    .rtb-rail { --rail-w: clamp(160px, calc((100vw - 100%) / 2 - 40px), 300px); display: block; position: absolute; top: 0; width: var(--rail-w); height: 600px; overflow: hidden; z-index: 5; }
     .rtb-rail > div { width: 100%; height: 100%; }
-    .rtb-rail-left { left: calc(50% - 330px - var(--rail-w)); }
-    .rtb-rail-right { right: calc(50% - 330px - var(--rail-w)); }
+    .rtb-rail-left { left: calc(16px - (100vw - 100%) / 2); }
+    .rtb-rail-right { right: calc(16px - (100vw - 100%) / 2); }
   }
 `;
 
 export function rtbRails(env: Env, isPremium = false): string {
   if (isPremium) return "";
   const c = rtbConfig(env);
-  return (c.left ? rtbRailBlock(c.left, "left") : "") + (c.right ? rtbRailBlock(c.right, "right") : "");
+  const rails = (c.left ? rtbRailBlock(c.left, "left") : "") + (c.right ? rtbRailBlock(c.right, "right") : "");
+  return rails ? `<div class="rtb-rails">${rails}</div>` : "";
 }
 
 /** Основной блок на месте заглушки + маленькая ссылка для прямых рекламодателей */
