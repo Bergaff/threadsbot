@@ -2,6 +2,10 @@ export interface Env {
   DB: D1Database;
   /** Номер счётчика Яндекс Метрики (pr88); пусто - счётчика нет */
   YANDEX_METRIKA_ID?: string;
+  /** pr94: блоки РСЯ (R-A-…): основной на месте заглушки и боковые колонки на широких экранах */
+  YANDEX_RTB_MAIN?: string;
+  YANDEX_RTB_LEFT?: string;
+  YANDEX_RTB_RIGHT?: string;
   BROWSER: import("@cloudflare/playwright").BrowserWorker;
   UPDATES: Queue<import("./telegram").TelegramUpdate>;
   TELEGRAM_TOKEN: string;

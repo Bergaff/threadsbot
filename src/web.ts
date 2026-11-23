@@ -1,6 +1,7 @@
 import { hasReplies, parseCount, postCodeOf } from "./postCode";
 import type { Env } from "./config";
-import { DONATE_CSS, renderAdPlaceholder, renderDonateBody, renderDonateCardStubBody, renderDonateResultBody } from "./donate";
+import { RTB_CSS, rtbEnabled, rtbHead, rtbMainSlot, rtbRails } from "./rtb";
+import { ADS_EMAIL, DONATE_CSS, renderAdPlaceholder, renderDonateBody, renderDonateCardStubBody, renderDonateResultBody } from "./donate";
 import type { Donation } from "./plans";
 import type { Comment, Post, ProfileData } from "./threads";
 
@@ -66,6 +67,7 @@ function getBotUsername(env?: Env): string {
 
 const COMMON_STYLES = `
 ${DONATE_CSS}
+${RTB_CSS}
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     --s: 180px;
@@ -1872,9 +1874,13 @@ function renderNoticeBar(env: Env, lang: Lang, username?: string, isPremium = fa
 }
 
 function renderSponsorSlot(env: Env, lang: Lang, isPremium = false, _country = ""): string {
-  // Сторонней рекламы нет: показываем заглушку «Здесь может быть ваша реклама» с контактами.
+  // Подписчикам бота (режим без рекламы) - ничего.
   if (isPremium) return "";
-  return renderAdPlaceholder(lang, getBotUsername(env));
+  // pr94: блок РСЯ на месте заглушки + маленькая ссылка для прямых рекламодателей.
+  const contact = `<div class="rtb-contact"><a href="mailto:${ADS_EMAIL}?subject=${encodeURIComponent(lang === "en" ? "Advertising on threadsviewer.online" : "Реклама на threadsviewer.online")}" rel="nofollow">${lang === "en" ? "Advertise on this site" : "Реклама на сайте"}</a></div>`;
+  const rtb = rtbMainSlot(env, contact);
+  // Без РСЯ - прежняя заглушка «Здесь может быть ваша реклама» с контактами.
+  return (rtb || renderAdPlaceholder(lang, getBotUsername(env))) + rtbRails(env, isPremium);
 }
 
 export function renderSupportCard(lang: Lang): string {
@@ -1899,11 +1905,11 @@ export function renderSupportCard(lang: Lang): string {
   `;
 }
 
-export function renderCookieBanner(lang: Lang = "ru"): string {
+export function renderCookieBanner(lang: Lang = "ru", ads = false): string {
   const isEn = lang === "en";
   const text = isEn
-    ? `We use cookies to keep the site working, save your preferences and count visits. By continuing to use the service, you agree to our <a href="/privacy?lang=en" class="cookie-policy-link">Privacy Policy</a>.`
-    : `Мы используем файлы cookie для работы сайта, сохранения настроек и подсчёта посещаемости. Продолжая использовать сервис, вы соглашаетесь с <a href="/privacy?lang=ru" class="cookie-policy-link">Политикой обработки данных</a>.`;
+    ? `We use cookies to keep the site working, save your preferences${ads ? ", count visits and show ads" : " and count visits"}. By continuing to use the service, you agree to our <a href="/privacy?lang=en" class="cookie-policy-link">Privacy Policy</a>.`
+    : `Мы используем файлы cookie для работы сайта, сохранения настроек${ads ? ", подсчёта посещаемости и показа рекламы" : " и подсчёта посещаемости"}. Продолжая использовать сервис, вы соглашаетесь с <a href="/privacy?lang=ru" class="cookie-policy-link">Политикой обработки данных</a>.`;
   const btn = isEn ? "Accept" : "Понятно";
 
   return `
@@ -1939,7 +1945,7 @@ export function renderHomePage(
   const t = I18N[lang];
   const tgUser = getBotUsername(env);
   const homeCanonical = `${origin}/${lang === 'en' ? 'en/' : ''}`;
-  const ver = env.VERSION || "pr93-2026-11-22-tz-digest";
+  const ver = env.VERSION || "pr94-2026-11-23-yandex-rtb";
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -1947,6 +1953,7 @@ export function renderHomePage(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
+  ${rtbHead(env, isPremium)}
   <title>${t.home_title}</title>
   <meta name="description" content="${t.home_desc}">
   <meta name="keywords" content="${esc(t.keywords)}">
@@ -2366,7 +2373,7 @@ export function renderHomePage(
     loadFavorites();
     loadBrowsingHistory();
   </script>
-  ${renderCookieBanner(lang)}
+  ${renderCookieBanner(lang, !isPremium && rtbEnabled(env))}
 </body>
 </html>`;
 
@@ -2530,6 +2537,7 @@ export function renderProfilePage(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
+  ${rtbHead(env, isPremium)}
   ${errorMessage || !hasData ? '<meta name="robots" content="noindex, follow">' : ''}
   <title>${pageTitle}</title>
   <meta name="description" content="${ogDesc}">
@@ -2545,9 +2553,9 @@ export function renderProfilePage(
   <link rel="alternate" hreflang="ru" href="${origin}/@${esc(cleanUser)}">
   <link rel="alternate" hreflang="en" href="${origin}/@${esc(cleanUser)}?lang=en">
   <link rel="alternate" hreflang="x-default" href="${origin}/@${esc(cleanUser)}">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr93-2026-11-22-tz-digest')}">
-  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr93-2026-11-22-tz-digest')}">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr93-2026-11-22-tz-digest')}">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=${esc(env.VERSION || 'pr94-2026-11-23-yandex-rtb')}">
+  <link rel="alternate icon" href="/favicon.ico?v=${esc(env.VERSION || 'pr94-2026-11-23-yandex-rtb')}">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=${esc(env.VERSION || 'pr94-2026-11-23-yandex-rtb')}">
   <meta property="og:site_name" content="Threads Viewer">
   <meta property="og:type" content="${targetPost ? 'article' : 'profile'}">
   <meta property="og:title" content="${esc(ogTitle)}">
@@ -3357,7 +3365,7 @@ export function renderProfilePage(
         });
     }
   </script>
-  ${renderCookieBanner(lang)}
+  ${renderCookieBanner(lang, !isPremium && rtbEnabled(env))}
 </body>
 </html>`;
 
@@ -3497,7 +3505,7 @@ export function renderTermsPage(lang: Lang = "ru", origin = "https://threadsview
   return new Response(html, { headers: { "content-type": "text/html; charset=UTF-8" } });
 }
 
-export function renderPrivacyPage(lang: Lang = "ru", origin = "https://threadsviewer.online", metrika = false): Response {
+export function renderPrivacyPage(lang: Lang = "ru", origin = "https://threadsviewer.online", metrika = false, ads = false): Response {
   const isEn = lang === "en";
   const title = isEn ? "Privacy Policy" : "Политика конфиденциальности и обработки данных";
   const date = isEn ? "Last updated: 2026-09-22" : "Дата обновления: 22 сентября 2026 г.";
@@ -3534,7 +3542,9 @@ export function renderPrivacyPage(lang: Lang = "ru", origin = "https://threadsvi
     ${metrika
       ? `<p>The Service uses Yandex Metrica (YANDEX LLC) to count visits: it sets its own cookies (_ym_uid and similar) and collects anonymous technical data about the visit (pages viewed, referrer, device type, approximate region by IP). Webvisor records page interactions (scrolling, clicks) in anonymised form; text typed into fields is not recorded. You can block these cookies in your browser settings; the Service keeps working.</p>`
       : ""}
-    <p>The Service does not deploy third-party cross-site advertising trackers or social surveillance scripts.</p>
+    ${ads
+      ? `<p>Advertising is shown through the Yandex Advertising Network (YANDEX LLC). Yandex may set its own cookies and use technical data about the visit (pages viewed, device type, approximate region by IP) to select and count ads. Telegram bot subscribers using the ad-free view are not shown ads. You can block these cookies in your browser settings; the Service keeps working.</p>`
+      : `<p>The Service does not deploy third-party cross-site advertising trackers or social surveillance scripts.</p>`}
 
     <h2>5. Public Information</h2>
     <p>All profile metadata, text posts, media items, and comments displayed via the Service represent publicly accessible information shared openly by authors on the Threads platform. The Service does not bypass privacy walls, password-protected feeds, or private accounts.</p>
@@ -3573,7 +3583,9 @@ export function renderPrivacyPage(lang: Lang = "ru", origin = "https://threadsvi
     <p>- Сессионный токен авторизации (threads_auth) для подписчиков Telegram-бота, использующих режим без рекламы.</p>
     ${metrika
       ? `<p>Для подсчёта посещаемости используется сервис Яндекс Метрика (ООО «ЯНДЕКС»): он устанавливает собственные файлы cookie (_ym_uid и подобные) и собирает обезличенные технические данные о визите (просмотренные страницы, источник перехода, тип устройства, примерный регион по IP-адресу). Вебвизор записывает действия на странице (прокрутку, клики) в обезличенном виде, текст, вводимый в поля, не записывается. Эти cookie можно запретить в настройках браузера - сайт продолжит работать.</p>
-    <p>Сервис не применяет сторонние межсайтовые трекеры и пиксели рекламных сетей.</p>`
+    ${ads
+      ? `<p>Реклама на сайте показывается через Рекламную сеть Яндекса (ООО «ЯНДЕКС»). Яндекс может устанавливать собственные файлы cookie и использовать технические данные о визите (просмотренные страницы, тип устройства, примерный регион по IP-адресу) для подбора и учёта показов рекламы. Подписчикам Telegram-бота в режиме без рекламы она не показывается. Эти файлы cookie можно запретить в настройках браузера, сервис продолжит работать.</p>`
+      : `<p>Сервис не применяет сторонние межсайтовые трекеры и пиксели рекламных сетей.</p>`}`
       : `<p>Сервис не применяет сторонние межсайтовые трекеры, пиксели рекламных сетей или аналитические системы с передачей персональных данных.</p>`}
 
     <h2>5. Общедоступный характер информации</h2>
@@ -3665,9 +3677,9 @@ export function renderNotFoundPage(lang: Lang = "ru", origin = "https://threadsv
   <meta name="mitgo-verification" content="29cab922-c980-4a1e-befe-778cda341cad">
   <meta name="octoclick-verification" content="606e95d69781b66aad762b85526bb4eb">
   <meta name="octoclick-verification" content="d5d73c85da6094ca132849a4fc7b3a67">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr93-2026-11-22-tz-digest">
-  <link rel="alternate icon" href="/favicon.ico?v=pr93-2026-11-22-tz-digest">
-  <link rel="apple-touch-icon" href="/favicon.svg?v=pr93-2026-11-22-tz-digest">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr94-2026-11-23-yandex-rtb">
+  <link rel="alternate icon" href="/favicon.ico?v=pr94-2026-11-23-yandex-rtb">
+  <link rel="apple-touch-icon" href="/favicon.svg?v=pr94-2026-11-23-yandex-rtb">
   <script>
     (function(){
       var t = localStorage.getItem('threads_theme');
@@ -3914,7 +3926,7 @@ function renderShopShell(
   <meta property="og:title" content="${esc(opts.title)}">
   <meta property="og:description" content="${esc(opts.description)}">
   <meta property="og:type" content="website">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr93-2026-11-22-tz-digest">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=pr94-2026-11-23-yandex-rtb">
   <script>
     (function(){
       var t = localStorage.getItem("threads_theme");

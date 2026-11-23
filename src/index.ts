@@ -17,6 +17,7 @@ const KEEPALIVE_BATCH = 3;
 import { verifyAuthToken } from "./auth";
 import { metrikaId, withMetrika } from "./metrika";
 import { canonicalHostRedirect } from "./canonicalHost";
+import { rtbEnabled } from "./rtb";
 import { getMaintenance, isMaintenanceGated, maintenanceApiResponse, renderMaintenancePage, syncMaintenance } from "./maintenance";
 import { detectBotType, mergePostLists } from "./profile";
 import { classifyTraffic, trackJsBeacon, trackRequest, trackScrape, type PageKind, type TrafficClass } from "./analytics";
@@ -679,7 +680,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       return res;
     }
     if (url.pathname === "/privacy") {
-      const res = renderPrivacyPage(lang, url.origin, Boolean(metrikaId(env)));
+      const res = renderPrivacyPage(lang, url.origin, Boolean(metrikaId(env)), rtbEnabled(env));
       putEdgeCache(request, res, ctx, 86400);
       return res;
     }
