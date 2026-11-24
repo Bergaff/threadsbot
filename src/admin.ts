@@ -30,6 +30,7 @@ function esc(value: unknown): string {
 
 /** Срок жизни одной админской сессии. */
 const ADMIN_SESSION_TTL_MS = 12 * 3600_000;
+export const ADMIN_SESSION_EXPIRED = "Сессия админки истекла (живёт 12 часов). Откройте /admin в новой вкладке, войдите и нажмите кнопку ещё раз - введённые данные на этой странице сохранятся.";
 /** Сколько неудачных попыток входа допустимо до блокировки. */
 const ADMIN_MAX_LOGIN_FAILS = 5;
 /** На сколько блокируем вход после превышения лимита попыток. */
@@ -179,6 +180,14 @@ export async function handleAdminRoute(request: Request, env: Env): Promise<Resp
 
   // Check auth
   if (!(await verifyAdmin(request, env))) {
+    // Запросы fetch() со страницы админки ждут JSON. Раньше им уходила HTML-страница входа,
+    // и форма показывала непонятное «Unexpected token '<'». Обычные переходы и формы (Accept: text/html) - как раньше.
+    if (path.startsWith("/admin/api/") && !(request.headers.get("accept") || "").includes("text/html")) {
+      return Response.json(
+        { ok: false, error: ADMIN_SESSION_EXPIRED, sessionExpired: true },
+        { status: 401, headers: { "cache-control": "no-store" } },
+      );
+    }
     return renderLoginPage(false);
   }
 
@@ -1654,7 +1663,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
       var box = document.getElementById('webhookStatusBox');
       if (box && !btn) box.innerHTML = 'Запрос статуса вебхука в Telegram...';
       fetch('/admin/api/webhook/status')
-        .then(function(r) { return r.json(); })
+        .then(readJson)
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }
           if (!box) return;
@@ -1692,7 +1701,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
       var orig = btn ? btn.innerText : '';
       if (btn) { btn.disabled = true; btn.innerText = 'Привязка...'; }
       fetch('/admin/api/webhook/sync' + (dropPending ? '?drop=1' : ''), { method: 'POST' })
-        .then(function(r) { return r.json(); })
+        .then(readJson)
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }
           if (data && data.ok) {
@@ -1712,6 +1721,16 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
       checkWebhookStatus();
     });
     setTimeout(checkWebhookStatus, 150);
+
+    // Ответ сервера читаем как текст: если пришёл не JSON (страница входа, ошибка Cloudflare) - понятное сообщение
+    function readJson(r) {
+      return r.text().then(function(txt) {
+        try { return JSON.parse(txt); } catch (e) {
+          if (txt.indexOf('name="password"') !== -1) throw new Error('Сессия админки истекла. Откройте /admin в новой вкладке, войдите и нажмите кнопку ещё раз.');
+          throw new Error('Сервер ответил не JSON (HTTP ' + r.status + '). Попробуйте ещё раз через минуту.');
+        }
+      });
+    }
 
     var toastTimer = null;
     function showToast(msg, duration) {
@@ -1752,7 +1771,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
       var orig = btn ? btn.innerText : '';
       if (btn) { btn.disabled = true; btn.innerText = 'Загрузка...'; }
       fetch('/admin/api/logs')
-        .then(function(r) { return r.json(); })
+        .then(readJson)
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }
           if (data.ok && data.logs) {
@@ -1801,7 +1820,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
       if (btn) { btn.disabled = true; btn.innerText = 'Keep-Alive...'; }
       showToast('Открываем Threads и подтверждаем активность для ' + name + '...', 0);
       fetch('/admin/api/account/refresh?name=' + encodeURIComponent(name), { method: 'POST' })
-        .then(function(r) { return r.json(); })
+        .then(readJson)
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }
           if (data.ok) {
@@ -1829,7 +1848,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
       }
       showToast('Тестируем сессию ' + name + ' (запуск браузера Threads)...', 0);
       fetch('/admin/api/account/probe?name=' + encodeURIComponent(name), { method: 'POST' })
-        .then(function(r) { return r.json(); })
+        .then(readJson)
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }
           if (data.ok) {
@@ -1882,7 +1901,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
       var form = new FormData();
       form.append('bulk', raw);
       fetch('/admin/api/account/add-bulk', { method: 'POST', body: form })
-        .then(function(r) { return r.json(); })
+        .then(readJson)
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }
           if (!box) return;
@@ -1915,7 +1934,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
       if (btn) { btn.disabled = true; btn.innerText = 'Проверка сессий...'; }
       showToast('Проверяем сессии всех аккаунтов в браузере Threads...', 0);
       fetch('/admin/api/account/probe-all', { method: 'POST' })
-        .then(function(r) { return r.json(); })
+        .then(readJson)
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }
           if (data.error) { showToast('Ошибка: ' + data.error, 6000); return; }
@@ -1947,7 +1966,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
       if (btn) { btn.disabled = true; btn.innerText = 'Обновление...'; }
       showToast('Запущен процесс продления cookies для всех аккаунтов...', 0);
       fetch('/admin/api/account/refresh-all', { method: 'POST' })
-        .then(function(r) { return r.json(); })
+        .then(readJson)
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }
           showToast('Готово. Обработано аккаунтов: ' + (data.results ? data.results.length : 0), 4000);
@@ -1964,7 +1983,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
       if (btn) { btn.disabled = true; btn.innerText = 'Сброс...'; }
       showToast('Сбрасываем статусы всех аккаунтов в Alive...', 0);
       fetch('/admin/api/reset-statuses', { method: 'POST' })
-        .then(function(r) { return r.json(); })
+        .then(readJson)
         .then(function(data) {
           if (btn) { btn.disabled = false; btn.innerText = orig; }
           showToast('Сброшено статусов: ' + data.resetCount + '. Страница перезагружается...', 3000);
@@ -2021,7 +2040,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
       if (file) form.append('file', file);
 
       fetch('/admin/api/account/add', { method: 'POST', body: form })
-        .then(function(r) { return r.json(); })
+        .then(readJson)
         .then(function(data) {
           btn.disabled = false;
           btn.innerText = 'Сохранить в базу D1';
@@ -2054,7 +2073,7 @@ async function renderDashboardPage(env: Env, db: Database, statsFlash = ""): Pro
             msg.style.borderColor = '#ef4444';
             msg.style.background = 'rgba(239, 68, 68, 0.12)';
             msg.style.color = '#ef4444';
-            msg.innerText = 'Сетевая ошибка при запросе к серверу: ' + err;
+            msg.innerText = 'Не удалось сохранить: ' + (err && err.message ? err.message : err);
           }
           showToast('Ошибка запроса: ' + err);
         });

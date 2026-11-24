@@ -151,6 +151,21 @@ describe("Admin Route & Authentication", () => {
     expect(html).toContain('name="password"');
   });
 
+  it("pr100: fetch к /admin/api/* без сессии получает JSON 401, а не HTML-страницу входа", async () => {
+    const body = new FormData();
+    body.set("name", "x");
+    body.set("json", sampleCookies);
+    const res = await handleAdminRoute(new Request("https://site.com/admin/api/account/add", { method: "POST", body, headers: { accept: "*/*" } }), mockEnv);
+    expect(res.status).toBe(401);
+    const data: any = await res.json();
+    expect(data.ok).toBe(false);
+    expect(data.sessionExpired).toBe(true);
+    expect(data.error).toContain("Сессия админки истекла");
+    // Обычная HTML-форма (переход браузера) по-прежнему видит страницу входа
+    const res2 = await handleAdminRoute(new Request("https://site.com/admin/api/diag/run", { method: "POST", body: new FormData(), headers: { accept: "text/html,application/xhtml+xml" } }), mockEnv);
+    expect(await res2.text()).toContain('name="password"');
+  });
+
   it("fails login with wrong password", async () => {
     const body = new FormData();
     body.set("password", "wrong_pass");
