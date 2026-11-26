@@ -372,7 +372,7 @@ export function isFewComments(got: number, expected: number, amount = 30): boole
   return got * 3 < want;
 }
 
-async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: number, code: string, expected = 0): Promise<{ data: Comment[]; diag: string; pageText: string }> {
+async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: number, code: string, expectedFromList = 0): Promise<{ data: Comment[]; diag: string; pageText: string; expected: number }> {
   // Встроенный JSON: не только блоки с thread_items, но и любые с кодом поста или полями постов Threads
   const needles = ["thread_items", code, "reply_to_author"];
   await ingestPreloadedJson(page, rc, needles);
@@ -381,6 +381,8 @@ async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: numbe
   await ingestPreloadedJson(page, rc, needles);
   // Второй DOM-способ: по ссылкам-датам ответов (не зависит от data-pressable-container)
   const byTime = await collectRepliesByTimeLinks(page, code).catch(() => [] as Comment[]);
+  // Счётчик самого поста со страницы поста точнее числа из ленты (у цитат лента брала счётчик цитируемого поста)
+  const expected = expectedOf(rc, expectedFromList);
   const out: Comment[] = [];
   const seen = new Set<string>();
   const key = (c: { author: string; text: string }) => (c.author + "|" + c.text.slice(0, 80)).toLowerCase();
@@ -423,7 +425,12 @@ async function collectCommentsFull(page: Page, rc: ReplyCollector, amount: numbe
         `${rc.shape()}; JSON: ${rc.stats()}, блоков с thread_items ${snap.jsonBlobs}, с кодом поста ${snap.blobsWithCode}, код в HTML ${snap.htmlHasCode}×; title "${snap.title}"; текст: "${snap.body.slice(0, 200)}"`
       : `${got}; ${rc.shape()}; JSON: ${rc.stats()}; DOM недоступен`;
   }
-  return { data: out.slice(0, amount), diag, pageText };
+  return { data: out.slice(0, amount), diag, pageText, expected };
+}
+
+/** Ожидаемое число ответов: счётчик самого поста из JSON его страницы, иначе - число из ленты (pr101) */
+export function expectedOf(rc: { mainReplyCount: number | null }, fromList: number): number {
+  return rc.mainReplyCount !== null ? rc.mainReplyCount : fromList;
 }
 
 /**
@@ -1945,6 +1952,8 @@ export type CommentsResult = {
   data: Comment[] | null;
   status: ThreadsStatus;
   account?: string;
+  /** Счётчик ответов самого поста со страницы поста (pr101), если удалось прочитать */
+  expected?: number;
   error?: string;
   /** Собрано заметно меньше, чем показывает счётчик (pr86) */
   partial?: boolean;
@@ -1958,8 +1967,9 @@ export type CommentsResult = {
  */
 export async function fetchCommentsByCode(env: Env, username: string, code: string, amount = 30, expected: number | boolean = 0): Promise<CommentsResult> {
   const cleanUser = username.toLowerCase().replace(/^@/, "");
-  const expectedN = typeof expected === "number" ? Math.max(0, Math.floor(expected) || 0) : expected ? 1 : 0;
-  const expectReplies = expectedN > 0;
+  const expectedList = typeof expected === "number" ? Math.max(0, Math.floor(expected) || 0) : expected ? 1 : 0;
+  /** Уточняется по странице поста (pr101): счётчик самого поста, а не число из ленты */
+  let expectedN = expectedList;
   const tried: string[] = [];
   let lastError = "";
   /** Пустой/неполный результат при ненулевом счётчике: диагностика предыдущих аккаунтов */
@@ -1975,6 +1985,7 @@ export async function fetchCommentsByCode(env: Env, username: string, code: stri
       error: (emptyDiags.join(" || ") + extra) || undefined,
       partial: data.length > 0 && isFewComments(data.length, expectedN, amount),
       dump: best?.dump,
+      expected: expectedN,
     };
   };
   while (true) {
@@ -2024,8 +2035,10 @@ export async function fetchCommentsByCode(env: Env, username: string, code: stri
       }
       await sleep(2500);
       await opened.page.evaluate(() => window.scrollBy(0, 800)).catch(() => {});
-      let { data, diag, pageText } = await collectCommentsFull(opened.page, rc, amount, code, expectedN);
-      const short = () => (!data.length && expectReplies) || isFewComments(data.length, expectedN, amount);
+      expectedN = expectedList;
+      let { data, diag, pageText, expected: realExpected } = await collectCommentsFull(opened.page, rc, amount, code, expectedList);
+      expectedN = realExpected;
+      const short = () => (!data.length && expectedN > 0) || isFewComments(data.length, expectedN, amount);
       if (short()) {
         // Ответы иногда догружаются позже самого поста или по мере прокрутки: ещё прокручиваем и ждём
         for (let i = 0; i < (data.length ? 3 : 1); i++) {
@@ -2034,7 +2047,8 @@ export async function fetchCommentsByCode(env: Env, username: string, code: stri
           await opened.page.evaluate(() => window.scrollBy(0, -300)).catch(() => {});
           await sleep(1200);
         }
-        const again = await collectCommentsFull(opened.page, rc, amount, code, expectedN);
+        const again = await collectCommentsFull(opened.page, rc, amount, code, expectedList);
+        expectedN = again.expected;
         // DOM виртуализирован: после прокрутки часть верхних ответов может пропасть - берём больший список
         if (again.data.length >= data.length) ({ data, diag, pageText } = again);
         else diag = again.diag || diag;
@@ -2058,7 +2072,7 @@ export async function fetchCommentsByCode(env: Env, username: string, code: stri
         if (tried.length < 2) continue;
         return finishBest();
       }
-      return { data, status: "ok", account: account.name, error: emptyDiags.length ? emptyDiags.join(" || ") : diag ? `[${account.name}] ${diag}` : undefined };
+      return { data, status: "ok", account: account.name, expected: expectedN, error: emptyDiags.length ? emptyDiags.join(" || ") : diag ? `[${account.name}] ${diag}` : undefined };
     } catch (error) {
       const errMsg = (error instanceof Error ? error.message : String(error)).slice(0, 300);
       await markTransientError(env, account.name, error);

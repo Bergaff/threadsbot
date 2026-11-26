@@ -1265,15 +1265,17 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         const fetched = postCode
           ? await fetchCommentsByCode(env, username, postCode, 30, expectedReplies)
           : await fetchComments(env, username, postIndex, 30);
+        // Счётчик самого поста со страницы поста точнее числа из ленты (pr101: у цитат было «0 из ~71»)
+        const realExpected = typeof (fetched as { expected?: number }).expected === "number" ? (fetched as { expected?: number }).expected as number : expectedReplies;
         // «Счётчик показывает ответы, а собрали 0» - отдельный статус, чтобы видеть это в админке
-        const emptyButExpected = fetched.status === "ok" && !(fetched.data?.length) && expectReplies;
+        const emptyButExpected = fetched.status === "ok" && !(fetched.data?.length) && realExpected > 0;
         // «Собрано 1 из ~40» - тоже не успех (pr86)
         const partial = fetched.status === "ok" && Boolean(fetched.data?.length) && Boolean((fetched as { partial?: boolean }).partial);
         const trackStatus = emptyButExpected ? "empty_but_replies" : partial ? "partial" : fetched.status;
         const trackError = emptyButExpected
-          ? `Счётчик показывает ответы${expectedReplies > 1 ? ` (~${expectedReplies})` : ""}, собрано 0. ${fetched.error || ""}`.trim()
+          ? `Счётчик показывает ответы${realExpected > 1 ? ` (~${realExpected})` : ""}, собрано 0. ${fetched.error || ""}`.trim()
           : partial
-            ? `Собрано ${fetched.data?.length || 0} из ~${expectedReplies} по счётчику. ${fetched.error || ""}`.trim()
+            ? `Собрано ${fetched.data?.length || 0} из ~${realExpected} по счётчику. ${fetched.error || ""}`.trim()
             : (fetched.status === "ok" ? "" : (fetched.error || ""));
         const dump = (fetched as { dump?: CommentsDump }).dump;
         if ((emptyButExpected || partial) && dump) ctx.waitUntil(sendCommentsDump(env, dump).catch(() => {}));
@@ -1285,11 +1287,11 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         }
         if (fetched.status === "ok" && fetched.data && !fetched.data.length) {
           // Пустой результат не кешируем - следующая попытка снова пойдёт в Threads
-          return Response.json({ ok: true, cached: false, comments: [], expected: expectReplies }, { headers: { "cache-control": "no-store" } });
+          return Response.json({ ok: true, cached: false, comments: [], expected: realExpected > 0 }, { headers: { "cache-control": "no-store" } });
         }
         if (partial && fetched.data) {
           // Неполный список отдаём, но не кэшируем: следующий заход снова попробует собрать всё
-          return Response.json({ ok: true, cached: false, comments: fetched.data, partial: true, expected: expectedReplies }, { headers: { "cache-control": "no-store" } });
+          return Response.json({ ok: true, cached: false, comments: fetched.data, partial: true, expected: realExpected }, { headers: { "cache-control": "no-store" } });
         }
         if (fetched.status === "ok" && fetched.data) {
           await db.setCache(cacheKey, "comments", fetched.data);

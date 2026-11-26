@@ -167,6 +167,32 @@ export function normalizeThreadsPost(node: any): FeedPost | null {
   };
 }
 
+/**
+ * Пост-цитата без своего текста и медиа (автор просто процитировал чужой пост).
+ * Раньше такой пост выпадал из сетевых данных, и карточка брала из DOM счётчики цитируемого поста.
+ * Текст и медиа - из цитаты (с пометкой автора), лайки/ответы/дата/код - самого поста.
+ */
+export function normalizeQuoteOnly(node: any): FeedPost | null {
+  if (!isThreadsPost(node)) return null;
+  const quoted = node.text_post_app_info?.share_info?.quoted_post;
+  const q = quoted ? normalizeThreadsPost(quoted) : null;
+  if (!q) return null;
+  const author = String(node.user.username).toLowerCase();
+  const likeRaw = node.like_count;
+  const replyRaw = node.text_post_app_info?.direct_reply_count ?? node.comment_count;
+  return {
+    ...q,
+    id: String(node.code),
+    text: q.text ? `↪ @${q.author}: ${q.text}` : `↪ @${q.author}`,
+    postUrl: `/@${author}/post/${node.code}`,
+    likes: typeof likeRaw === "number" || typeof likeRaw === "string" ? String(likeRaw) : undefined,
+    replies: typeof replyRaw === "number" || typeof replyRaw === "string" ? String(replyRaw) : undefined,
+    date: formatDate(node.taken_at),
+    author,
+    authorAvatar: typeof node.user.profile_pic_url === "string" ? node.user.profile_pic_url : undefined,
+  };
+}
+
 /** Код поста из ссылки вида /@user/post/CODE или https://www.threads.com/@user/post/CODE */
 export function postCodeFromUrl(url?: string): string {
   if (!url) return "";
@@ -220,7 +246,7 @@ export class FeedCollector {
   }
 
   private addPost(node: any): boolean {
-    const p = normalizeThreadsPost(node);
+    const p = normalizeThreadsPost(node) || normalizeQuoteOnly(node);
     if (!p || p.author !== this.username || !p.id) return false;
     if (this.codes.has(p.id)) return false;
     this.codes.add(p.id);
@@ -300,8 +326,10 @@ export function mergeDomWithFeed<T extends FeedPost>(dom: T[], feed: FeedPost[])
         ...d,
         id: d.id || net.id,
         postUrl: d.postUrl || net.postUrl,
-        likes: d.likes || net.likes,
-        replies: d.replies || net.replies,
+        // Счётчики - из сети: они взяты из самого объекта поста. DOM у поста-цитаты брал числа
+        // цитируемого поста (pr101: «71 ответ» у поста без ответов).
+        likes: net.likes !== undefined && net.likes !== "" ? net.likes : d.likes,
+        replies: net.replies !== undefined && net.replies !== "" ? net.replies : d.replies,
         date: d.date || net.date,
         videoUrl: net.videoUrl || d.videoUrl,
         has_video: d.has_video || net.has_video,
@@ -353,6 +381,12 @@ export class ReplyCollector {
   loose: FeedReply[] = [];
   /** Сам пост встречался где угодно в JSON (не только в thread_items) */
   mainSeenAnywhere = false;
+  /**
+   * Счётчик ответов самого поста (text_post_app_info.direct_reply_count) из JSON его страницы (pr101).
+   * Точнее числа из ленты: у поста-цитаты лента/DOM иногда подставляли счётчик ЦИТИРУЕМОГО поста
+   * (было «собрано 0 из ~71», а у самого поста «No replies yet»).
+   */
+  mainReplyCount: number | null = null;
   /** Откуда приходили ответы сети: путь -> количество (диагностика) */
   readonly endpoints: Record<string, number> = {};
   /**
@@ -541,7 +575,13 @@ export class ReplyCollector {
       for (let i = 0; i < node.length; i++) this.walk(node[i], depth + 1, path);
       return;
     }
-    if (isThreadsPost(node)) this.noteShape(node, path);
+    if (isThreadsPost(node)) {
+      this.noteShape(node, path);
+      if (this.mainReplyCount === null && String(node.code) === this.mainCode) {
+        const n = Number(node.text_post_app_info?.direct_reply_count);
+        if (node.text_post_app_info?.direct_reply_count != null && Number.isFinite(n) && n >= 0) this.mainReplyCount = n;
+      }
+    }
     if (Array.isArray(node.thread_items)) this.takeThread(node.thread_items);
     else if (isThreadsPost(node)) this.addLoose(node, path);
     for (const k of Object.keys(node)) {
